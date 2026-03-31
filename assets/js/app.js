@@ -755,7 +755,7 @@ function delInv(id) {
 // INVOICE FORM
 // ================================================================
 var editId = null;
-var itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20}];
+var itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0}];
 
 function initForm() {
   editId = null;
@@ -790,7 +790,7 @@ function initForm() {
   var erF = document.getElementById('er-faellig'); if(erF) erF.value = erDue;
   var erPct = document.getElementById('er-ust-pct'); if(erPct) erPct.value = '20';
   updateFT();
-  itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20}];
+  itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0}];
   renderItems();
   // Wire up toggle buttons (re-wire after SP)
   wireFormButtons();
@@ -1170,7 +1170,7 @@ function openInlineKundeModal() {
 
 function calcMat() { renderSum(); }
 
-function addItem(type) { itemsData.push({titel:'',desc:'',menge:1,preis:0,ust:20,type:type||'stunden'}); renderItems(); }
+function addItem(type) { itemsData.push({titel:'',desc:'',menge:1,preis:0,ust:20,type:type||'stunden',djevad_h:0,helmut_h:0}); renderItems(); }
 
 function removeItem(i) {
   if (itemsData.length === 1) return;
@@ -1251,21 +1251,38 @@ function renderItems() {
           '<td></td>' +
           '<td style="text-align:right;font-family:sans-serif;font-size:12px;color:#333;white-space:nowrap;padding:0 8px 8px;vertical-align:bottom">' + fmt(lineTotal) + '</td>' +
       '</tr>' +
-      '<tr style="' + bg + ';border-bottom:2px solid #e0e0d8">' +
-        '<td colspan="2" style="padding:0 8px 8px">' +
+      '<tr style="' + bg + '">' +
+        '<td colspan="2" style="padding:0 8px 4px">' +
           '<input type="text" class="item-extra-label" data-i="' + i + '" value="' + esc(it.extraLabel||'') + '" placeholder="Sonstige Bezeichnung..." style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif">' +
         '</td>' +
-        '<td style="padding:0 8px 8px">' +
+        '<td style="padding:0 8px 4px">' +
           '<input type="number" class="item-extra-betrag" data-i="' + i + '" value="' + (it.extraBetrag||'') + '" placeholder="€" min="0" step="0.01" style="width:100%">' +
         '</td>' +
-        '<td style="padding:0 8px 8px">' +
+        '<td style="padding:0 8px 4px">' +
           '<div style="position:relative;display:flex;align-items:center">' +
           '<input type="number" class="item-extra-ust" data-i="' + i + '" value="' + (it.extraUst!=null?it.extraUst:20) + '" min="0" max="100" style="width:100%;padding-right:20px">' +
           '<span style="position:absolute;right:7px;font-family:sans-serif;font-size:12px;color:#999;pointer-events:none">%</span>' +
           '</div>' +
         '</td>' +
         '<td></td>' +
-        '<td style="text-align:right;font-family:sans-serif;font-size:12px;color:#333;white-space:nowrap;padding:0 8px 8px;vertical-align:bottom">' + (it.extraBetrag ? fmt(it.extraBetrag*(1+(it.extraUst!=null?it.extraUst:20)/100)) : '') + '</td>' +
+        '<td style="text-align:right;font-family:sans-serif;font-size:12px;color:#333;white-space:nowrap;padding:0 8px 4px;vertical-align:bottom">' + (it.extraBetrag ? fmt(it.extraBetrag*(1+(it.extraUst!=null?it.extraUst:20)/100)) : '') + '</td>' +
+      '</tr>' +
+      '<tr style="' + bg + ';border-bottom:2px solid #e0e0d8">' +
+        '<td colspan="7" style="padding:0 8px 8px">' +
+          '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#f5f5f2;border-radius:6px;padding:5px 10px;border:1px solid #e5e5e0">' +
+            '<span style="font-family:sans-serif;font-size:10px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px">Intern – Mitarbeiter:</span>' +
+            '<label style="display:flex;align-items:center;gap:5px;font-family:sans-serif;font-size:12px;color:#555">' +
+              '<span style="font-weight:500">Dž</span>' +
+              '<input type="number" class="item-djevad-h" data-i="' + i + '" value="' + (it.djevad_h||0) + '" min="0" step="0.5" style="width:60px;padding:3px 6px;border:1px solid #ddd;border-radius:5px;font-size:12px">' +
+              '<span style="color:#888">h</span>' +
+            '</label>' +
+            '<label style="display:flex;align-items:center;gap:5px;font-family:sans-serif;font-size:12px;color:#555">' +
+              '<span style="font-weight:500">Helmut</span>' +
+              '<input type="number" class="item-helmut-h" data-i="' + i + '" value="' + (it.helmut_h||0) + '" min="0" step="0.5" style="width:60px;padding:3px 6px;border:1px solid #ddd;border-radius:5px;font-size:12px">' +
+              '<span style="color:#888">h</span>' +
+            '</label>' +
+          '</div>' +
+        '</td>' +
       '</tr>'
       )
     );
@@ -1319,6 +1336,12 @@ function renderItems() {
   });
   document.querySelectorAll('.item-extra-ust').forEach(function(el){
     el.addEventListener('input', function(){ updateItemExtra(parseInt(this.dataset.i), 'extraUst', this.value); });
+  });
+  document.querySelectorAll('.item-djevad-h').forEach(function(el){
+    el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'djevad_h', this.value); });
+  });
+  document.querySelectorAll('.item-helmut-h').forEach(function(el){
+    el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'helmut_h', this.value); });
   });
   if (document.getElementById('mat-auto') && document.getElementById('mat-auto').checked) calcMat();
   else renderSum();
@@ -1707,17 +1730,26 @@ function renderMitarbeiter(offset) {
     var dt = new Date(inv.datum);
     if (dt.getMonth() !== curM || dt.getFullYear() !== curY) return;
 
-    var stunden = (inv.items||[]).reduce(function(s,it){ return s + (parseFloat(it.menge)||0); }, 0);
     var kz = inv.fz_kz || inv.fz_marke || '—';
     var datum = fmtD(inv.datum);
 
-    if (inv.flag_djevad) {
-      stats.djevad.stunden += stunden;
-      stats.djevad.jobs.push({datum:datum, kz:kz, stunden:stunden, nr:inv.nummer});
+    // Per-item employee hours (new system)
+    var djevadH = (inv.items||[]).reduce(function(s,it){ return s + (parseFloat(it.djevad_h)||0); }, 0);
+    var helmutH = (inv.items||[]).reduce(function(s,it){ return s + (parseFloat(it.helmut_h)||0); }, 0);
+
+    // Fallback for old invoices without per-item hours: use total hours via invoice flags
+    var totalH = (inv.items||[]).reduce(function(s,it){ return s + (parseFloat(it.menge)||0); }, 0);
+
+    var effDjevad = djevadH > 0 ? djevadH : (inv.flag_djevad ? totalH : 0);
+    var effHelmut = helmutH > 0 ? helmutH : (inv.flag_helmut ? totalH : 0);
+
+    if (effDjevad > 0) {
+      stats.djevad.stunden += effDjevad;
+      stats.djevad.jobs.push({datum:datum, kz:kz, stunden:effDjevad, nr:inv.nummer});
     }
-    if (inv.flag_helmut) {
-      stats.helmut.stunden += stunden;
-      stats.helmut.jobs.push({datum:datum, kz:kz, stunden:stunden, nr:inv.nummer});
+    if (effHelmut > 0) {
+      stats.helmut.stunden += effHelmut;
+      stats.helmut.jobs.push({datum:datum, kz:kz, stunden:effHelmut, nr:inv.nummer});
     }
   });
 
