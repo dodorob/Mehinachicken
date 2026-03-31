@@ -207,6 +207,7 @@ function SP(id) {
   }
   if (id === 'export')     { initEx(); initPathSettings(); }
   if (id === 'neu')        initForm();
+  if (id === 'kostenvoranschlag') initKVForm();
 
   if (id === 'einstellungen') initEinstellungen();
 }
@@ -226,6 +227,7 @@ document.getElementById('nav-finanzen').addEventListener('click',     function()
 document.getElementById('nav-bankbuch').addEventListener('click',     function(){ SP('bankbuch'); });
 document.getElementById('nav-kassabuch').addEventListener('click',    function(){ SP('kassabuch'); });
 document.getElementById('nav-export').addEventListener('click',       function(){ SP('export'); });
+document.getElementById('nav-kostenvoranschlag').addEventListener('click', function(){ SP('kostenvoranschlag'); });
 
 // Wire topbar buttons
 (document.getElementById('btn-neue-rechnung')||{addEventListener:function(){}}).addEventListener('click', function(){ SP('neu'); });
@@ -3007,4 +3009,349 @@ function dlExportYear(fmt){
   var rows=buildRows(invs);
   if(fmt==='excel'){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([toCSV(rows)],{type:'text/csv;charset=utf-8;'}));a.download=title+'.csv';a.click();}
   else toPDF(rows,title);
+}
+
+// ================================================================
+// KOSTENVORANSCHLAG
+// ================================================================
+var kvItemsData = [{auftrag:'', beschreibung:'', anzahl:1, betrag:0}];
+
+function initKVForm() {
+  var now = new Date().toISOString().split('T')[0];
+  var datEl = document.getElementById('kv-datum');
+  if (datEl) datEl.value = now;
+  var pinfoEl = document.getElementById('kv-pinfo');
+  if (pinfoEl) pinfoEl.value = '';
+  var alertEl = document.getElementById('kv-alerts');
+  if (alertEl) alertEl.innerHTML = '';
+  var partnerEl = document.getElementById('kv-partner');
+  if (partnerEl) partnerEl.value = '';
+  var detailEl = document.getElementById('kv-partner-detail');
+  if (detailEl) detailEl.style.display = 'none';
+  var mwstEl = document.getElementById('kv-mwst-pct');
+  if (mwstEl) mwstEl.value = '20';
+
+  kvItemsData = [{auftrag:'', beschreibung:'', anzahl:1, betrag:0}];
+  kvPopulatePartner();
+  renderKVItems();
+  renderKVSum();
+
+  var btnAdd = document.getElementById('kv-btn-add-item');
+  if (btnAdd) btnAdd.onclick = function(){ addKVItem(); };
+  var btnSave = document.getElementById('kv-btn-save');
+  if (btnSave) btnSave.onclick = function(){ saveKV(); };
+  var btnSaveB = document.getElementById('kv-btn-save-bottom');
+  if (btnSaveB) btnSaveB.onclick = function(){ saveKV(); };
+  var btnReset = document.getElementById('kv-btn-reset');
+  if (btnReset) btnReset.onclick = function(){ initKVForm(); };
+  var btnResetB = document.getElementById('kv-btn-reset-bottom');
+  if (btnResetB) btnResetB.onclick = function(){ initKVForm(); };
+  var btnNewP = document.getElementById('kv-btn-new-partner');
+  if (btnNewP) btnNewP.onclick = function(){ openKVKundeModal(); };
+  var partnerSel = document.getElementById('kv-partner');
+  if (partnerSel) partnerSel.onchange = function(){ kvFillPD(); };
+  var mwstInput = document.getElementById('kv-mwst-pct');
+  if (mwstInput) mwstInput.oninput = function(){ renderKVSum(); };
+}
+
+function kvPopulatePartner() {
+  var d = getDB();
+  var sel = document.getElementById('kv-partner');
+  if (!sel) return;
+  var cur = sel.value;
+  sel.innerHTML = '<option value="">-- Bitte wählen --</option>' +
+    d.kunden.map(function(p){ return '<option value="' + p.id + '">' + esc(p.name) + '</option>'; }).join('');
+  if (cur) sel.value = cur;
+}
+
+function kvFillPD() {
+  var partnerEl = document.getElementById('kv-partner');
+  var detail = document.getElementById('kv-partner-detail');
+  var infoEl = document.getElementById('kv-partner-info-display');
+  if (!partnerEl || !detail || !infoEl) return;
+  var id = partnerEl.value;
+  if (!id) { detail.style.display = 'none'; return; }
+  var d = getDB();
+  var p = d.kunden.find(function(x){ return x.id === id; });
+  if (!p) { detail.style.display = 'none'; return; }
+  var pinfo = document.getElementById('kv-pinfo');
+  if (pinfo) pinfo.value = p.name + (p.adresse ? '\n' + p.adresse : '');
+  infoEl.innerHTML =
+    '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px">' +
+      '<strong style="font-size:14px">' + esc(p.name) + '</strong>' +
+    '</div>' +
+    (p.adresse ? '<div style="color:#666;margin-top:3px">' + esc(p.adresse.replace(/\n/g, ', ')) + '</div>' : '') +
+    (p.uid ? '<div style="color:#999;font-size:12px">UID: ' + esc(p.uid) + '</div>' : '') +
+    (p.email ? '<div style="color:#999;font-size:12px">' + esc(p.email) + '</div>' : '');
+  detail.style.display = 'block';
+}
+
+function openKVKundeModal() {
+  document.getElementById('modal-body').innerHTML =
+    '<h3>Neuer Kunde</h3>' +
+    '<div class="fg"><label>Name *</label><input type="text" id="kvk-name"></div>' +
+    '<div class="fg"><label>Adresse</label><textarea id="kvk-adr"></textarea></div>' +
+    '<div class="fr c2"><div class="fg"><label>UID</label><input id="kvk-uid" type="text"></div><div class="fg"><label>E-Mail</label><input id="kvk-email" type="email"></div></div>' +
+    '<div style="text-align:right;margin-top:1rem"><button class="btn primary" id="btn-kvk-save">Speichern</button></div>';
+  openModal();
+  document.getElementById('btn-kvk-save').addEventListener('click', function(){
+    var name = document.getElementById('kvk-name').value.trim();
+    if (!name) { alert('Name eingeben'); return; }
+    var d = getDB();
+    var newP = {id:uid(), name:name, adresse:document.getElementById('kvk-adr').value, uid:document.getElementById('kvk-uid').value, email:document.getElementById('kvk-email').value, erstellt:new Date().toISOString()};
+    d.kunden.push(newP); saveDB(d);
+    closeModal();
+    kvPopulatePartner();
+    var sel = document.getElementById('kv-partner');
+    if (sel) { sel.value = newP.id; kvFillPD(); }
+  });
+}
+
+function renderKVItems() {
+  var container = document.getElementById('kv-items-container');
+  if (!container) return;
+  var html = '<table class="itbl" style="width:100%"><thead><tr>' +
+    '<th style="text-align:left;padding:8px 6px">Auftrag</th>' +
+    '<th style="text-align:left;padding:8px 6px">Beschreibung</th>' +
+    '<th style="text-align:center;padding:8px 6px;width:80px">Anzahl</th>' +
+    '<th style="text-align:right;padding:8px 6px;width:130px">Betrag (€)</th>' +
+    '<th style="width:36px;padding:8px 6px"></th>' +
+    '</tr></thead><tbody>';
+  kvItemsData.forEach(function(it, i) {
+    html += '<tr>' +
+      '<td style="padding:4px 4px"><input type="text" value="' + esc(it.auftrag) + '" data-i="' + i + '" class="kv-auftrag" placeholder="z.B. Karosserie" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif"></td>' +
+      '<td style="padding:4px 4px"><input type="text" value="' + esc(it.beschreibung) + '" data-i="' + i + '" class="kv-beschreibung" placeholder="Details..." style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif"></td>' +
+      '<td style="padding:4px 4px"><input type="number" value="' + it.anzahl + '" data-i="' + i + '" class="kv-anzahl" min="1" step="1" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;text-align:center"></td>' +
+      '<td style="padding:4px 4px"><input type="number" value="' + (it.betrag || '') + '" data-i="' + i + '" class="kv-betrag" min="0" step="0.01" placeholder="0,00" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;text-align:right"></td>' +
+      '<td style="padding:4px 2px;text-align:center">' +
+        (kvItemsData.length > 1 ? '<button class="btn danger kv-del" data-i="' + i + '" style="padding:4px 8px;font-size:11px">&#x2715;</button>' : '') +
+      '</td></tr>';
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
+  container.querySelectorAll('.kv-auftrag').forEach(function(el){
+    el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].auftrag = this.value; renderKVSum(); };
+  });
+  container.querySelectorAll('.kv-beschreibung').forEach(function(el){
+    el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].beschreibung = this.value; renderKVSum(); };
+  });
+  container.querySelectorAll('.kv-anzahl').forEach(function(el){
+    el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].anzahl = parseFloat(this.value) || 1; renderKVSum(); };
+  });
+  container.querySelectorAll('.kv-betrag').forEach(function(el){
+    el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].betrag = parseFloat(this.value) || 0; renderKVSum(); };
+  });
+  container.querySelectorAll('.kv-del').forEach(function(el){
+    el.onclick = function(){
+      kvItemsData.splice(parseInt(this.dataset.i), 1);
+      renderKVItems();
+    };
+  });
+}
+
+function addKVItem() {
+  kvItemsData.push({auftrag:'', beschreibung:'', anzahl:1, betrag:0});
+  renderKVItems();
+}
+
+function renderKVSum() {
+  var mwstPct = parseFloat((document.getElementById('kv-mwst-pct') || {value:'20'}).value) || 0;
+  var netto = kvItemsData.reduce(function(s, it){
+    return s + (parseFloat(it.anzahl) || 1) * (parseFloat(it.betrag) || 0);
+  }, 0);
+  var mwst = netto * mwstPct / 100;
+  var gesamt = netto + mwst;
+  var nettoEl = document.getElementById('kv-sum-netto');
+  var mwstEl = document.getElementById('kv-sum-mwst');
+  var gesamtEl = document.getElementById('kv-sum-gesamt');
+  if (nettoEl) nettoEl.textContent = fmt(netto);
+  if (mwstEl) mwstEl.textContent = fmt(mwst);
+  if (gesamtEl) gesamtEl.textContent = fmt(gesamt);
+}
+
+function saveKV() {
+  var datum = (document.getElementById('kv-datum') || {value:''}).value;
+  var pinfo = (document.getElementById('kv-pinfo') || {value:''}).value.trim();
+  var mwstPct = parseFloat((document.getElementById('kv-mwst-pct') || {value:'20'}).value) || 20;
+  var partnerSel = document.getElementById('kv-partner');
+  var partnerId = partnerSel ? partnerSel.value : '';
+  var partnerName = '';
+  if (partnerId) {
+    var d0 = getDB();
+    var p0 = d0.kunden.find(function(x){ return x.id === partnerId; });
+    if (p0) partnerName = p0.name;
+  }
+  var kv = {
+    id: uid(),
+    partner_id: partnerId,
+    partner_name: partnerName,
+    partner_info: pinfo,
+    datum: datum || new Date().toISOString().split('T')[0],
+    items: kvItemsData.map(function(it){
+      return {auftrag: it.auftrag, beschreibung: it.beschreibung, anzahl: parseFloat(it.anzahl)||1, betrag: parseFloat(it.betrag)||0};
+    }),
+    mwst_pct: mwstPct,
+    erstellt: new Date().toISOString()
+  };
+  var d = getDB();
+  if (!d.kostenvoranschlaege) d.kostenvoranschlaege = [];
+  d.kostenvoranschlaege.push(kv);
+  saveDB(d);
+  genKVPDF(kv);
+  var alertEl = document.getElementById('kv-alerts');
+  if (alertEl) alertEl.innerHTML = '<div class="alert success">&#10003; PDF wird erstellt!</div>';
+  setTimeout(function(){ if (alertEl) alertEl.innerHTML = ''; }, 3000);
+}
+
+function genKVPDF(kv) {
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({unit:'mm', format:'a4'});
+  var d = getDB(), v = d.vorlage || dfV();
+  var ff = v.font==='georgia' ? 'times' : v.font==='courier' ? 'courier' : 'helvetica';
+  var xL = 25;
+  var xR = 190;
+
+  doc.setFont(ff, 'normal');
+  doc.setTextColor(30, 30, 30);
+
+  function setF(sz, bold) {
+    doc.setFont(ff, bold ? 'bold' : 'normal');
+    doc.setFontSize(sz || 11);
+    doc.setTextColor(30, 30, 30);
+  }
+
+  function numFmt(n) {
+    return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
+  }
+
+  // Font (Malgun Gothic falls verfügbar)
+  var headerFont = 'helvetica';
+  if (_malgunFontB64) {
+    try {
+      doc.addFileToVFS('malgunsl.ttf', _malgunFontB64);
+      doc.addFont('malgunsl.ttf', 'MalgunGothicSL', 'normal');
+      headerFont = 'MalgunGothicSL';
+    } catch(e) { headerFont = 'helvetica'; }
+  }
+
+  // KOPFZEILE (identisch mit Rechnung)
+  doc.setFont(headerFont, 'normal');
+  doc.setTextColor(30, 30, 30);
+  doc.setFontSize(28);
+  doc.text('KAROSSERIEFACHWERKSTÄTTE', 105, 25, {align:'center'});
+  doc.setFontSize(20);
+  doc.text('KURT LINDITSCH GMBH', 105, 35, {align:'center'});
+  doc.setFontSize(10);
+  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 43, {align:'center'});
+  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 49, {align:'center'});
+
+  // DATUM rechtsbündig
+  setF(11);
+  doc.text('Graz, ' + fmtD(kv.datum), xR, 56, {align:'right'});
+
+  // KUNDENDATEN
+  var y = 67;
+  setF(11);
+  if (kv.partner_info) {
+    kv.partner_info.split('\n').forEach(function(l){ if(l.trim()){ doc.text(l.trim(), xL, y); y += 6; } });
+  }
+
+  // TITEL
+  setF(13, true);
+  doc.text('Kostenvoranschlag', xL, 119);
+
+  // TABELLE HEADER
+  var tY = 130;
+  var col1 = xL;        // Auftrag
+  var col2 = xL + 42;   // Beschreibung
+  var col3 = xL + 115;  // Anzahl (zentriert)
+  var col4 = xR;        // Betrag (rechtsbündig)
+
+  doc.setFillColor(245, 245, 242);
+  doc.rect(xL, tY - 5, xR - xL, 8, 'F');
+  setF(10, true);
+  doc.text('Auftrag', col1, tY);
+  doc.text('Beschreibung', col2, tY);
+  doc.text('Anzahl', col3, tY, {align:'center'});
+  doc.text('Betrag (€)', col4, tY, {align:'right'});
+  doc.setDrawColor(30, 30, 30);
+  doc.setLineWidth(0.3);
+  doc.line(xL, tY + 2, xR, tY + 2);
+
+  // TABELLE ZEILEN
+  setF(10, false);
+  var yCur = tY + 9;
+  var nettoTotal = 0;
+  var mwstPct = kv.mwst_pct || 20;
+
+  (kv.items || []).forEach(function(it) {
+    var lineNetto = (parseFloat(it.anzahl) || 1) * (parseFloat(it.betrag) || 0);
+    nettoTotal += lineNetto;
+    doc.setFont(ff, 'normal');
+    doc.setFontSize(10);
+    var auftragStr = (it.auftrag || '').substring(0, 22);
+    doc.text(auftragStr, col1, yCur);
+    var beschStr = (it.beschreibung || '').substring(0, 38);
+    doc.text(beschStr, col2, yCur);
+    doc.text(String(it.anzahl || 1), col3, yCur, {align:'center'});
+    doc.text(numFmt(lineNetto), col4, yCur, {align:'right'});
+    yCur += 7;
+  });
+
+  // Linie unter Tabelle
+  doc.setDrawColor(30, 30, 30);
+  doc.setLineWidth(0.3);
+  doc.line(xL, yCur, xR, yCur);
+  yCur += 7;
+
+  // ZUSAMMENFASSUNG
+  var mwstAmt = nettoTotal * mwstPct / 100;
+  var gesamtAmt = nettoTotal + mwstAmt;
+
+  setF(11, false);
+  var allAmts = [nettoTotal, mwstAmt, gesamtAmt];
+  var maxNumW = 0;
+  allAmts.forEach(function(n) {
+    var w = doc.getTextWidth(numFmt(n));
+    if (w > maxNumW) maxNumW = w;
+  });
+  var xEuro = xR - maxNumW - 5;
+  var lineStart = xEuro - 1;
+
+  function tRow(label, n, yy, bold) {
+    setF(11, bold);
+    doc.text(label, xL, yy);
+    doc.text('€', xEuro, yy);
+    doc.text(numFmt(n), xR, yy, {align:'right'});
+  }
+
+  tRow('Netto', nettoTotal, yCur);
+  yCur += 5;
+  tRow('+' + mwstPct + '% MwSt.', mwstAmt, yCur);
+  doc.setDrawColor(30, 30, 30);
+  doc.setLineWidth(0.3);
+  doc.line(lineStart, yCur + 2, lineStart + 20, yCur + 2);
+  yCur += 5;
+  setF(11, false);
+  doc.text('Gesamtbetrag (Brutto)', xL, yCur);
+  doc.text('€', xEuro, yCur);
+  doc.text(numFmt(gesamtAmt), xR, yCur, {align:'right'});
+  doc.setLineWidth(0.3);
+  doc.line(lineStart, yCur + 2, lineStart + 20, yCur + 2);
+  doc.line(lineStart, yCur + 3, lineStart + 20, yCur + 3);
+
+  // HINWEIS
+  setF(9, false);
+  doc.setTextColor(80, 80, 80);
+  doc.text('Dies ist ein unverbindlicher Kostenvoranschlag und keine Rechnung.', 105, 255, {align:'center'});
+  doc.text('Änderungen vorbehalten.', 105, 261, {align:'center'});
+
+  // FUßZEILE (ohne "Zahlbar sofort..." — nur Bankdaten + UID)
+  doc.setFont(headerFont, 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(30, 30, 30);
+  doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 277, {align:'center'});
+  doc.text('UID-Nr. ATU 58185458, LG f. ZRS GRAZ, FN 251792h', 105, 282, {align:'center'});
+
+  doc.save('Kostenvoranschlag.pdf');
 }
