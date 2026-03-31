@@ -1,5 +1,10 @@
 const { app, BrowserWindow, dialog } = require('electron');
-const { autoUpdater } = require('electron-updater');
+let autoUpdater = null;
+try {
+  ({ autoUpdater } = require('electron-updater'));
+} catch (error) {
+  console.warn('electron-updater is unavailable; auto updates are disabled.', error);
+}
 const path = require('path');
 
 function createWindow() {
@@ -16,7 +21,7 @@ function createWindow() {
 }
 
 function setupAutoUpdates() {
-  if (!app.isPackaged) {
+  if (!app.isPackaged || !autoUpdater) {
     return;
   }
 
