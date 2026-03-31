@@ -3011,7 +3011,7 @@ function dlExportYear(fmt){
 // ================================================================
 // KOSTENVORANSCHLAG
 // ================================================================
-var kvItemsData = [{auftrag:'', beschreibung:'', anzahl:1, betrag:0}];
+var kvItemsData = [{auftrag:'', fz_marke:'', fz_kz:'', beschreibung:'', anzahl:1, betrag:0}];
 
 function initKVForm() {
   var now = new Date().toISOString().split('T')[0];
@@ -3027,12 +3027,8 @@ function initKVForm() {
   if (detailEl) detailEl.style.display = 'none';
   var mwstEl = document.getElementById('kv-mwst-pct');
   if (mwstEl) mwstEl.value = '20';
-  var fzM = document.getElementById('kv-fz-marke');
-  if (fzM) fzM.value = '';
-  var fzK = document.getElementById('kv-fz-kz');
-  if (fzK) fzK.value = '';
 
-  kvItemsData = [{auftrag:'', beschreibung:'', anzahl:1, betrag:0}];
+  kvItemsData = [{auftrag:'', fz_marke:'', fz_kz:'', beschreibung:'', anzahl:1, betrag:0}];
   kvPopulatePartner();
   renderKVItems();
   renderKVSum();
@@ -3113,14 +3109,19 @@ function renderKVItems() {
   if (!container) return;
   var html = '<table class="itbl" style="width:100%"><thead><tr>' +
     '<th style="text-align:left;padding:8px 6px">Auftrag</th>' +
+    '<th style="text-align:left;padding:8px 6px">Fahrzeug (Marke / KZ)</th>' +
     '<th style="text-align:left;padding:8px 6px">Beschreibung</th>' +
-    '<th style="text-align:center;padding:8px 6px;width:80px">Anzahl</th>' +
-    '<th style="text-align:right;padding:8px 6px;width:130px">Betrag (€)</th>' +
+    '<th style="text-align:center;padding:8px 6px;width:70px">Anzahl</th>' +
+    '<th style="text-align:right;padding:8px 6px;width:110px">Betrag (€)</th>' +
     '<th style="width:36px;padding:8px 6px"></th>' +
     '</tr></thead><tbody>';
   kvItemsData.forEach(function(it, i) {
     html += '<tr>' +
       '<td style="padding:4px 4px"><input type="text" value="' + esc(it.auftrag) + '" data-i="' + i + '" class="kv-auftrag" placeholder="z.B. Karosserie" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif"></td>' +
+      '<td style="padding:4px 4px">' +
+        '<input type="text" value="' + esc(it.fz_marke || '') + '" data-i="' + i + '" class="kv-fz-marke" placeholder="Marke/Modell" style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;margin-bottom:3px;display:block">' +
+        '<input type="text" value="' + esc(it.fz_kz || '') + '" data-i="' + i + '" class="kv-fz-kz" placeholder="Kennzeichen" style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;display:block">' +
+      '</td>' +
       '<td style="padding:4px 4px"><input type="text" value="' + esc(it.beschreibung) + '" data-i="' + i + '" class="kv-beschreibung" placeholder="Details..." style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif"></td>' +
       '<td style="padding:4px 4px"><input type="number" value="' + it.anzahl + '" data-i="' + i + '" class="kv-anzahl" min="1" step="1" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;text-align:center"></td>' +
       '<td style="padding:4px 4px"><input type="number" value="' + (it.betrag || '') + '" data-i="' + i + '" class="kv-betrag" min="0" step="0.01" placeholder="0,00" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;text-align:right"></td>' +
@@ -3132,6 +3133,12 @@ function renderKVItems() {
   container.innerHTML = html;
   container.querySelectorAll('.kv-auftrag').forEach(function(el){
     el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].auftrag = this.value; renderKVSum(); };
+  });
+  container.querySelectorAll('.kv-fz-marke').forEach(function(el){
+    el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].fz_marke = this.value; };
+  });
+  container.querySelectorAll('.kv-fz-kz').forEach(function(el){
+    el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].fz_kz = this.value; };
   });
   container.querySelectorAll('.kv-beschreibung').forEach(function(el){
     el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].beschreibung = this.value; renderKVSum(); };
@@ -3151,7 +3158,7 @@ function renderKVItems() {
 }
 
 function addKVItem() {
-  kvItemsData.push({auftrag:'', beschreibung:'', anzahl:1, betrag:0});
+  kvItemsData.push({auftrag:'', fz_marke:'', fz_kz:'', beschreibung:'', anzahl:1, betrag:0});
   renderKVItems();
 }
 
@@ -3174,8 +3181,6 @@ function saveKV() {
   var datum = (document.getElementById('kv-datum') || {value:''}).value;
   var pinfo = (document.getElementById('kv-pinfo') || {value:''}).value.trim();
   var mwstPct = parseFloat((document.getElementById('kv-mwst-pct') || {value:'20'}).value) || 20;
-  var fzMarke = ((document.getElementById('kv-fz-marke') || {value:''}).value).trim();
-  var fzKz    = ((document.getElementById('kv-fz-kz')    || {value:''}).value).trim();
   var partnerSel = document.getElementById('kv-partner');
   var partnerId = partnerSel ? partnerSel.value : '';
   var partnerName = '';
@@ -3190,10 +3195,15 @@ function saveKV() {
     partner_name: partnerName,
     partner_info: pinfo,
     datum: datum || new Date().toISOString().split('T')[0],
-    fz_marke: fzMarke,
-    fz_kz: fzKz,
     items: kvItemsData.map(function(it){
-      return {auftrag: it.auftrag, beschreibung: it.beschreibung, anzahl: parseFloat(it.anzahl)||1, betrag: parseFloat(it.betrag)||0};
+      return {
+        auftrag: it.auftrag,
+        fz_marke: (it.fz_marke || '').trim(),
+        fz_kz: (it.fz_kz || '').trim(),
+        beschreibung: it.beschreibung,
+        anzahl: parseFloat(it.anzahl) || 1,
+        betrag: parseFloat(it.betrag) || 0
+      };
     }),
     mwst_pct: mwstPct,
     erstellt: new Date().toISOString()
@@ -3201,24 +3211,25 @@ function saveKV() {
   var d = getDB();
   if (!d.kostenvoranschlaege) d.kostenvoranschlaege = [];
   d.kostenvoranschlaege.push(kv);
-  // Fahrzeug im Register speichern wenn Kennzeichen angegeben
-  if (fzKz) {
+  // Neue Fahrzeuge aus den Items im Register speichern
+  kv.items.forEach(function(it) {
+    if (!it.fz_kz) return;
     var exists = d.fahrzeuge.find(function(f){
-      return (f.kennzeichen || '').trim().toUpperCase() === fzKz.toUpperCase();
+      return (f.kennzeichen || '').trim().toUpperCase() === it.fz_kz.toUpperCase();
     });
     if (!exists) {
       d.fahrzeuge.push({
         id: uid(),
         kundeId: partnerId || '',
         kundeName: partnerName || '',
-        marke: fzMarke,
-        kennzeichen: fzKz,
+        marke: it.fz_marke || '',
+        kennzeichen: it.fz_kz,
         vin: '',
         erstzulassung: '',
         erstellt: new Date().toISOString()
       });
     }
-  }
+  });
   saveDB(d);
   genKVPDF(kv);
   var alertEl = document.getElementById('kv-alerts');
@@ -3282,18 +3293,11 @@ function genKVPDF(kv) {
   setF(13, true);
   doc.text('Kostenvoranschlag', xL, 119);
 
-  // FAHRZEUG
-  setF(11, false);
-  if (kv.fz_marke || kv.fz_kz) {
-    var fzStr = (kv.fz_marke || '') + (kv.fz_kz ? (kv.fz_marke ? ', ' : '') + 'amtl. KZ ' + kv.fz_kz : '');
-    doc.text(fzStr, xL, 128);
-  }
-
   // TABELLE HEADER
   var tY = 130;
-  var col1 = xL;        // Auftrag
-  var col2 = xL + 42;   // Beschreibung
-  var col3 = xL + 115;  // Anzahl (zentriert)
+  var col1 = xL;        // Auftrag (+ Fahrzeug darunter)
+  var col2 = xL + 55;   // Beschreibung
+  var col3 = xL + 120;  // Anzahl (zentriert)
   var col4 = xR;        // Betrag (rechtsbündig)
 
   doc.setFillColor(245, 245, 242);
@@ -3317,13 +3321,27 @@ function genKVPDF(kv) {
     var lineNetto = (parseFloat(it.anzahl) || 1) * (parseFloat(it.betrag) || 0);
     nettoTotal += lineNetto;
     setF(10, false);
-    var auftragStr = (it.auftrag || '').substring(0, 22);
+    // Auftrag
+    var auftragStr = (it.auftrag || '').substring(0, 28);
     doc.text(auftragStr, col1, yCur);
-    var beschStr = (it.beschreibung || '').substring(0, 38);
+    // Fahrzeug (unter Auftrag, klein)
+    var hasFz = it.fz_marke || it.fz_kz;
+    if (hasFz) {
+      var fzStr = (it.fz_marke || '').substring(0, 14);
+      if (it.fz_kz) fzStr += (fzStr ? ' ' : '') + it.fz_kz.substring(0, 10);
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 100);
+      doc.text(fzStr, col1, yCur + 4.5);
+      setF(10, false);
+    }
+    // Beschreibung
+    var beschStr = (it.beschreibung || '').substring(0, 32);
     doc.text(beschStr, col2, yCur);
+    // Anzahl
     doc.text(String(it.anzahl || 1), col3, yCur, {align:'center'});
+    // Betrag
     doc.text(numFmt(lineNetto), col4, yCur, {align:'right'});
-    yCur += 8;
+    yCur += hasFz ? 11 : 8;
   });
 
   // Linie unter Tabelle
@@ -3353,20 +3371,24 @@ function genKVPDF(kv) {
     doc.text(numFmt(n), xR, yy, {align:'right'});
   }
 
-  tRow('Netto', nettoTotal, yCur);
-  yCur += 5;
-  tRow('+' + mwstPct + '% MwSt.', mwstAmt, yCur);
+  var yNetto  = yCur;
+  var yMwst   = yCur + 5;
+  var yGesamt = yCur + 10;
+
+  tRow('Netto', nettoTotal, yNetto);
+  tRow('+' + mwstPct + '% MwSt.', mwstAmt, yMwst);
   doc.setDrawColor(30, 30, 30);
   doc.setLineWidth(0.3);
-  doc.line(lineStart, yCur + 2, lineStart + 20, yCur + 2);
-  yCur += 10;
+  doc.line(lineStart, yMwst + 2, lineStart + 20, yMwst + 2);
+
+  var yGesamtAmt = yGesamt + 0.5;
   setF(11, false);
-  doc.text('Gesamtbetrag (Brutto)', xL, yCur);
-  doc.text('€', xEuro, yCur);
-  doc.text(numFmt(gesamtAmt), xR, yCur, {align:'right'});
+  doc.text('Gesamtbetrag (Brutto)', xL, yGesamt);
+  doc.text('€', xEuro, yGesamtAmt);
+  doc.text(numFmt(gesamtAmt), xR, yGesamtAmt, {align:'right'});
   doc.setLineWidth(0.3);
-  doc.line(lineStart, yCur + 2, lineStart + 20, yCur + 2);
-  doc.line(lineStart, yCur + 3.5, lineStart + 20, yCur + 3.5);
+  doc.line(lineStart, yGesamtAmt + 2, lineStart + 20, yGesamtAmt + 2);
+  doc.line(lineStart, yGesamtAmt + 3, lineStart + 20, yGesamtAmt + 3);
 
   // HINWEIS linksbündig
   setF(9, false);
