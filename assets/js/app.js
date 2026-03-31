@@ -207,6 +207,12 @@ function SP(id) {
   }
   if (id === 'export')     { initEx(); initPathSettings(); }
   if (id === 'neu')        initForm();
+  if (id === 'kostenvoranschlag') initKVForm();
+  if (id === 'kv-liste') {
+    renderKVListe();
+    var skv = document.getElementById('s-kv-liste');
+    if (skv) skv.oninput = function(){ renderKVListe(); };
+  }
 
   if (id === 'einstellungen') initEinstellungen();
 }
@@ -226,6 +232,8 @@ document.getElementById('nav-finanzen').addEventListener('click',     function()
 document.getElementById('nav-bankbuch').addEventListener('click',     function(){ SP('bankbuch'); });
 document.getElementById('nav-kassabuch').addEventListener('click',    function(){ SP('kassabuch'); });
 document.getElementById('nav-export').addEventListener('click',       function(){ SP('export'); });
+document.getElementById('nav-kostenvoranschlag').addEventListener('click', function(){ SP('kostenvoranschlag'); });
+document.getElementById('nav-kv-liste').addEventListener('click', function(){ SP('kv-liste'); });
 
 // Wire topbar buttons
 (document.getElementById('btn-neue-rechnung')||{addEventListener:function(){}}).addEventListener('click', function(){ SP('neu'); });
@@ -1539,11 +1547,11 @@ function genPDFData(inv) {
   var xL = 25;
   var xR = 190;
 
-  doc.setFont(ff, 'normal');
-  doc.setTextColor(30, 30, 30);
+  // ── SCHRIFTART Malgun Gothic Semilight (falls verfügbar) ──────────
+  var headerFont = 'helvetica';
 
   function setF(sz, bold) {
-    doc.setFont(ff, bold ? 'bold' : 'normal');
+    doc.setFont(headerFont, 'normal');
     doc.setFontSize(sz || 11);
     doc.setTextColor(30, 30, 30);
   }
@@ -1551,9 +1559,6 @@ function genPDFData(inv) {
   function numFmt(n) {
     return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
   }
-
-  // ── SCHRIFTART Malgun Gothic Semilight (falls verfügbar) ──────────
-  var headerFont = 'helvetica';
   if (_malgunFontB64) {
     try {
       doc.addFileToVFS('malgunsl.ttf', _malgunFontB64);
@@ -1578,9 +1583,9 @@ function genPDFData(inv) {
   // xEuro is calculated once from the widest number in the table
   // so all € signs are perfectly aligned
 
-  // ── Y=56 DATUM rechtsbündig ───────────────────────────────────────
+  // ── Y=66 DATUM rechtsbündig ───────────────────────────────────────
   setF(11);
-  doc.text('Graz, ' + fmtD(inv.datum), xR, 56, {align:'right'});
+  doc.text('Graz, ' + fmtD(inv.datum), xR, 66, {align:'right'});
 
   // ── Y=67 KUNDE linksbündig ────────────────────────────────────────
   var y = 67;
@@ -3007,4 +3012,483 @@ function dlExportYear(fmt){
   var rows=buildRows(invs);
   if(fmt==='excel'){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([toCSV(rows)],{type:'text/csv;charset=utf-8;'}));a.download=title+'.csv';a.click();}
   else toPDF(rows,title);
+}
+
+// ================================================================
+// KOSTENVORANSCHLAG
+// ================================================================
+var kvItemsData = [{fz_marke:'', fz_kz:'', beschreibung:'', anzahl:1, betrag:0}];
+
+function initKVForm() {
+  var now = new Date().toISOString().split('T')[0];
+  var datEl = document.getElementById('kv-datum');
+  if (datEl) datEl.value = now;
+  var pinfoEl = document.getElementById('kv-pinfo');
+  if (pinfoEl) pinfoEl.value = '';
+  var alertEl = document.getElementById('kv-alerts');
+  if (alertEl) alertEl.innerHTML = '';
+  var partnerEl = document.getElementById('kv-partner');
+  if (partnerEl) partnerEl.value = '';
+  var detailEl = document.getElementById('kv-partner-detail');
+  if (detailEl) detailEl.style.display = 'none';
+  var mwstEl = document.getElementById('kv-mwst-pct');
+  if (mwstEl) mwstEl.value = '20';
+
+  kvItemsData = [{fz_marke:'', fz_kz:'', beschreibung:'', anzahl:1, betrag:0}];
+  kvPopulatePartner();
+  renderKVItems();
+  renderKVSum();
+
+  var btnAdd = document.getElementById('kv-btn-add-item');
+  if (btnAdd) btnAdd.onclick = function(){ addKVItem(); };
+  var btnSave = document.getElementById('kv-btn-save');
+  if (btnSave) btnSave.onclick = function(){ saveKV(); };
+  var btnSaveB = document.getElementById('kv-btn-save-bottom');
+  if (btnSaveB) btnSaveB.onclick = function(){ saveKV(); };
+  var btnReset = document.getElementById('kv-btn-reset');
+  if (btnReset) btnReset.onclick = function(){ initKVForm(); };
+  var btnResetB = document.getElementById('kv-btn-reset-bottom');
+  if (btnResetB) btnResetB.onclick = function(){ initKVForm(); };
+  var btnNewP = document.getElementById('kv-btn-new-partner');
+  if (btnNewP) btnNewP.onclick = function(){ openKVKundeModal(); };
+  var partnerSel = document.getElementById('kv-partner');
+  if (partnerSel) partnerSel.onchange = function(){ kvFillPD(); };
+  var mwstInput = document.getElementById('kv-mwst-pct');
+  if (mwstInput) mwstInput.oninput = function(){ renderKVSum(); };
+}
+
+function kvPopulatePartner() {
+  var d = getDB();
+  var sel = document.getElementById('kv-partner');
+  if (!sel) return;
+  var cur = sel.value;
+  sel.innerHTML = '<option value="">-- Bitte wählen --</option>' +
+    d.kunden.map(function(p){ return '<option value="' + p.id + '">' + esc(p.name) + '</option>'; }).join('');
+  if (cur) sel.value = cur;
+}
+
+function kvFillPD() {
+  var partnerEl = document.getElementById('kv-partner');
+  var detail = document.getElementById('kv-partner-detail');
+  var infoEl = document.getElementById('kv-partner-info-display');
+  if (!partnerEl || !detail || !infoEl) return;
+  var id = partnerEl.value;
+  if (!id) { detail.style.display = 'none'; return; }
+  var d = getDB();
+  var p = d.kunden.find(function(x){ return x.id === id; });
+  if (!p) { detail.style.display = 'none'; return; }
+  var pinfo = document.getElementById('kv-pinfo');
+  if (pinfo) pinfo.value = p.name + (p.adresse ? '\n' + p.adresse : '');
+  infoEl.innerHTML =
+    '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px">' +
+      '<strong style="font-size:14px">' + esc(p.name) + '</strong>' +
+    '</div>' +
+    (p.adresse ? '<div style="color:#666;margin-top:3px">' + esc(p.adresse.replace(/\n/g, ', ')) + '</div>' : '') +
+    (p.uid ? '<div style="color:#999;font-size:12px">UID: ' + esc(p.uid) + '</div>' : '') +
+    (p.email ? '<div style="color:#999;font-size:12px">' + esc(p.email) + '</div>' : '');
+  detail.style.display = 'block';
+}
+
+function openKVKundeModal() {
+  document.getElementById('modal-body').innerHTML =
+    '<h3>Neuer Kunde</h3>' +
+    '<div class="fg"><label>Name *</label><input type="text" id="kvk-name"></div>' +
+    '<div class="fg"><label>Adresse</label><textarea id="kvk-adr"></textarea></div>' +
+    '<div class="fr c2"><div class="fg"><label>UID</label><input id="kvk-uid" type="text"></div><div class="fg"><label>E-Mail</label><input id="kvk-email" type="email"></div></div>' +
+    '<div style="text-align:right;margin-top:1rem"><button class="btn primary" id="btn-kvk-save">Speichern</button></div>';
+  openModal();
+  document.getElementById('btn-kvk-save').addEventListener('click', function(){
+    var name = document.getElementById('kvk-name').value.trim();
+    if (!name) { alert('Name eingeben'); return; }
+    var d = getDB();
+    var newP = {id:uid(), name:name, adresse:document.getElementById('kvk-adr').value, uid:document.getElementById('kvk-uid').value, email:document.getElementById('kvk-email').value, erstellt:new Date().toISOString()};
+    d.kunden.push(newP); saveDB(d);
+    closeModal();
+    kvPopulatePartner();
+    var sel = document.getElementById('kv-partner');
+    if (sel) { sel.value = newP.id; kvFillPD(); }
+  });
+}
+
+function renderKVItems() {
+  var container = document.getElementById('kv-items-container');
+  if (!container) return;
+  var badgeStyle = 'font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid #ddd;background:#fff;cursor:pointer;font-family:sans-serif;color:#555';
+  var html = '<table class="itbl" style="width:100%"><thead><tr>' +
+    '<th style="text-align:left;padding:8px 6px">Fahrzeug (Marke / KZ)</th>' +
+    '<th style="text-align:left;padding:8px 6px">Beschreibung</th>' +
+    '<th style="text-align:center;padding:8px 6px;width:70px">Anzahl</th>' +
+    '<th style="text-align:right;padding:8px 6px;width:110px">Betrag (€)</th>' +
+    '<th style="width:36px;padding:8px 6px"></th>' +
+    '</tr></thead><tbody>';
+  kvItemsData.forEach(function(it, i) {
+    html += '<tr>' +
+      '<td style="padding:4px 4px">' +
+        '<input type="text" value="' + esc(it.fz_marke || '') + '" data-i="' + i + '" class="kv-fz-marke" placeholder="Marke/Modell" style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;margin-bottom:3px;display:block">' +
+        '<input type="text" value="' + esc(it.fz_kz || '') + '" data-i="' + i + '" class="kv-fz-kz" placeholder="Kennzeichen" style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;display:block">' +
+      '</td>' +
+      '<td style="padding:4px 4px">' +
+        '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">' +
+          '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="Links"  style="' + badgeStyle + '">Links</button>' +
+          '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="Rechts" style="' + badgeStyle + '">Rechts</button>' +
+          '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="Vorne"  style="' + badgeStyle + '">Vorne</button>' +
+          '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="Hinten" style="' + badgeStyle + '">Hinten</button>' +
+        '</div>' +
+        '<input type="text" value="' + esc(it.beschreibung) + '" data-i="' + i + '" class="kv-beschreibung" placeholder="Details..." style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif">' +
+      '</td>' +
+      '<td style="padding:4px 4px"><input type="number" value="' + it.anzahl + '" data-i="' + i + '" class="kv-anzahl" min="1" step="1" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;text-align:center"></td>' +
+      '<td style="padding:4px 4px"><input type="number" value="' + (it.betrag || '') + '" data-i="' + i + '" class="kv-betrag" min="0" step="0.01" placeholder="0,00" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;text-align:right"></td>' +
+      '<td style="padding:4px 2px;text-align:center">' +
+        (kvItemsData.length > 1 ? '<button class="btn danger kv-del" data-i="' + i + '" style="padding:4px 8px;font-size:11px">&#x2715;</button>' : '') +
+      '</td></tr>';
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
+  container.querySelectorAll('.kv-fz-marke').forEach(function(el){
+    el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].fz_marke = this.value; };
+  });
+  container.querySelectorAll('.kv-fz-kz').forEach(function(el){
+    el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].fz_kz = this.value; };
+  });
+  container.querySelectorAll('.kv-beschreibung').forEach(function(el){
+    el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].beschreibung = this.value; renderKVSum(); };
+  });
+  container.querySelectorAll('.kv-pos-badge').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var idx = parseInt(this.dataset.i);
+      var val = this.dataset.val;
+      var input = container.querySelector('.kv-beschreibung[data-i="' + idx + '"]');
+      var cur = input ? input.value : (kvItemsData[idx].beschreibung || '');
+      var sep = (cur && !cur.endsWith(' ')) ? ' ' : '';
+      var newVal = cur + sep + val;
+      if (input) input.value = newVal;
+      kvItemsData[idx].beschreibung = newVal;
+    });
+  });
+  container.querySelectorAll('.kv-anzahl').forEach(function(el){
+    el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].anzahl = parseFloat(this.value) || 1; renderKVSum(); };
+  });
+  container.querySelectorAll('.kv-betrag').forEach(function(el){
+    el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].betrag = parseFloat(this.value) || 0; renderKVSum(); };
+  });
+  container.querySelectorAll('.kv-del').forEach(function(el){
+    el.onclick = function(){
+      kvItemsData.splice(parseInt(this.dataset.i), 1);
+      renderKVItems();
+    };
+  });
+}
+
+function addKVItem() {
+  kvItemsData.push({fz_marke:'', fz_kz:'', beschreibung:'', anzahl:1, betrag:0});
+  renderKVItems();
+}
+
+function renderKVSum() {
+  var mwstPct = parseFloat((document.getElementById('kv-mwst-pct') || {value:'20'}).value) || 0;
+  var netto = kvItemsData.reduce(function(s, it){
+    return s + (parseFloat(it.anzahl) || 1) * (parseFloat(it.betrag) || 0);
+  }, 0);
+  var mwst = netto * mwstPct / 100;
+  var gesamt = netto + mwst;
+  var nettoEl = document.getElementById('kv-sum-netto');
+  var mwstEl = document.getElementById('kv-sum-mwst');
+  var gesamtEl = document.getElementById('kv-sum-gesamt');
+  if (nettoEl) nettoEl.textContent = fmt(netto);
+  if (mwstEl) mwstEl.textContent = fmt(mwst);
+  if (gesamtEl) gesamtEl.textContent = fmt(gesamt);
+}
+
+function saveKV() {
+  var datum = (document.getElementById('kv-datum') || {value:''}).value;
+  var pinfo = (document.getElementById('kv-pinfo') || {value:''}).value.trim();
+  var mwstPct = parseFloat((document.getElementById('kv-mwst-pct') || {value:'20'}).value) || 20;
+  var partnerSel = document.getElementById('kv-partner');
+  var partnerId = partnerSel ? partnerSel.value : '';
+  var partnerName = '';
+  if (partnerId) {
+    var d0 = getDB();
+    var p0 = d0.kunden.find(function(x){ return x.id === partnerId; });
+    if (p0) partnerName = p0.name;
+  }
+  var kv = {
+    id: uid(),
+    partner_id: partnerId,
+    partner_name: partnerName,
+    partner_info: pinfo,
+    datum: datum || new Date().toISOString().split('T')[0],
+    items: kvItemsData.map(function(it){
+      return {
+        fz_marke: (it.fz_marke || '').trim(),
+        fz_kz: (it.fz_kz || '').trim(),
+        beschreibung: it.beschreibung,
+        anzahl: parseFloat(it.anzahl) || 1,
+        betrag: parseFloat(it.betrag) || 0
+      };
+    }),
+    mwst_pct: mwstPct,
+    erstellt: new Date().toISOString()
+  };
+  var d = getDB();
+  if (!d.kostenvoranschlaege) d.kostenvoranschlaege = [];
+  d.kostenvoranschlaege.push(kv);
+  // Neue Fahrzeuge aus den Items im Register speichern
+  kv.items.forEach(function(it) {
+    if (!it.fz_kz) return;
+    var exists = d.fahrzeuge.find(function(f){
+      return (f.kennzeichen || '').trim().toUpperCase() === it.fz_kz.toUpperCase();
+    });
+    if (!exists) {
+      d.fahrzeuge.push({
+        id: uid(),
+        kundeId: partnerId || '',
+        kundeName: partnerName || '',
+        marke: it.fz_marke || '',
+        kennzeichen: it.fz_kz,
+        vin: '',
+        erstzulassung: '',
+        erstellt: new Date().toISOString()
+      });
+    }
+  });
+  saveDB(d);
+  genKVPDF(kv);
+  setTimeout(function(){ SP('kv-liste'); }, 600);
+}
+
+function genKVPDF(kv) {
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({unit:'mm', format:'a4'});
+  var d = getDB(), v = d.vorlage || dfV();
+  var ff = v.font==='georgia' ? 'times' : v.font==='courier' ? 'courier' : 'helvetica';
+  var xL = 25;
+  var xR = 190;
+
+  // Font (Malgun Gothic falls verfügbar)
+  var headerFont = 'helvetica';
+
+  function setF(sz, bold) {
+    doc.setFont(headerFont, 'normal');
+    doc.setFontSize(sz || 11);
+    doc.setTextColor(30, 30, 30);
+  }
+
+  function numFmt(n) {
+    return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
+  }
+
+  doc.setTextColor(30, 30, 30);
+  if (_malgunFontB64) {
+    try {
+      doc.addFileToVFS('malgunsl.ttf', _malgunFontB64);
+      doc.addFont('malgunsl.ttf', 'MalgunGothicSL', 'normal');
+      headerFont = 'MalgunGothicSL';
+    } catch(e) { headerFont = 'helvetica'; }
+  }
+
+  // KOPFZEILE (identisch mit Rechnung)
+  doc.setFont(headerFont, 'normal');
+  doc.setTextColor(30, 30, 30);
+  doc.setFontSize(28);
+  doc.text('KAROSSERIEFACHWERKSTÄTTE', 105, 25, {align:'center'});
+  doc.setFontSize(20);
+  doc.text('KURT LINDITSCH GMBH', 105, 35, {align:'center'});
+  doc.setFontSize(10);
+  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 43, {align:'center'});
+  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 49, {align:'center'});
+
+  // TITEL — fett, oben (vor Datum)
+  doc.setFont(ff, 'bold');
+  doc.setFontSize(14);
+  doc.setTextColor(30, 30, 30);
+  doc.text('Kostenvoranschlag', xL, 110);
+
+  // DATUM rechtsbündig
+  setF(11);
+  doc.text('Graz, ' + fmtD(kv.datum), xR, 66, {align:'right'});
+
+  // KUNDENDATEN
+  var y = 77;
+  setF(11);
+  if (kv.partner_info) {
+    kv.partner_info.split('\n').forEach(function(l){ if(l.trim()){ doc.text(l.trim(), xL, y); y += 6; } });
+  }
+
+  // TABELLE HEADER
+  var tY = 124;
+  var col1 = xL;        // Fahrzeug
+  var col2 = xL + 60;   // Beschreibung
+  var col3 = xL + 130;  // Anzahl (zentriert)
+  var col4 = xR;        // Betrag (rechtsbündig)
+
+  doc.setFillColor(245, 245, 242);
+  doc.rect(xL, tY - 5, xR - xL, 8, 'F');
+  setF(10, true);
+  doc.text('Fahrzeug', col1, tY);
+  doc.text('Beschreibung', col2, tY);
+  doc.text('Anzahl', col3, tY, {align:'center'});
+  doc.text('Betrag (€)', col4, tY, {align:'right'});
+  doc.setDrawColor(30, 30, 30);
+  doc.setLineWidth(0.3);
+  doc.line(xL, tY + 2, xR, tY + 2);
+
+  // TABELLE ZEILEN
+  setF(10, false);
+  var yCur = tY + 9;
+  var nettoTotal = 0;
+  var mwstPct = kv.mwst_pct || 20;
+
+  (kv.items || []).forEach(function(it) {
+    var lineNetto = (parseFloat(it.anzahl) || 1) * (parseFloat(it.betrag) || 0);
+    nettoTotal += lineNetto;
+    setF(10, false);
+    // Fahrzeug: Marke auf Zeile 1, KZ auf Zeile 2 (gleiche Schriftgröße)
+    var hasFz = it.fz_marke || it.fz_kz;
+    if (it.fz_marke) doc.text(it.fz_marke.substring(0, 22), col1, yCur);
+    if (it.fz_kz) {
+      var kzY = it.fz_marke ? yCur + 5 : yCur;
+      doc.text(it.fz_kz.substring(0, 14), col1, kzY);
+    }
+    // Beschreibung
+    var beschStr = (it.beschreibung || '').substring(0, 35);
+    doc.text(beschStr, col2, yCur);
+    // Anzahl
+    doc.text(String(it.anzahl || 1), col3, yCur, {align:'center'});
+    // Betrag
+    doc.text(numFmt(lineNetto), col4, yCur, {align:'right'});
+    yCur += (it.fz_marke && it.fz_kz) ? 13 : 8;
+  });
+
+  // Linie unter Tabelle
+  doc.setDrawColor(30, 30, 30);
+  doc.setLineWidth(0.3);
+  doc.line(xL, yCur, xR, yCur);
+  yCur += 7;
+
+  // ZUSAMMENFASSUNG
+  var mwstAmt = nettoTotal * mwstPct / 100;
+  var gesamtAmt = nettoTotal + mwstAmt;
+
+  setF(11, false);
+  var allAmts = [nettoTotal, mwstAmt, gesamtAmt];
+  var maxNumW = 0;
+  allAmts.forEach(function(n) {
+    var w = doc.getTextWidth(numFmt(n));
+    if (w > maxNumW) maxNumW = w;
+  });
+  var xEuro = xR - maxNumW - 5;
+  var lineStart = xEuro - 1;
+
+  function tRow(label, n, yy, bold) {
+    setF(11, bold);
+    doc.text(label, xL, yy);
+    doc.text('€', xEuro, yy);
+    doc.text(numFmt(n), xR, yy, {align:'right'});
+  }
+
+  var yNetto  = yCur;
+  var yMwst   = yCur + 5;
+  var yGesamt = yCur + 10;
+
+  tRow('Netto', nettoTotal, yNetto);
+  tRow('+' + mwstPct + '% MwSt.', mwstAmt, yMwst);
+  doc.setDrawColor(30, 30, 30);
+  doc.setLineWidth(0.3);
+  doc.line(lineStart, yMwst + 2, lineStart + 20, yMwst + 2);
+
+  var yGesamtAmt = yGesamt + 0.5;
+  setF(11, false);
+  doc.text('Gesamtbetrag (Brutto)', xL, yGesamt);
+  doc.text('€', xEuro, yGesamtAmt);
+  doc.text(numFmt(gesamtAmt), xR, yGesamtAmt, {align:'right'});
+  doc.setLineWidth(0.3);
+  doc.line(lineStart, yGesamtAmt + 2, lineStart + 20, yGesamtAmt + 2);
+  doc.line(lineStart, yGesamtAmt + 3, lineStart + 20, yGesamtAmt + 3);
+
+  // HINWEIS linksbündig
+  setF(9, false);
+  doc.setTextColor(80, 80, 80);
+  doc.text('Dies ist ein unverbindlicher Kostenvoranschlag und keine Rechnung.', xL, 255);
+  doc.text('Änderungen vorbehalten.', xL, 261);
+
+  // FUßZEILE (ohne "Zahlbar sofort..." — nur Bankdaten + UID)
+  doc.setFont(headerFont, 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(30, 30, 30);
+  doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 277, {align:'center'});
+  doc.text('UID-Nr. ATU 58185458, LG f. ZRS GRAZ, FN 251792h', 105, 282, {align:'center'});
+
+  doc.save('Kostenvoranschlag.pdf');
+}
+
+// ================================================================
+// KV LISTE
+// ================================================================
+function renderKVListe() {
+  var d = getDB();
+  var kvs = (d.kostenvoranschlaege || []).slice().reverse(); // neueste zuerst
+  var el = document.getElementById('tbl-kv-liste');
+  if (!el) return;
+
+  var s = ((document.getElementById('s-kv-liste') || {}).value || '').toLowerCase();
+  if (s) {
+    kvs = kvs.filter(function(kv) {
+      var fzList = (kv.items || []).map(function(it){ return (it.fz_kz || '') + ' ' + (it.fz_marke || ''); }).join(' ');
+      var kundeStr = (kv.partner_name || kv.partner_info || '').split('\n')[0];
+      return (fmtD(kv.datum) + ' ' + kundeStr + ' ' + fzList).toLowerCase().indexOf(s) !== -1;
+    });
+  }
+
+  if (!kvs.length) {
+    el.innerHTML = '<div class="empty">Keine Angebote vorhanden</div>';
+    return;
+  }
+
+  var rows = kvs.map(function(kv) {
+    var kundeStr = kv.partner_name || (kv.partner_info || '').split('\n')[0] || '—';
+    var fzBadges = (kv.items || [])
+      .filter(function(it){ return it.fz_kz || it.fz_marke; })
+      .map(function(it){
+        var label = [it.fz_marke, it.fz_kz].filter(Boolean).join(' / ');
+        return '<span class="badge blue" style="margin:1px">&#128663; ' + esc(label) + '</span>';
+      }).join(' ');
+    var nettoTotal = (kv.items || []).reduce(function(s, it){
+      return s + (parseFloat(it.anzahl)||1) * (parseFloat(it.betrag)||0);
+    }, 0);
+    var mwstAmt = nettoTotal * ((kv.mwst_pct || 20) / 100);
+    var bruttoTotal = nettoTotal + mwstAmt;
+    return '<tr>' +
+      '<td>' + fmtD(kv.datum) + '</td>' +
+      '<td>' + esc(kundeStr) + '</td>' +
+      '<td>' + (fzBadges || '—') + '</td>' +
+      '<td style="text-align:right;font-family:\'Courier New\',monospace">' + fmt(bruttoTotal) + '</td>' +
+      '<td style="white-space:nowrap">' +
+        '<button class="btn" style="padding:4px 8px;font-size:11px" data-action="pdf" data-id="' + kv.id + '">&#128196; PDF</button> ' +
+        '<button class="btn danger" style="padding:4px 8px;font-size:11px" data-action="del" data-id="' + kv.id + '">Löschen</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+
+  el.innerHTML = '<table><thead><tr>' +
+    '<th>Datum</th><th>Kunde</th><th>Fahrzeuge</th><th style="text-align:right">Brutto</th><th>Aktionen</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>';
+
+  el.querySelectorAll('button[data-action]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var id = this.dataset.id;
+      if (this.dataset.action === 'pdf') {
+        var kv2 = (getDB().kostenvoranschlaege || []).find(function(k){ return k.id === id; });
+        if (kv2) genKVPDF(kv2);
+      }
+      if (this.dataset.action === 'del') delKV(id);
+    });
+  });
+}
+
+function delKV(id) {
+  if (!confirm('Angebot löschen?')) return;
+  var d = getDB();
+  d.kostenvoranschlaege = (d.kostenvoranschlaege || []).filter(function(k){ return k.id !== id; });
+  saveDB(d);
+  renderKVListe();
 }
