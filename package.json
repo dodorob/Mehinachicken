@@ -1,0 +1,40 @@
+{
+  "name": "mehinachicken",
+  "version": "1.0.0",
+  "description": "Electron wrapper for the Mehinachicken web app",
+  "main": "electron-main.js",
+  "private": true,
+  "scripts": {
+    "build:win": "electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "electron": "^32.2.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.mehinachicken.app",
+    "productName": "Mehinachicken",
+    "files": [
+      "index.html",
+      "assets/**/*",
+      "electron-main.js"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
