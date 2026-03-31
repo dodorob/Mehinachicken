@@ -17,7 +17,8 @@
     "files": [
       "index.html",
       "assets/**/*",
-      "electron-main.js"
+      "electron-main.js",
+      "preload.js"
     ],
     "directories": {
       "output": "dist"

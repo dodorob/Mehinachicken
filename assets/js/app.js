@@ -18,6 +18,7 @@ function getDB() {
   if (!d.counters)   d.counters   = {ausgang:1, eingang:1, fortlaufend:1};
   // Migration: ensure fortlaufend exists
   if (!d.counters.fortlaufend) d.counters.fortlaufend = d.invoices.length + 1;
+  if (!d.counters.kassenbeleg) d.counters.kassenbeleg = 1;
   // Migration: ensure ausgang counter is at least invoice count + 1
   if (!d.counters.ausgang) {
     var arCount = d.invoices.filter(function(i){ return i.typ==='ausgang'; }).length;
@@ -81,6 +82,7 @@ function nextNum(typ) {
     var lfd = d.counters[lfdKey];
     d.counters.ausgang = num + 1;
     d.counters[lfdKey] = lfd + 1;
+    if (za === 'kassa') d.counters.kassenbeleg = (d.counters.kassenbeleg || 1) + 1;
     localStorage.setItem('buchpro_v1', JSON.stringify(d));
     return String(num).padStart(2, '0');
   } else {
@@ -1086,17 +1088,22 @@ function refreshNumbers() {
   var rnrEl  = document.getElementById('rnr');
   var rnrWrap = rnrEl ? rnrEl.closest('.fg') : null;
   var lfdEl  = document.getElementById('lfd-nr');
-  var lfdWrap = lfdEl ? lfdEl.closest('.fg') : null;
   var lfdKey = za === 'kassa' ? 'lfd_kassa' : 'lfd_bank';
   var lfdNum = db.counters[lfdKey] || 1;
+  var kbEl  = document.getElementById('kassa-beleg-nr');
+  var kbRow = document.getElementById('kassa-beleg-row');
+  var kbNum = db.counters.kassenbeleg || 1;
 
   if (typ === 'eingang') {
     if (rnrWrap) rnrWrap.style.display = 'none';
     if (lfdEl) lfdEl.value = 'lfd. ' + String(lfdNum).padStart(3,'0');
+    if (kbRow) kbRow.style.display = 'none';
   } else {
     if (rnrWrap) rnrWrap.style.display = '';
     if (rnrEl) rnrEl.value = previewNum(typ);
     if (lfdEl) lfdEl.value = 'lfd. ' + String(lfdNum).padStart(3,'0');
+    if (kbRow) kbRow.style.display = (za === 'kassa') ? '' : 'none';
+    if (kbEl && za === 'kassa' && !editId) kbEl.value = String(kbNum).padStart(4, '0');
   }
 }
 
@@ -1473,6 +1480,9 @@ function saveInvoice() {
     faellig: document.getElementById('faellig').value,
     status: document.getElementById('status').value,
     notizen: document.getElementById('notizen').value,
+    kassenbeleg_nr: (document.getElementById('zahlungsart').value === 'kassa')
+      ? ((document.getElementById('kassa-beleg-nr')||{value:''}).value || '')
+      : '',
     items: itemsData.map(function(it){ return Object.assign({}, it); }),
     materialkosten: matVal,
     mat_auto: !!(document.getElementById('mat-auto') && document.getElementById('mat-auto').checked),
@@ -1542,6 +1552,27 @@ function genPDFData(inv) {
     return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
   }
 
+  // ── SCHRIFTART Malgun Gothic Semilight (falls verfügbar) ──────────
+  var headerFont = 'helvetica';
+  if (_malgunFontB64) {
+    try {
+      doc.addFileToVFS('malgunsl.ttf', _malgunFontB64);
+      doc.addFont('malgunsl.ttf', 'MalgunGothicSL', 'normal');
+      headerFont = 'MalgunGothicSL';
+    } catch(e) { headerFont = 'helvetica'; }
+  }
+
+  // ── KOPFZEILE ─────────────────────────────────────────────────────
+  doc.setFont(headerFont, 'normal');
+  doc.setTextColor(30, 30, 30);
+  doc.setFontSize(28);
+  doc.text('KAROSSERIEFACHWERKSTÄTTE', 105, 25, {align:'center'});
+  doc.setFontSize(20);
+  doc.text('KURT LINDITSCH GMBH', 105, 35, {align:'center'});
+  doc.setFontSize(10);
+  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 43, {align:'center'});
+  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 49, {align:'center'});
+
   // ── TABELLE AMOUNT BLOCK ──────────────────────────────────────────
   // All € symbols at fixed xEuro, all numbers right-aligned at xR
   // xEuro is calculated once from the widest number in the table
@@ -1549,7 +1580,7 @@ function genPDFData(inv) {
 
   // ── Y=56 DATUM rechtsbündig ───────────────────────────────────────
   setF(11);
-  doc.text(fmtD(inv.datum), xR, 56, {align:'right'});
+  doc.text('Graz, ' + fmtD(inv.datum), xR, 56, {align:'right'});
 
   // ── Y=67 KUNDE linksbündig ────────────────────────────────────────
   var y = 67;
@@ -1677,23 +1708,22 @@ function genPDFData(inv) {
   doc.line(lineStart, yGesamtAmt + 2, lineStart + 20, yGesamtAmt + 2);
   doc.line(lineStart, yGesamtAmt + 3, lineStart + 20, yGesamtAmt + 3);
 
-  var yEnd = yGesamt + 16;
-
-  // ── ABSCHLUSS ─────────────────────────────────────────────────────
-  setF(10); doc.setTextColor(100,100,100);
-  if (inv.zahlungsart !== 'kassa' && v.showBank && v.iban) {
-    var bp = [v.bname||'', v.iban?'IBAN: '+v.iban:'', v.bic?'BIC: '+v.bic:''].filter(Boolean);
-    doc.text(bp.join('  |  '), xL, yEnd); yEnd += 5;
+  // ── BEZAHLT IN BAR (nur Kassa) ────────────────────────────────────
+  if (inv.zahlungsart === 'kassa') {
+    setF(11);
+    doc.setTextColor(30, 30, 30);
+    var today = fmtD(new Date().toISOString().split('T')[0]);
+    var kbNr = inv.kassenbeleg_nr || '';
+    doc.text('Bezahlt in Bar am ' + today + '     -     Kassenbeleg Nr. ' + kbNr, xL, 255);
   }
-  if (v.zb) { doc.text(v.zb, xL, yEnd); yEnd += 5; }
-  yEnd += 5;
-  setF(11); doc.setTextColor(60,60,60);
-  doc.text(v.f1 || 'Vielen Dank fuer Ihren Auftrag!', xL, yEnd);
 
-  if (v.firma) {
-    setF(8); doc.setTextColor(180,180,180);
-    doc.text(v.firma, 105, 290, {align:'center'});
-  }
+  // ── FUßZEILE ──────────────────────────────────────────────────────
+  doc.setFont(headerFont, 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(30, 30, 30);
+  doc.text('Zahlbar sofort nach Erhalt der Rechnung netto Kassa!', 105, 272, {align:'center'});
+  doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 277, {align:'center'});
+  doc.text('UID-Nr. ATU 58185458, LG f. ZRS GRAZ, FN 251792h', 105, 282, {align:'center'});
 
   // Build filename: Rechnung_X_Kennzeichen.pdf
   var fnNr = inv.nummer || '';
@@ -2240,6 +2270,12 @@ function editInv(id) {
   if (inv.privatkunde) { var pc=document.getElementById('inv-privat'); if(pc) pc.checked=true; }
   if (inv.flag_djevad) { var pd=document.getElementById('inv-djevad'); if(pd) pd.checked=true; }
   if (inv.flag_helmut) { var ph=document.getElementById('inv-helmut'); if(ph) ph.checked=true; }
+  if (inv.kassenbeleg_nr) {
+    var kbEl2 = document.getElementById('kassa-beleg-nr');
+    var kbRow2 = document.getElementById('kassa-beleg-row');
+    if (kbEl2) kbEl2.value = inv.kassenbeleg_nr;
+    if (kbRow2) kbRow2.style.display = '';
+  }
   itemsData = (inv.items||[]).map(function(it){ return Object.assign({},it); });
   if (!itemsData.length) itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20}];
   renderItems();
@@ -2755,7 +2791,17 @@ function updateItemExtra(i, field, value) {
   }
 }
 
-window.onload = function(){ renderDash(); };
+var _malgunFontB64 = null;
+
+function loadMalgunFont() {
+  if (window.electronAPI && window.electronAPI.readFont) {
+    window.electronAPI.readFont('malgunsl.ttf').then(function(b64) {
+      if (b64) _malgunFontB64 = b64;
+    });
+  }
+}
+
+window.onload = function(){ loadMalgunFont(); renderDash(); };
 
 var _motTimer = null;
 var _motCanvas = null;
