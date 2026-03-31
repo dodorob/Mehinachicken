@@ -20,6 +20,7 @@
     <a id="nav-eingang"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9724;</span> Eingangsrechnungen</a>
     <a id="nav-neu"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">+</span> Neue Rechnung</a>
     <a id="nav-kostenvoranschlag"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128203;</span> Kostenvoranschlag</a>
+    <a id="nav-kv-liste"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128196;</span> Alle Angebote</a>
     <div class="sec">Fahrzeuge &amp; Kunden</div>
     <a id="nav-kunden"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9672;</span> Kunden</a>
     <a id="nav-lieferanten"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9673;</span> Lieferanten</a>
@@ -263,6 +264,16 @@
       </div>
     </div>
 
+  </div>
+</div>
+
+<div class="page" id="page-kv-liste">
+  <div class="topbar"><h2>Alle Angebote</h2></div>
+  <div class="content">
+    <div style="padding:.75rem 1.5rem;display:flex;gap:8px;align-items:center;background:var(--card);border-bottom:1px solid var(--border)">
+      <input type="text" id="s-kv-liste" placeholder="Schnellsuche (Kunde, Fahrzeug, Datum)..." style="flex:1;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+    </div>
+    <div class="card" style="padding:0"><div id="tbl-kv-liste"></div></div>
   </div>
 </div>
 

@@ -208,6 +208,11 @@ function SP(id) {
   if (id === 'export')     { initEx(); initPathSettings(); }
   if (id === 'neu')        initForm();
   if (id === 'kostenvoranschlag') initKVForm();
+  if (id === 'kv-liste') {
+    renderKVListe();
+    var skv = document.getElementById('s-kv-liste');
+    if (skv) skv.oninput = function(){ renderKVListe(); };
+  }
 
   if (id === 'einstellungen') initEinstellungen();
 }
@@ -228,6 +233,7 @@ document.getElementById('nav-bankbuch').addEventListener('click',     function()
 document.getElementById('nav-kassabuch').addEventListener('click',    function(){ SP('kassabuch'); });
 document.getElementById('nav-export').addEventListener('click',       function(){ SP('export'); });
 document.getElementById('nav-kostenvoranschlag').addEventListener('click', function(){ SP('kostenvoranschlag'); });
+document.getElementById('nav-kv-liste').addEventListener('click', function(){ SP('kv-liste'); });
 
 // Wire topbar buttons
 (document.getElementById('btn-neue-rechnung')||{addEventListener:function(){}}).addEventListener('click', function(){ SP('neu'); });
@@ -3247,9 +3253,7 @@ function saveKV() {
   });
   saveDB(d);
   genKVPDF(kv);
-  var alertEl = document.getElementById('kv-alerts');
-  if (alertEl) alertEl.innerHTML = '<div class="alert success">&#10003; PDF wird erstellt!</div>';
-  setTimeout(function(){ if (alertEl) alertEl.innerHTML = ''; }, 3000);
+  setTimeout(function(){ SP('kv-liste'); }, 600);
 }
 
 function genKVPDF(kv) {
@@ -3415,4 +3419,76 @@ function genKVPDF(kv) {
   doc.text('UID-Nr. ATU 58185458, LG f. ZRS GRAZ, FN 251792h', 105, 282, {align:'center'});
 
   doc.save('Kostenvoranschlag.pdf');
+}
+
+// ================================================================
+// KV LISTE
+// ================================================================
+function renderKVListe() {
+  var d = getDB();
+  var kvs = (d.kostenvoranschlaege || []).slice().reverse(); // neueste zuerst
+  var el = document.getElementById('tbl-kv-liste');
+  if (!el) return;
+
+  var s = ((document.getElementById('s-kv-liste') || {}).value || '').toLowerCase();
+  if (s) {
+    kvs = kvs.filter(function(kv) {
+      var fzList = (kv.items || []).map(function(it){ return (it.fz_kz || '') + ' ' + (it.fz_marke || ''); }).join(' ');
+      var kundeStr = (kv.partner_name || kv.partner_info || '').split('\n')[0];
+      return (fmtD(kv.datum) + ' ' + kundeStr + ' ' + fzList).toLowerCase().indexOf(s) !== -1;
+    });
+  }
+
+  if (!kvs.length) {
+    el.innerHTML = '<div class="empty">Keine Angebote vorhanden</div>';
+    return;
+  }
+
+  var rows = kvs.map(function(kv) {
+    var kundeStr = kv.partner_name || (kv.partner_info || '').split('\n')[0] || '—';
+    var fzBadges = (kv.items || [])
+      .filter(function(it){ return it.fz_kz || it.fz_marke; })
+      .map(function(it){
+        var label = [it.fz_marke, it.fz_kz].filter(Boolean).join(' / ');
+        return '<span class="badge blue" style="margin:1px">&#128663; ' + esc(label) + '</span>';
+      }).join(' ');
+    var nettoTotal = (kv.items || []).reduce(function(s, it){
+      return s + (parseFloat(it.anzahl)||1) * (parseFloat(it.betrag)||0);
+    }, 0);
+    var mwstAmt = nettoTotal * ((kv.mwst_pct || 20) / 100);
+    var bruttoTotal = nettoTotal + mwstAmt;
+    return '<tr>' +
+      '<td>' + fmtD(kv.datum) + '</td>' +
+      '<td>' + esc(kundeStr) + '</td>' +
+      '<td>' + (fzBadges || '—') + '</td>' +
+      '<td style="text-align:right;font-family:\'Courier New\',monospace">' + fmt(bruttoTotal) + '</td>' +
+      '<td style="white-space:nowrap">' +
+        '<button class="btn" style="padding:4px 8px;font-size:11px" data-action="pdf" data-id="' + kv.id + '">&#128196; PDF</button> ' +
+        '<button class="btn danger" style="padding:4px 8px;font-size:11px" data-action="del" data-id="' + kv.id + '">Löschen</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+
+  el.innerHTML = '<table><thead><tr>' +
+    '<th>Datum</th><th>Kunde</th><th>Fahrzeuge</th><th style="text-align:right">Brutto</th><th>Aktionen</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>';
+
+  el.querySelectorAll('button[data-action]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var id = this.dataset.id;
+      if (this.dataset.action === 'pdf') {
+        var kv2 = (getDB().kostenvoranschlaege || []).find(function(k){ return k.id === id; });
+        if (kv2) genKVPDF(kv2);
+      }
+      if (this.dataset.action === 'del') delKV(id);
+    });
+  });
+}
+
+function delKV(id) {
+  if (!confirm('Angebot löschen?')) return;
+  var d = getDB();
+  d.kostenvoranschlaege = (d.kostenvoranschlaege || []).filter(function(k){ return k.id !== id; });
+  saveDB(d);
+  renderKVListe();
 }
