@@ -3297,7 +3297,7 @@ function genKVPDF(kv) {
   doc.setFont(ff, 'bold');
   doc.setFontSize(14);
   doc.setTextColor(30, 30, 30);
-  doc.text('Kostenvoranschlag', xL, 57);
+  doc.text('Kostenvoranschlag', xL, 110);
 
   // DATUM rechtsbündig
   setF(11);
@@ -3311,7 +3311,7 @@ function genKVPDF(kv) {
   }
 
   // TABELLE HEADER
-  var tY = 119;
+  var tY = 124;
   var col1 = xL;        // Fahrzeug
   var col2 = xL + 60;   // Beschreibung
   var col3 = xL + 130;  // Anzahl (zentriert)
