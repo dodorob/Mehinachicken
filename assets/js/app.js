@@ -1566,12 +1566,12 @@ function genPDFData(inv) {
   doc.setFont(headerFont, 'normal');
   doc.setTextColor(30, 30, 30);
   doc.setFontSize(28);
-  doc.text('KAROSSERIEFACHWERKSTÄTTE', 105, 17, {align:'center'});
+  doc.text('KAROSSERIEFACHWERKSTÄTTE', 105, 15, {align:'center'});
   doc.setFontSize(20);
-  doc.text('KURT LINDITSCH GMBH', 105, 27, {align:'center'});
+  doc.text('KURT LINDITSCH GMBH', 105, 25, {align:'center'});
   doc.setFontSize(10);
-  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 35, {align:'center'});
-  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 41, {align:'center'});
+  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 33, {align:'center'});
+  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 39, {align:'center'});
 
   // ── TABELLE AMOUNT BLOCK ──────────────────────────────────────────
   // All € symbols at fixed xEuro, all numbers right-aligned at xR
@@ -1580,7 +1580,7 @@ function genPDFData(inv) {
 
   // ── Y=56 DATUM rechtsbündig ───────────────────────────────────────
   setF(11);
-  doc.text(fmtD(inv.datum), xR, 56, {align:'right'});
+  doc.text('Graz, ' + fmtD(inv.datum), xR, 56, {align:'right'});
 
   // ── Y=67 KUNDE linksbündig ────────────────────────────────────────
   var y = 67;
@@ -1721,9 +1721,9 @@ function genPDFData(inv) {
   doc.setFont(headerFont, 'normal');
   doc.setFontSize(8);
   doc.setTextColor(30, 30, 30);
-  doc.text('Zahlbar sofort nach Erhalt der Rechnung netto Kassa!', 105, 270, {align:'center'});
-  doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 275, {align:'center'});
-  doc.text('UID-Nr. ATU 58185458, LG f. ZRS GRAZ, FN 251792h', 105, 280, {align:'center'});
+  doc.text('Zahlbar sofort nach Erhalt der Rechnung netto Kassa!', 105, 272, {align:'center'});
+  doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 277, {align:'center'});
+  doc.text('UID-Nr. ATU 58185458, LG f. ZRS GRAZ, FN 251792h', 105, 282, {align:'center'});
 
   // Build filename: Rechnung_X_Kennzeichen.pdf
   var fnNr = inv.nummer || '';
