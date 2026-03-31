@@ -1541,11 +1541,11 @@ function genPDFData(inv) {
   var xL = 25;
   var xR = 190;
 
-  doc.setFont(ff, 'normal');
-  doc.setTextColor(30, 30, 30);
+  // ── SCHRIFTART Malgun Gothic Semilight (falls verfügbar) ──────────
+  var headerFont = 'helvetica';
 
   function setF(sz, bold) {
-    doc.setFont(ff, bold ? 'bold' : 'normal');
+    doc.setFont(headerFont, 'normal');
     doc.setFontSize(sz || 11);
     doc.setTextColor(30, 30, 30);
   }
@@ -1553,9 +1553,6 @@ function genPDFData(inv) {
   function numFmt(n) {
     return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
   }
-
-  // ── SCHRIFTART Malgun Gothic Semilight (falls verfügbar) ──────────
-  var headerFont = 'helvetica';
   if (_malgunFontB64) {
     try {
       doc.addFileToVFS('malgunsl.ttf', _malgunFontB64);
@@ -1580,9 +1577,9 @@ function genPDFData(inv) {
   // xEuro is calculated once from the widest number in the table
   // so all € signs are perfectly aligned
 
-  // ── Y=56 DATUM rechtsbündig ───────────────────────────────────────
+  // ── Y=66 DATUM rechtsbündig ───────────────────────────────────────
   setF(11);
-  doc.text('Graz, ' + fmtD(inv.datum), xR, 56, {align:'right'});
+  doc.text('Graz, ' + fmtD(inv.datum), xR, 66, {align:'right'});
 
   // ── Y=67 KUNDE linksbündig ────────────────────────────────────────
   var y = 67;
@@ -3030,6 +3027,10 @@ function initKVForm() {
   if (detailEl) detailEl.style.display = 'none';
   var mwstEl = document.getElementById('kv-mwst-pct');
   if (mwstEl) mwstEl.value = '20';
+  var fzM = document.getElementById('kv-fz-marke');
+  if (fzM) fzM.value = '';
+  var fzK = document.getElementById('kv-fz-kz');
+  if (fzK) fzK.value = '';
 
   kvItemsData = [{auftrag:'', beschreibung:'', anzahl:1, betrag:0}];
   kvPopulatePartner();
@@ -3173,6 +3174,8 @@ function saveKV() {
   var datum = (document.getElementById('kv-datum') || {value:''}).value;
   var pinfo = (document.getElementById('kv-pinfo') || {value:''}).value.trim();
   var mwstPct = parseFloat((document.getElementById('kv-mwst-pct') || {value:'20'}).value) || 20;
+  var fzMarke = ((document.getElementById('kv-fz-marke') || {value:''}).value).trim();
+  var fzKz    = ((document.getElementById('kv-fz-kz')    || {value:''}).value).trim();
   var partnerSel = document.getElementById('kv-partner');
   var partnerId = partnerSel ? partnerSel.value : '';
   var partnerName = '';
@@ -3187,6 +3190,8 @@ function saveKV() {
     partner_name: partnerName,
     partner_info: pinfo,
     datum: datum || new Date().toISOString().split('T')[0],
+    fz_marke: fzMarke,
+    fz_kz: fzKz,
     items: kvItemsData.map(function(it){
       return {auftrag: it.auftrag, beschreibung: it.beschreibung, anzahl: parseFloat(it.anzahl)||1, betrag: parseFloat(it.betrag)||0};
     }),
@@ -3196,6 +3201,24 @@ function saveKV() {
   var d = getDB();
   if (!d.kostenvoranschlaege) d.kostenvoranschlaege = [];
   d.kostenvoranschlaege.push(kv);
+  // Fahrzeug im Register speichern wenn Kennzeichen angegeben
+  if (fzKz) {
+    var exists = d.fahrzeuge.find(function(f){
+      return (f.kennzeichen || '').trim().toUpperCase() === fzKz.toUpperCase();
+    });
+    if (!exists) {
+      d.fahrzeuge.push({
+        id: uid(),
+        kundeId: partnerId || '',
+        kundeName: partnerName || '',
+        marke: fzMarke,
+        kennzeichen: fzKz,
+        vin: '',
+        erstzulassung: '',
+        erstellt: new Date().toISOString()
+      });
+    }
+  }
   saveDB(d);
   genKVPDF(kv);
   var alertEl = document.getElementById('kv-alerts');
@@ -3211,11 +3234,11 @@ function genKVPDF(kv) {
   var xL = 25;
   var xR = 190;
 
-  doc.setFont(ff, 'normal');
-  doc.setTextColor(30, 30, 30);
+  // Font (Malgun Gothic falls verfügbar)
+  var headerFont = 'helvetica';
 
   function setF(sz, bold) {
-    doc.setFont(ff, bold ? 'bold' : 'normal');
+    doc.setFont(headerFont, 'normal');
     doc.setFontSize(sz || 11);
     doc.setTextColor(30, 30, 30);
   }
@@ -3224,8 +3247,7 @@ function genKVPDF(kv) {
     return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
   }
 
-  // Font (Malgun Gothic falls verfügbar)
-  var headerFont = 'helvetica';
+  doc.setTextColor(30, 30, 30);
   if (_malgunFontB64) {
     try {
       doc.addFileToVFS('malgunsl.ttf', _malgunFontB64);
@@ -3247,10 +3269,10 @@ function genKVPDF(kv) {
 
   // DATUM rechtsbündig
   setF(11);
-  doc.text('Graz, ' + fmtD(kv.datum), xR, 56, {align:'right'});
+  doc.text('Graz, ' + fmtD(kv.datum), xR, 66, {align:'right'});
 
   // KUNDENDATEN
-  var y = 67;
+  var y = 77;
   setF(11);
   if (kv.partner_info) {
     kv.partner_info.split('\n').forEach(function(l){ if(l.trim()){ doc.text(l.trim(), xL, y); y += 6; } });
@@ -3259,6 +3281,13 @@ function genKVPDF(kv) {
   // TITEL
   setF(13, true);
   doc.text('Kostenvoranschlag', xL, 119);
+
+  // FAHRZEUG
+  setF(11, false);
+  if (kv.fz_marke || kv.fz_kz) {
+    var fzStr = (kv.fz_marke || '') + (kv.fz_kz ? (kv.fz_marke ? ', ' : '') + 'amtl. KZ ' + kv.fz_kz : '');
+    doc.text(fzStr, xL, 128);
+  }
 
   // TABELLE HEADER
   var tY = 130;
@@ -3287,15 +3316,14 @@ function genKVPDF(kv) {
   (kv.items || []).forEach(function(it) {
     var lineNetto = (parseFloat(it.anzahl) || 1) * (parseFloat(it.betrag) || 0);
     nettoTotal += lineNetto;
-    doc.setFont(ff, 'normal');
-    doc.setFontSize(10);
+    setF(10, false);
     var auftragStr = (it.auftrag || '').substring(0, 22);
     doc.text(auftragStr, col1, yCur);
     var beschStr = (it.beschreibung || '').substring(0, 38);
     doc.text(beschStr, col2, yCur);
     doc.text(String(it.anzahl || 1), col3, yCur, {align:'center'});
     doc.text(numFmt(lineNetto), col4, yCur, {align:'right'});
-    yCur += 7;
+    yCur += 8;
   });
 
   // Linie unter Tabelle
@@ -3331,20 +3359,20 @@ function genKVPDF(kv) {
   doc.setDrawColor(30, 30, 30);
   doc.setLineWidth(0.3);
   doc.line(lineStart, yCur + 2, lineStart + 20, yCur + 2);
-  yCur += 5;
+  yCur += 10;
   setF(11, false);
   doc.text('Gesamtbetrag (Brutto)', xL, yCur);
   doc.text('€', xEuro, yCur);
   doc.text(numFmt(gesamtAmt), xR, yCur, {align:'right'});
   doc.setLineWidth(0.3);
   doc.line(lineStart, yCur + 2, lineStart + 20, yCur + 2);
-  doc.line(lineStart, yCur + 3, lineStart + 20, yCur + 3);
+  doc.line(lineStart, yCur + 3.5, lineStart + 20, yCur + 3.5);
 
-  // HINWEIS
+  // HINWEIS linksbündig
   setF(9, false);
   doc.setTextColor(80, 80, 80);
-  doc.text('Dies ist ein unverbindlicher Kostenvoranschlag und keine Rechnung.', 105, 255, {align:'center'});
-  doc.text('Änderungen vorbehalten.', 105, 261, {align:'center'});
+  doc.text('Dies ist ein unverbindlicher Kostenvoranschlag und keine Rechnung.', xL, 255);
+  doc.text('Änderungen vorbehalten.', xL, 261);
 
   // FUßZEILE (ohne "Zahlbar sofort..." — nur Bankdaten + UID)
   doc.setFont(headerFont, 'normal');
