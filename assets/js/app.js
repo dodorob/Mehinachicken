@@ -1542,6 +1542,17 @@ function genPDFData(inv) {
     return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
   }
 
+  // ── KOPFZEILE ─────────────────────────────────────────────────────
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(30, 30, 30);
+  doc.setFontSize(36);
+  doc.text('KAROSSERIEFACHWERKSTÄTTE', 105, 15, {align:'center'});
+  doc.setFontSize(28);
+  doc.text('KURT LINDITSCH GMBH', 105, 27, {align:'center'});
+  doc.setFontSize(18);
+  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 37, {align:'center'});
+  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 45, {align:'center'});
+
   // ── TABELLE AMOUNT BLOCK ──────────────────────────────────────────
   // All € symbols at fixed xEuro, all numbers right-aligned at xR
   // xEuro is calculated once from the widest number in the table
@@ -1677,23 +1688,13 @@ function genPDFData(inv) {
   doc.line(lineStart, yGesamtAmt + 2, lineStart + 20, yGesamtAmt + 2);
   doc.line(lineStart, yGesamtAmt + 3, lineStart + 20, yGesamtAmt + 3);
 
-  var yEnd = yGesamt + 16;
-
-  // ── ABSCHLUSS ─────────────────────────────────────────────────────
-  setF(10); doc.setTextColor(100,100,100);
-  if (inv.zahlungsart !== 'kassa' && v.showBank && v.iban) {
-    var bp = [v.bname||'', v.iban?'IBAN: '+v.iban:'', v.bic?'BIC: '+v.bic:''].filter(Boolean);
-    doc.text(bp.join('  |  '), xL, yEnd); yEnd += 5;
-  }
-  if (v.zb) { doc.text(v.zb, xL, yEnd); yEnd += 5; }
-  yEnd += 5;
-  setF(11); doc.setTextColor(60,60,60);
-  doc.text(v.f1 || 'Vielen Dank fuer Ihren Auftrag!', xL, yEnd);
-
-  if (v.firma) {
-    setF(8); doc.setTextColor(180,180,180);
-    doc.text(v.firma, 105, 290, {align:'center'});
-  }
+  // ── FUßZEILE ──────────────────────────────────────────────────────
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(16);
+  doc.setTextColor(30, 30, 30);
+  doc.text('Zahlbar sofort nach Erhalt der Rechnung netto Kassa!', 105, 270, {align:'center'});
+  doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 277, {align:'center'});
+  doc.text('UID-Nr. ATU 58185458, LG f. ZRS GRAZ, FN 251792h', 105, 284, {align:'center'});
 
   // Build filename: Rechnung_X_Kennzeichen.pdf
   var fnNr = inv.nummer || '';
