@@ -23,6 +23,12 @@ jobs:
         with:
           node-version: 24
 
+      - name: Set CI version and updater publish target
+        shell: bash
+        run: |
+          node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json','utf8')); const [owner, repo]=process.env.GITHUB_REPOSITORY.split('/'); const [major='1', minor='0']=pkg.version.split('.'); pkg.version=`${major}.${minor}.${process.env.GITHUB_RUN_NUMBER}`; pkg.build=pkg.build||{}; pkg.build.publish=[{provider:'github', owner, repo, releaseType:'release'}]; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2)+'\\n');"
+          node -e "const pkg=require('./package.json'); console.log('Building version', pkg.version, 'for', process.env.GITHUB_REPOSITORY);"
+
       - name: Install dependencies
         run: npm install
 
@@ -32,14 +38,16 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-exe
-          path: dist/*.exe
+          name: windows-build-output
+          path: dist/*
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: auto-release-${{ github.run_number }}
+          tag_name: v${{ github.run_number }}
           name: Auto Release ${{ github.run_number }}
           generate_release_notes: true
           files: |
             dist/*.exe
+            dist/*.yml
+            dist/*.blockmap
