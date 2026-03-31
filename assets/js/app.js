@@ -1542,8 +1542,18 @@ function genPDFData(inv) {
     return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
   }
 
+  // ── SCHRIFTART Malgun Gothic Semilight (falls verfügbar) ──────────
+  var headerFont = 'helvetica';
+  if (_malgunFontB64) {
+    try {
+      doc.addFileToVFS('malgunsl.ttf', _malgunFontB64);
+      doc.addFont('malgunsl.ttf', 'MalgunGothicSL', 'normal');
+      headerFont = 'MalgunGothicSL';
+    } catch(e) { headerFont = 'helvetica'; }
+  }
+
   // ── KOPFZEILE ─────────────────────────────────────────────────────
-  doc.setFont('helvetica', 'normal');
+  doc.setFont(headerFont, 'normal');
   doc.setTextColor(30, 30, 30);
   doc.setFontSize(36);
   doc.text('KAROSSERIEFACHWERKSTÄTTE', 105, 15, {align:'center'});
@@ -1689,7 +1699,7 @@ function genPDFData(inv) {
   doc.line(lineStart, yGesamtAmt + 3, lineStart + 20, yGesamtAmt + 3);
 
   // ── FUßZEILE ──────────────────────────────────────────────────────
-  doc.setFont('helvetica', 'normal');
+  doc.setFont(headerFont, 'normal');
   doc.setFontSize(16);
   doc.setTextColor(30, 30, 30);
   doc.text('Zahlbar sofort nach Erhalt der Rechnung netto Kassa!', 105, 270, {align:'center'});
@@ -2756,7 +2766,17 @@ function updateItemExtra(i, field, value) {
   }
 }
 
-window.onload = function(){ renderDash(); };
+var _malgunFontB64 = null;
+
+function loadMalgunFont() {
+  if (window.electronAPI && window.electronAPI.readFont) {
+    window.electronAPI.readFont('malgunsl.ttf').then(function(b64) {
+      if (b64) _malgunFontB64 = b64;
+    });
+  }
+}
+
+window.onload = function(){ loadMalgunFont(); renderDash(); };
 
 var _motTimer = null;
 var _motCanvas = null;

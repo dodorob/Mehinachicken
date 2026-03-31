@@ -1,4 +1,5 @@
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+const fs = require('fs');
 let autoUpdater = null;
 try {
   ({ autoUpdater } = require('electron-updater'));
@@ -14,6 +15,7 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
 
@@ -47,6 +49,16 @@ function setupAutoUpdates() {
     console.error('Auto-update check failed:', error);
   });
 }
+
+ipcMain.handle('read-font', async (event, fontName) => {
+  try {
+    const fontPath = path.join('C:\\Windows\\Fonts', fontName);
+    const data = fs.readFileSync(fontPath);
+    return data.toString('base64');
+  } catch (e) {
+    return null;
+  }
+});
 
 app.whenReady().then(() => {
   createWindow();
