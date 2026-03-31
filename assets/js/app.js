@@ -3011,7 +3011,7 @@ function dlExportYear(fmt){
 // ================================================================
 // KOSTENVORANSCHLAG
 // ================================================================
-var kvItemsData = [{auftrag:'', fz_marke:'', fz_kz:'', beschreibung:'', anzahl:1, betrag:0}];
+var kvItemsData = [{fz_marke:'', fz_kz:'', beschreibung:'', anzahl:1, betrag:0}];
 
 function initKVForm() {
   var now = new Date().toISOString().split('T')[0];
@@ -3028,7 +3028,7 @@ function initKVForm() {
   var mwstEl = document.getElementById('kv-mwst-pct');
   if (mwstEl) mwstEl.value = '20';
 
-  kvItemsData = [{auftrag:'', fz_marke:'', fz_kz:'', beschreibung:'', anzahl:1, betrag:0}];
+  kvItemsData = [{fz_marke:'', fz_kz:'', beschreibung:'', anzahl:1, betrag:0}];
   kvPopulatePartner();
   renderKVItems();
   renderKVSum();
@@ -3107,8 +3107,8 @@ function openKVKundeModal() {
 function renderKVItems() {
   var container = document.getElementById('kv-items-container');
   if (!container) return;
+  var badgeStyle = 'font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid #ddd;background:#fff;cursor:pointer;font-family:sans-serif;color:#555';
   var html = '<table class="itbl" style="width:100%"><thead><tr>' +
-    '<th style="text-align:left;padding:8px 6px">Auftrag</th>' +
     '<th style="text-align:left;padding:8px 6px">Fahrzeug (Marke / KZ)</th>' +
     '<th style="text-align:left;padding:8px 6px">Beschreibung</th>' +
     '<th style="text-align:center;padding:8px 6px;width:70px">Anzahl</th>' +
@@ -3117,12 +3117,19 @@ function renderKVItems() {
     '</tr></thead><tbody>';
   kvItemsData.forEach(function(it, i) {
     html += '<tr>' +
-      '<td style="padding:4px 4px"><input type="text" value="' + esc(it.auftrag) + '" data-i="' + i + '" class="kv-auftrag" placeholder="z.B. Karosserie" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif"></td>' +
       '<td style="padding:4px 4px">' +
         '<input type="text" value="' + esc(it.fz_marke || '') + '" data-i="' + i + '" class="kv-fz-marke" placeholder="Marke/Modell" style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;margin-bottom:3px;display:block">' +
         '<input type="text" value="' + esc(it.fz_kz || '') + '" data-i="' + i + '" class="kv-fz-kz" placeholder="Kennzeichen" style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;display:block">' +
       '</td>' +
-      '<td style="padding:4px 4px"><input type="text" value="' + esc(it.beschreibung) + '" data-i="' + i + '" class="kv-beschreibung" placeholder="Details..." style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif"></td>' +
+      '<td style="padding:4px 4px">' +
+        '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">' +
+          '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="Links"  style="' + badgeStyle + '">Links</button>' +
+          '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="Rechts" style="' + badgeStyle + '">Rechts</button>' +
+          '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="Vorne"  style="' + badgeStyle + '">Vorne</button>' +
+          '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="Hinten" style="' + badgeStyle + '">Hinten</button>' +
+        '</div>' +
+        '<input type="text" value="' + esc(it.beschreibung) + '" data-i="' + i + '" class="kv-beschreibung" placeholder="Details..." style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif">' +
+      '</td>' +
       '<td style="padding:4px 4px"><input type="number" value="' + it.anzahl + '" data-i="' + i + '" class="kv-anzahl" min="1" step="1" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;text-align:center"></td>' +
       '<td style="padding:4px 4px"><input type="number" value="' + (it.betrag || '') + '" data-i="' + i + '" class="kv-betrag" min="0" step="0.01" placeholder="0,00" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;text-align:right"></td>' +
       '<td style="padding:4px 2px;text-align:center">' +
@@ -3131,9 +3138,6 @@ function renderKVItems() {
   });
   html += '</tbody></table>';
   container.innerHTML = html;
-  container.querySelectorAll('.kv-auftrag').forEach(function(el){
-    el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].auftrag = this.value; renderKVSum(); };
-  });
   container.querySelectorAll('.kv-fz-marke').forEach(function(el){
     el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].fz_marke = this.value; };
   });
@@ -3142,6 +3146,18 @@ function renderKVItems() {
   });
   container.querySelectorAll('.kv-beschreibung').forEach(function(el){
     el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].beschreibung = this.value; renderKVSum(); };
+  });
+  container.querySelectorAll('.kv-pos-badge').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var idx = parseInt(this.dataset.i);
+      var val = this.dataset.val;
+      var input = container.querySelector('.kv-beschreibung[data-i="' + idx + '"]');
+      var cur = input ? input.value : (kvItemsData[idx].beschreibung || '');
+      var sep = (cur && !cur.endsWith(' ')) ? ' ' : '';
+      var newVal = cur + sep + val;
+      if (input) input.value = newVal;
+      kvItemsData[idx].beschreibung = newVal;
+    });
   });
   container.querySelectorAll('.kv-anzahl').forEach(function(el){
     el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].anzahl = parseFloat(this.value) || 1; renderKVSum(); };
@@ -3158,7 +3174,7 @@ function renderKVItems() {
 }
 
 function addKVItem() {
-  kvItemsData.push({auftrag:'', fz_marke:'', fz_kz:'', beschreibung:'', anzahl:1, betrag:0});
+  kvItemsData.push({fz_marke:'', fz_kz:'', beschreibung:'', anzahl:1, betrag:0});
   renderKVItems();
 }
 
@@ -3197,7 +3213,6 @@ function saveKV() {
     datum: datum || new Date().toISOString().split('T')[0],
     items: kvItemsData.map(function(it){
       return {
-        auftrag: it.auftrag,
         fz_marke: (it.fz_marke || '').trim(),
         fz_kz: (it.fz_kz || '').trim(),
         beschreibung: it.beschreibung,
@@ -3278,6 +3293,12 @@ function genKVPDF(kv) {
   doc.text('Jägerweg 42, A-8041 GRAZ', 105, 43, {align:'center'});
   doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 49, {align:'center'});
 
+  // TITEL — fett, oben (vor Datum)
+  doc.setFont(ff, 'bold');
+  doc.setFontSize(14);
+  doc.setTextColor(30, 30, 30);
+  doc.text('Kostenvoranschlag', xL, 57);
+
   // DATUM rechtsbündig
   setF(11);
   doc.text('Graz, ' + fmtD(kv.datum), xR, 66, {align:'right'});
@@ -3289,21 +3310,17 @@ function genKVPDF(kv) {
     kv.partner_info.split('\n').forEach(function(l){ if(l.trim()){ doc.text(l.trim(), xL, y); y += 6; } });
   }
 
-  // TITEL
-  setF(13, true);
-  doc.text('Kostenvoranschlag', xL, 119);
-
   // TABELLE HEADER
-  var tY = 130;
-  var col1 = xL;        // Auftrag (+ Fahrzeug darunter)
-  var col2 = xL + 55;   // Beschreibung
-  var col3 = xL + 120;  // Anzahl (zentriert)
+  var tY = 119;
+  var col1 = xL;        // Fahrzeug
+  var col2 = xL + 60;   // Beschreibung
+  var col3 = xL + 130;  // Anzahl (zentriert)
   var col4 = xR;        // Betrag (rechtsbündig)
 
   doc.setFillColor(245, 245, 242);
   doc.rect(xL, tY - 5, xR - xL, 8, 'F');
   setF(10, true);
-  doc.text('Auftrag', col1, tY);
+  doc.text('Fahrzeug', col1, tY);
   doc.text('Beschreibung', col2, tY);
   doc.text('Anzahl', col3, tY, {align:'center'});
   doc.text('Betrag (€)', col4, tY, {align:'right'});
@@ -3321,27 +3338,21 @@ function genKVPDF(kv) {
     var lineNetto = (parseFloat(it.anzahl) || 1) * (parseFloat(it.betrag) || 0);
     nettoTotal += lineNetto;
     setF(10, false);
-    // Auftrag
-    var auftragStr = (it.auftrag || '').substring(0, 28);
-    doc.text(auftragStr, col1, yCur);
-    // Fahrzeug (unter Auftrag, klein)
+    // Fahrzeug: Marke auf Zeile 1, KZ auf Zeile 2 (gleiche Schriftgröße)
     var hasFz = it.fz_marke || it.fz_kz;
-    if (hasFz) {
-      var fzStr = (it.fz_marke || '').substring(0, 14);
-      if (it.fz_kz) fzStr += (fzStr ? ' ' : '') + it.fz_kz.substring(0, 10);
-      doc.setFontSize(8);
-      doc.setTextColor(100, 100, 100);
-      doc.text(fzStr, col1, yCur + 4.5);
-      setF(10, false);
+    if (it.fz_marke) doc.text(it.fz_marke.substring(0, 22), col1, yCur);
+    if (it.fz_kz) {
+      var kzY = it.fz_marke ? yCur + 5 : yCur;
+      doc.text(it.fz_kz.substring(0, 14), col1, kzY);
     }
     // Beschreibung
-    var beschStr = (it.beschreibung || '').substring(0, 32);
+    var beschStr = (it.beschreibung || '').substring(0, 35);
     doc.text(beschStr, col2, yCur);
     // Anzahl
     doc.text(String(it.anzahl || 1), col3, yCur, {align:'center'});
     // Betrag
     doc.text(numFmt(lineNetto), col4, yCur, {align:'right'});
-    yCur += hasFz ? 11 : 8;
+    yCur += (it.fz_marke && it.fz_kz) ? 13 : 8;
   });
 
   // Linie unter Tabelle
