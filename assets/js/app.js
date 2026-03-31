@@ -1566,12 +1566,12 @@ function genPDFData(inv) {
   doc.setFont(headerFont, 'normal');
   doc.setTextColor(30, 30, 30);
   doc.setFontSize(28);
-  doc.text('KAROSSERIEFACHWERKSTÄTTE', 105, 15, {align:'center'});
+  doc.text('KAROSSERIEFACHWERKSTÄTTE', 105, 30, {align:'center'});
   doc.setFontSize(20);
-  doc.text('KURT LINDITSCH GMBH', 105, 25, {align:'center'});
+  doc.text('KURT LINDITSCH GMBH', 105, 40, {align:'center'});
   doc.setFontSize(10);
-  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 33, {align:'center'});
-  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 39, {align:'center'});
+  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 48, {align:'center'});
+  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 54, {align:'center'});
 
   // ── TABELLE AMOUNT BLOCK ──────────────────────────────────────────
   // All € symbols at fixed xEuro, all numbers right-aligned at xR
