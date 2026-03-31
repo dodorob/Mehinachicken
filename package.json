@@ -5,11 +5,12 @@
   "main": "electron-main.js",
   "private": true,
   "scripts": {
-    "build:win": "electron-builder --win nsis --publish never"
+    "build:win": "electron-builder --win nsis"
   },
   "devDependencies": {
     "electron": "^32.2.0",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "electron-updater": "^6.3.9"
   },
   "build": {
     "appId": "com.mehinachicken.app",
