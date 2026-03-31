@@ -9,8 +9,7 @@
   },
   "devDependencies": {
     "electron": "^32.2.0",
-    "electron-builder": "^24.13.3",
-    "electron-updater": "^6.3.9"
+    "electron-builder": "^24.13.3"
   },
   "build": {
     "appId": "com.mehinachicken.app",
@@ -37,5 +36,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
   }
 }
