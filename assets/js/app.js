@@ -347,10 +347,8 @@ function setActiveChip(typ, activeId) {
 // DASHBOARD
 // ================================================================
 function initEinstellungen() {
-  // Speicherpfade laden
-  var arEl=document.getElementById('path-ar'), erEl=document.getElementById('path-er');
-  if(arEl) arEl.value=localStorage.getItem('bp_path_ar')||'';
-  if(erEl) erEl.value=localStorage.getItem('bp_path_er')||'';
+  // Speicherpfade laden und Buttons verdrahten
+  initPathSettings();
 
   // Fixkosten laden und rendern
   renderFixkostenList();
