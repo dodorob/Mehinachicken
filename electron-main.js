@@ -8,6 +8,12 @@ try {
 }
 const path = require('path');
 
+function sendUpdateStatus(event, payload) {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send('update-status', { event, ...payload });
+  });
+}
+
 function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1200,
@@ -27,10 +33,52 @@ function setupAutoUpdates() {
     return;
   }
 
-  autoUpdater.autoDownload = true;
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
+  autoUpdater.on('checking-for-update', () => {
+    sendUpdateStatus('checking');
+  });
+
+  autoUpdater.on('update-available', async (info) => {
+    sendUpdateStatus('available', { version: info && info.version ? info.version : '' });
+
+    const result = await dialog.showMessageBox({
+      type: 'info',
+      buttons: ['Download starten', 'Später'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Update verfügbar',
+      message: 'Eine neue Version ist verfügbar. Möchten Sie den Download jetzt starten?',
+    });
+
+    if (result.response === 0) {
+      autoUpdater.downloadUpdate().catch((error) => {
+        console.error('Update download failed:', error);
+        sendUpdateStatus('error', { message: error.message });
+      });
+    } else {
+      sendUpdateStatus('download-deferred');
+    }
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    sendUpdateStatus('not-available');
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    sendUpdateStatus('download-progress', {
+      percent: progress && typeof progress.percent === 'number' ? progress.percent : 0,
+    });
+  });
+
+  autoUpdater.on('error', (error) => {
+    console.error('Auto-update error:', error);
+    sendUpdateStatus('error', { message: error.message });
+  });
+
   autoUpdater.on('update-downloaded', async () => {
+    sendUpdateStatus('downloaded');
     const result = await dialog.showMessageBox({
       type: 'info',
       buttons: ['Restart now', 'Later'],
@@ -45,10 +93,39 @@ function setupAutoUpdates() {
     }
   });
 
-  autoUpdater.checkForUpdatesAndNotify().catch((error) => {
+  autoUpdater.checkForUpdates().catch((error) => {
     console.error('Auto-update check failed:', error);
+    sendUpdateStatus('error', { message: error.message });
   });
 }
+
+ipcMain.handle('app-version', async () => {
+  return app.getVersion();
+});
+
+ipcMain.handle('check-for-updates', async () => {
+  if (!app.isPackaged || !autoUpdater) {
+    return { ok: false, message: 'Updates sind nur in der installierten App verfügbar.' };
+  }
+  try {
+    await autoUpdater.checkForUpdates();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, message: error.message };
+  }
+});
+
+ipcMain.handle('download-update', async () => {
+  if (!app.isPackaged || !autoUpdater) {
+    return { ok: false, message: 'Updates sind nur in der installierten App verfügbar.' };
+  }
+  try {
+    await autoUpdater.downloadUpdate();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, message: error.message };
+  }
+});
 
 ipcMain.handle('read-font', async (event, fontName) => {
   try {
