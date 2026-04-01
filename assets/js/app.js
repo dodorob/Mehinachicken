@@ -25,7 +25,8 @@ function getDB() {
     d.counters.ausgang = arCount + 1;
   }
   if (!d.vorlage)    d.vorlage    = dfV();
-  if (!d.todos)      d.todos      = [];
+  if (!d.todos)         d.todos         = [];
+  if (!d.todos_archiv)  d.todos_archiv  = [];
   return d;
 }
 
@@ -2469,26 +2470,48 @@ function renderTodos() {
   }
   var wdhMap = {keine:'–',taeglich:'Täglich',woechentlich:'Wöchentlich',monatlich:'Monatlich',jaehrlich:'Jährlich'};
   var now = new Date();
+  var today = now.toISOString().split('T')[0];
+  // Auto-clear erledigt_am when repeat is due again
+  var changed = false;
+  todos.forEach(function(t){
+    if (t.erledigt_am && t.faellig && t.faellig <= today) {
+      t.erledigt_am = null;
+      changed = true;
+    }
+  });
+  if (changed) saveDB(d);
+
   var rows = todos.map(function(t, i){
     var fd = t.faellig ? new Date(t.faellig) : null;
     var tage = fd ? Math.round((fd - now) / 86400000) : null;
-    var tageStr = '';
-    if (fd) {
-      tageStr = tage < 0
+    var wiederholung = t.wiederholung && t.wiederholung !== 'keine';
+    var recentlyDone = !!t.erledigt_am;
+
+    var statusStr = '';
+    if (recentlyDone && fd) {
+      var wdhNote = tage <= 0
+        ? '<span style="color:var(--accent);font-weight:600">Heute wieder fällig</span>'
+        : '<span style="color:var(--t2)">Wird wiederholt in <strong>'+tage+'</strong> Tag'+(tage===1?'':'en')+'</span>';
+      statusStr = '<span style="color:var(--accent);font-size:11px">&#10003; Erledigt</span> &nbsp;·&nbsp; ' + wdhNote;
+    } else if (fd) {
+      statusStr = tage < 0
         ? '<span style="color:#E24B4A;font-weight:600">'+Math.abs(tage)+' T. überfällig</span>'
-        : tage === 0 ? '<span style="color:#BA7517;font-weight:600">Heute</span>'
+        : tage === 0 ? '<span style="color:#BA7517;font-weight:600">Heute fällig</span>'
         : '<span style="color:#f59e0b">in '+tage+' T.</span>';
     }
-    var done = t.erledigt;
-    return '<tr class="todo-row" draggable="true" data-i="'+i+'" data-id="'+t.id+'" style="'+(done?'opacity:0.45;text-decoration:line-through':'')+'">' +
+
+    var rowStyle = recentlyDone ? 'opacity:0.6;' : '';
+    return '<tr class="todo-row" draggable="true" data-i="'+i+'" data-id="'+t.id+'" style="'+rowStyle+'">' +
       '<td style="padding:10px 6px;width:20px;cursor:grab;color:#bbb;font-size:18px;user-select:none">&#8942;</td>' +
-      '<td style="padding:10px 8px;font-family:sans-serif;font-size:13px">'+esc(t.titel)+'</td>' +
+      '<td style="padding:10px 8px;font-family:sans-serif;font-size:13px">' +
+        (recentlyDone ? '<s>' : '') + esc(t.titel) + (recentlyDone ? '</s>' : '') +
+      '</td>' +
       '<td style="padding:10px 8px;font-size:13px;font-family:sans-serif">'+fmtD(t.faellig)+'</td>' +
-      '<td style="padding:10px 8px">'+tageStr+'</td>' +
+      '<td style="padding:10px 8px;font-size:12px">'+statusStr+'</td>' +
       '<td style="padding:10px 8px;font-size:11px;color:var(--t3);font-family:sans-serif">'+(wdhMap[t.wiederholung]||'–')+'</td>' +
       '<td style="padding:10px 8px;white-space:nowrap">' +
-        '<button class="btn" style="font-size:11px;padding:3px 8px;margin-right:4px" onclick="openTodoForm(\''+t.id+'\')">&#9998;</button>' +
-        (done ? '' : '<button class="btn primary" style="font-size:11px;padding:3px 8px;margin-right:4px" onclick="erledigeTodo(\''+t.id+'\')">&#10003; Erledigt</button>') +
+        (!recentlyDone ? '<button class="btn" style="font-size:11px;padding:3px 8px;margin-right:4px" onclick="openTodoForm(\''+t.id+'\')">&#9998;</button>' : '') +
+        (!recentlyDone ? '<button class="btn primary" style="font-size:11px;padding:3px 8px;margin-right:4px" onclick="erledigeTodo(\''+t.id+'\')">&#10003; Erledigt</button>' : '') +
         '<button class="btn danger" style="font-size:11px;padding:3px 8px" onclick="deleteTodo(\''+t.id+'\')">✕</button>' +
       '</td>' +
     '</tr>';
@@ -2581,22 +2604,81 @@ function saveTodo(id) {
 function erledigeTodo(id) {
   var d = getDB();
   if (!d.todos) return;
+  if (!d.todos_archiv) d.todos_archiv = [];
   var idx = d.todos.findIndex(function(t){ return t.id===id; });
   if (idx === -1) return;
   var t = d.todos[idx];
-  t.erledigt = true;
-  // Bei Wiederholung neues Todo anlegen
+  var today = new Date().toISOString().split('T')[0];
+
   if (t.wiederholung && t.wiederholung !== 'keine' && t.faellig) {
+    // Repeating: advance date, keep in list, show "wird wiederholt" note
     var nd = new Date(t.faellig);
     if (t.wiederholung === 'taeglich')     nd.setDate(nd.getDate()+1);
     if (t.wiederholung === 'woechentlich') nd.setDate(nd.getDate()+7);
     if (t.wiederholung === 'monatlich')    nd.setMonth(nd.getMonth()+1);
     if (t.wiederholung === 'jaehrlich')    nd.setFullYear(nd.getFullYear()+1);
-    d.todos.push({id:uid(), titel:t.titel, faellig:nd.toISOString().split('T')[0], wiederholung:t.wiederholung, erledigt:false, erstellt:new Date().toISOString()});
+    t.faellig = nd.toISOString().split('T')[0];
+    t.erledigt_am = today;
+  } else {
+    // Non-repeating: archive it
+    t.erledigt_am = today;
+    d.todos_archiv.push(t);
+    d.todos.splice(idx, 1);
   }
   saveDB(d);
   renderTodos();
   renderDash();
+}
+
+function openTodoArchiv() {
+  var d = getDB();
+  var archiv = (d.todos_archiv || []).slice().reverse();
+  var wdhMap = {keine:'–',taeglich:'Täglich',woechentlich:'Wöchentlich',monatlich:'Monatlich',jaehrlich:'Jährlich'};
+  var rows = archiv.length
+    ? archiv.map(function(t){
+        return '<tr>' +
+          '<td style="padding:8px 10px;font-family:sans-serif;font-size:13px"><s>'+esc(t.titel)+'</s></td>' +
+          '<td style="padding:8px 10px;font-size:12px;font-family:sans-serif;color:var(--t3)">'+fmtD(t.erledigt_am)+'</td>' +
+          '<td style="padding:8px 10px;font-size:11px;color:var(--t3);font-family:sans-serif">'+(wdhMap[t.wiederholung]||'–')+'</td>' +
+          '<td style="padding:8px 10px;white-space:nowrap">' +
+            '<button class="btn" style="font-size:11px;padding:3px 8px;margin-right:4px" onclick="restoreTodo(\''+t.id+'\')">&#8629; Wiederherstellen</button>' +
+            '<button class="btn danger" style="font-size:11px;padding:3px 8px" onclick="deleteArchivTodo(\''+t.id+'\')">✕</button>' +
+          '</td>' +
+        '</tr>';
+      }).join('')
+    : '<tr><td colspan="4" style="padding:2rem;text-align:center;font-family:sans-serif;color:var(--t3)">Keine archivierten To-Dos</td></tr>';
+
+  var body = '<h3 style="margin:0 0 1rem;font-family:sans-serif">&#128193; Archiv</h3>' +
+    '<table style="width:100%"><thead><tr>' +
+      '<th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--t2)">Titel</th>' +
+      '<th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--t2)">Erledigt am</th>' +
+      '<th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--t2)">Typ</th>' +
+      '<th></th>' +
+    '</tr></thead><tbody>'+rows+'</tbody></table>';
+  document.getElementById('modal-body').innerHTML = body;
+  openModal();
+}
+
+function restoreTodo(id) {
+  var d = getDB();
+  if (!d.todos_archiv) return;
+  var idx = d.todos_archiv.findIndex(function(t){ return t.id===id; });
+  if (idx === -1) return;
+  var t = d.todos_archiv[idx];
+  t.erledigt_am = null;
+  d.todos.push(t);
+  d.todos_archiv.splice(idx, 1);
+  saveDB(d);
+  openTodoArchiv();
+  renderTodos();
+}
+
+function deleteArchivTodo(id) {
+  if (!confirm('Dauerhaft löschen?')) return;
+  var d = getDB();
+  d.todos_archiv = (d.todos_archiv||[]).filter(function(t){ return t.id!==id; });
+  saveDB(d);
+  openTodoArchiv();
 }
 
 function deleteTodo(id) {
