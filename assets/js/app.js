@@ -2807,31 +2807,12 @@ function initPathSettings() {
     if (info) { info.textContent = '✓ Gespeichert: ' + v; setTimeout(function(){ info.textContent = ''; }, 2500); }
   }
 
-  function setupBrowse(btnId, inputId, key, infoId) {
-    var btn = document.getElementById(btnId);
-    if (!btn) return;
-    btn.onclick = function() {
-      if (window.electronAPI && window.electronAPI.selectFolder) {
-        window.electronAPI.selectFolder().then(function(folder) {
-          if (!folder) return;
-          var el = document.getElementById(inputId);
-          if (el) el.value = folder;
-          savePath(inputId, key, infoId);
-        });
-      }
-    };
-  }
-
   var btnARSave = document.getElementById('btn-path-ar-save');
   var btnERSave = document.getElementById('btn-path-er-save');
   var btnKVSave = document.getElementById('btn-path-kv-save');
   if (btnARSave) btnARSave.onclick = function(){ savePath('path-ar', 'bp_path_ar', 'path-ar-info'); };
   if (btnERSave) btnERSave.onclick = function(){ savePath('path-er', 'bp_path_er', 'path-er-info'); };
   if (btnKVSave) btnKVSave.onclick = function(){ savePath('path-kv', 'bp_path_kv', 'path-kv-info'); };
-
-  setupBrowse('btn-path-ar-browse', 'path-ar', 'bp_path_ar', 'path-ar-info');
-  setupBrowse('btn-path-er-browse', 'path-er', 'bp_path_er', 'path-er-info');
-  setupBrowse('btn-path-kv-browse', 'path-kv', 'bp_path_kv', 'path-kv-info');
 }
 
 function initEx() {
