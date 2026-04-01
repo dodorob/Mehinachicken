@@ -1891,9 +1891,9 @@ function genPDFData(inv) {
   // Kopfzeilen-Unterkante
   doc.line(xL, yHdrBottom, xR, yHdrBottom);
 
-  // Spaltenteiler (nur Kopf + Item-Bereich)
-  doc.line(xCol2, yT, xCol2, yGapBottom);
-  doc.line(xCol3, yT, xCol3, yGapBottom);
+  // Spaltenteiler (volle Höhe inkl. Summenzeilen)
+  doc.line(xCol2, yT, xCol2, yGesamtBottom);
+  doc.line(xCol3, yT, xCol3, yGesamtBottom);
 
   // Zeilentrenner für Items (grau)
   for (var ri = 0; ri < itemRows.length; ri++) {
@@ -1903,18 +1903,20 @@ function genPDFData(inv) {
   // Leerzeilen-Unterkante (grau)
   doc.line(xL, yGapBottom, xR, yGapBottom);
 
-  // Netto-Unterkante: schwarz einfach
-  blackLine();
+  // Netto-Unterkante: grau (volle Breite) + schwarz einfach nur in Betrag-Spalte
   doc.line(xL, yNettoBottom, xR, yNettoBottom);
+  blackLine();
+  doc.line(xCol3, yNettoBottom, xR, yNettoBottom);
 
   // MwSt-Unterkante: grau
   grayLine();
   doc.line(xL, yMwstBottom, xR, yMwstBottom);
 
-  // Gesamt-Unterkante: schwarz doppelt
+  // Gesamt-Unterkante: grau (volle Breite) + schwarz doppelt nur in Betrag-Spalte
+  doc.line(xL, yGesamtBottom, xR, yGesamtBottom);
   blackLine();
-  doc.line(xL, yGesamtBottom,     xR, yGesamtBottom);
-  doc.line(xL, yGesamtBottom + 1, xR, yGesamtBottom + 1);
+  doc.line(xCol3, yGesamtBottom,     xR, yGesamtBottom);
+  doc.line(xCol3, yGesamtBottom + 1, xR, yGesamtBottom + 1);
 
   // ── Kopfzeile Text ───────────────────────────────────────────────
   doc.setFont('times', 'normal');
