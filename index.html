@@ -36,7 +36,6 @@
     <a id="nav-export"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#8595;</span> Monatsexport</a>
     <div class="sec">Planung</div>
     <a id="nav-todos"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9989;</span> To-Do-Liste</a>
-    <a id="nav-todos-archiv"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128193;</span> Todo Archiv</a>
     <div class="sec">Einstellungen</div>
     <a id="nav-einstellungen"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9881;</span> Einstellungen</a>
   </nav>
@@ -665,16 +664,9 @@
 </div>
 
 <div class="page" id="page-todos">
-  <div class="topbar"><h2>To-Do-Liste</h2><div class="tba"><button class="btn primary" onclick="openTodoForm()">+ Neues To-Do</button></div></div>
+  <div class="topbar"><h2>To-Do-Liste</h2><div class="tba"><button class="btn" onclick="openTodoArchiv()">&#128193; Archivierte Todos</button><button class="btn primary" onclick="openTodoForm()">+ Neues To-Do</button></div></div>
   <div class="content">
     <div class="card" style="padding:0"><div id="todos-list"></div></div>
-  </div>
-</div>
-
-<div class="page" id="page-todos-archiv">
-  <div class="topbar"><h2>Todo Archiv</h2></div>
-  <div class="content">
-    <div class="card" style="padding:0"><div id="todos-archiv-list"></div></div>
   </div>
 </div>
 

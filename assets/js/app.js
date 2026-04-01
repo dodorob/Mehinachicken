@@ -236,7 +236,6 @@ function SP(id) {
   }
 
   if (id === 'todos')         renderTodos();
-  if (id === 'todos-archiv')  renderTodosArchiv();
   if (id === 'einstellungen') initEinstellungen();
 }
 
@@ -256,7 +255,6 @@ document.getElementById('nav-bankbuch').addEventListener('click',     function()
 document.getElementById('nav-kassabuch').addEventListener('click',    function(){ SP('kassabuch'); });
 document.getElementById('nav-export').addEventListener('click',       function(){ SP('export'); });
 document.getElementById('nav-todos').addEventListener('click',         function(){ SP('todos'); });
-document.getElementById('nav-todos-archiv').addEventListener('click',  function(){ SP('todos-archiv'); });
 document.getElementById('nav-kostenvoranschlag').addEventListener('click', function(){ SP('kostenvoranschlag'); });
 document.getElementById('nav-kv-liste').addEventListener('click', function(){ SP('kv-liste'); });
 
@@ -2632,33 +2630,30 @@ function erledigeTodo(id) {
   renderDash();
 }
 
-function renderTodosArchiv() {
-  var el = document.getElementById('todos-archiv-list');
-  if (!el) return;
+function openTodoArchiv() {
   var d = getDB();
   var archiv = (d.todos_archiv || []).slice().reverse();
   var wdhMap = {keine:'–',taeglich:'Täglich',woechentlich:'Wöchentlich',monatlich:'Monatlich',jaehrlich:'Jährlich'};
-  if (!archiv.length) {
-    el.innerHTML = '<div class="empty" style="padding:2rem">Keine archivierten To-Dos vorhanden.</div>';
-    return;
-  }
-  var rows = archiv.map(function(t){
-    return '<tr>' +
-      '<td style="padding:10px 14px;font-family:sans-serif;font-size:13px"><s>'+esc(t.titel)+'</s></td>' +
-      '<td style="padding:10px 10px;font-size:12px;font-family:sans-serif;color:var(--t3)">'+fmtD(t.erledigt_am)+'</td>' +
-      '<td style="padding:10px 10px;font-size:11px;color:var(--t3);font-family:sans-serif">'+(wdhMap[t.wiederholung]||'–')+'</td>' +
-      '<td style="padding:10px 10px;white-space:nowrap">' +
-        '<button class="btn" style="font-size:11px;padding:3px 8px;margin-right:4px" onclick="restoreTodo(\''+t.id+'\')">&#8629; Wiederherstellen</button>' +
-        '<button class="btn danger" style="font-size:11px;padding:3px 8px" onclick="deleteArchivTodo(\''+t.id+'\')">✕</button>' +
-      '</td>' +
-    '</tr>';
-  }).join('');
-  el.innerHTML = '<table style="width:100%"><thead><tr>' +
-    '<th style="padding:10px 14px;text-align:left">Titel</th>' +
-    '<th style="padding:10px 10px;text-align:left">Erledigt am</th>' +
-    '<th style="padding:10px 10px;text-align:left">Wiederholung</th>' +
-    '<th></th>' +
-  '</tr></thead><tbody>'+rows+'</tbody></table>';
+  var rows = archiv.length
+    ? archiv.map(function(t){
+        return '<tr>' +
+          '<td style="padding:9px 10px;font-family:sans-serif;font-size:13px"><s>'+esc(t.titel)+'</s></td>' +
+          '<td style="padding:9px 10px;font-size:12px;font-family:sans-serif;color:var(--t3)">'+fmtD(t.erledigt_am)+'</td>' +
+          '<td style="padding:9px 10px;font-size:11px;color:var(--t3);font-family:sans-serif">'+(wdhMap[t.wiederholung]||'–')+'</td>' +
+          '<td style="padding:9px 10px;white-space:nowrap">' +
+            '<button class="btn" style="font-size:11px;padding:3px 8px;margin-right:4px" onclick="restoreTodo(\''+t.id+'\')">&#8629; Wiederherstellen</button>' +
+            '<button class="btn danger" style="font-size:11px;padding:3px 8px" onclick="deleteArchivTodo(\''+t.id+'\')">✕</button>' +
+          '</td>' +
+        '</tr>';
+      }).join('')
+    : '<tr><td colspan="4" style="padding:2rem;text-align:center;font-family:sans-serif;color:var(--t3)">Keine archivierten To-Dos vorhanden.</td></tr>';
+
+  document.getElementById('modal-body').innerHTML =
+    '<h3 style="margin:0 0 1rem;font-family:sans-serif">&#128193; Archivierte Todos</h3>' +
+    '<table style="width:100%"><thead><tr>' +
+      '<th>Titel</th><th>Erledigt am</th><th>Wiederholung</th><th></th>' +
+    '</tr></thead><tbody>'+rows+'</tbody></table>';
+  openModal();
 }
 
 function restoreTodo(id) {
@@ -2671,7 +2666,8 @@ function restoreTodo(id) {
   d.todos.push(t);
   d.todos_archiv.splice(idx, 1);
   saveDB(d);
-  renderTodosArchiv();
+  openTodoArchiv();
+  renderTodos();
 }
 
 function deleteArchivTodo(id) {
@@ -2679,7 +2675,7 @@ function deleteArchivTodo(id) {
   var d = getDB();
   d.todos_archiv = (d.todos_archiv||[]).filter(function(t){ return t.id!==id; });
   saveDB(d);
-  renderTodosArchiv();
+  openTodoArchiv();
 }
 
 function deleteTodo(id) {
