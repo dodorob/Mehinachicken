@@ -4,6 +4,8 @@
 var STORE_KEY = 'buchpro_v1';
 var POS_BADGES_KEY = 'bp_pos_badges';
 var POS_BADGES_DEFAULT = ['Links','Rechts','Vorne','Hinten'];
+var updateStatusUnsubscribe = null;
+var updateUiWired = false;
 
 function getPosBadges() {
   try {
@@ -437,7 +439,101 @@ function showPosBadgesInfo(msg) {
   setTimeout(function(){ el.textContent = ''; }, 2000);
 }
 
+function setUpdateInfo(msg, isError) {
+  var infoEl = document.getElementById('update-info');
+  if (!infoEl) return;
+  infoEl.style.color = isError ? 'var(--danger)' : 'var(--accent)';
+  infoEl.textContent = msg || '';
+}
+
+function handleUpdateStatus(payload) {
+  var dlBtn = document.getElementById('btn-download-update');
+  if (!payload) return;
+
+  if (payload.event === 'checking') {
+    if (dlBtn) dlBtn.style.display = 'none';
+    setUpdateInfo('Suche nach Updates...');
+  } else if (payload.event === 'available') {
+    if (dlBtn) dlBtn.style.display = 'inline-block';
+    var nextVersion = payload.version ? (' v' + payload.version) : '';
+    setUpdateInfo('Update verfügbar' + nextVersion + '. Bitte Download starten.');
+  } else if (payload.event === 'not-available') {
+    if (dlBtn) dlBtn.style.display = 'none';
+    setUpdateInfo('Keine Updates verfügbar.');
+  } else if (payload.event === 'download-deferred') {
+    if (dlBtn) dlBtn.style.display = 'inline-block';
+    setUpdateInfo('Download wurde verschoben.');
+  } else if (payload.event === 'download-progress') {
+    if (dlBtn) dlBtn.style.display = 'none';
+    setUpdateInfo('Download läuft: ' + Math.round(payload.percent || 0) + '%');
+  } else if (payload.event === 'downloaded') {
+    if (dlBtn) dlBtn.style.display = 'none';
+    setUpdateInfo('Update geladen. Bitte App neu starten, wenn Sie dazu aufgefordert werden.');
+  } else if (payload.event === 'error') {
+    if (dlBtn) dlBtn.style.display = 'inline-block';
+    setUpdateInfo('Update-Fehler: ' + (payload.message || 'Unbekannter Fehler'), true);
+  }
+}
+
+function initUpdateSettings() {
+  var api = window.electronAPI;
+  var versionEl = document.getElementById('current-version');
+  var checkBtn = document.getElementById('btn-check-updates');
+  var dlBtn = document.getElementById('btn-download-update');
+
+  if (!api || !api.getAppVersion) {
+    if (versionEl) versionEl.textContent = 'Browser-Version';
+    if (checkBtn) checkBtn.disabled = true;
+    if (dlBtn) dlBtn.style.display = 'none';
+    setUpdateInfo('Update-Funktion nur in der Desktop-App verfügbar.');
+    return;
+  }
+
+  api.getAppVersion().then(function(version){
+    if (versionEl) versionEl.textContent = version;
+  }).catch(function(){
+    if (versionEl) versionEl.textContent = 'unbekannt';
+  });
+
+  if (!updateUiWired) {
+    if (checkBtn) {
+      checkBtn.onclick = function() {
+        setUpdateInfo('Suche nach Updates...');
+        api.checkForUpdates().then(function(result){
+          if (!result || !result.ok) {
+            setUpdateInfo((result && result.message) ? result.message : 'Update-Prüfung fehlgeschlagen.', true);
+          }
+        }).catch(function(err){
+          setUpdateInfo('Update-Prüfung fehlgeschlagen: ' + err.message, true);
+        });
+      };
+    }
+
+    if (dlBtn) {
+      dlBtn.onclick = function() {
+        setUpdateInfo('Update-Download wird gestartet...');
+        api.downloadUpdate().then(function(result){
+          if (!result || !result.ok) {
+            setUpdateInfo((result && result.message) ? result.message : 'Download fehlgeschlagen.', true);
+          }
+        }).catch(function(err){
+          setUpdateInfo('Download fehlgeschlagen: ' + err.message, true);
+        });
+      };
+    }
+
+    updateUiWired = true;
+  }
+
+  if (updateStatusUnsubscribe) {
+    updateStatusUnsubscribe();
+  }
+  updateStatusUnsubscribe = api.onUpdateStatus(handleUpdateStatus);
+}
+
 function initEinstellungen() {
+  initUpdateSettings();
+
   // Speicherpfade laden und Buttons verdrahten
   initPathSettings();
 
