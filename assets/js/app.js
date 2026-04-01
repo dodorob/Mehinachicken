@@ -25,6 +25,7 @@ function getDB() {
     d.counters.ausgang = arCount + 1;
   }
   if (!d.vorlage)    d.vorlage    = dfV();
+  if (!d.todos)      d.todos      = [];
   return d;
 }
 
@@ -233,6 +234,7 @@ function SP(id) {
     if (skv) skv.oninput = function(){ renderKVListe(); };
   }
 
+  if (id === 'todos')         renderTodos();
   if (id === 'einstellungen') initEinstellungen();
 }
 
@@ -251,6 +253,7 @@ document.getElementById('nav-finanzen').addEventListener('click',     function()
 document.getElementById('nav-bankbuch').addEventListener('click',     function(){ SP('bankbuch'); });
 document.getElementById('nav-kassabuch').addEventListener('click',    function(){ SP('kassabuch'); });
 document.getElementById('nav-export').addEventListener('click',       function(){ SP('export'); });
+document.getElementById('nav-todos').addEventListener('click',         function(){ SP('todos'); });
 document.getElementById('nav-kostenvoranschlag').addEventListener('click', function(){ SP('kostenvoranschlag'); });
 document.getElementById('nav-kv-liste').addEventListener('click', function(){ SP('kv-liste'); });
 
@@ -369,6 +372,16 @@ function initEinstellungen() {
     renderFixkostenList();
   };
 
+  var vlEl = document.getElementById('todo-vorlauf');
+  if (vlEl) vlEl.value = localStorage.getItem('bp_todo_vorlauf') || '7';
+  var vlBtn = document.getElementById('btn-todo-vorlauf-save');
+  if (vlBtn) vlBtn.onclick = function(){
+    var v = parseInt((document.getElementById('todo-vorlauf')||{value:'7'}).value) || 7;
+    localStorage.setItem('bp_todo_vorlauf', String(v));
+    var info = document.getElementById('todo-vorlauf-info');
+    if (info) { info.textContent = '✓ Gespeichert: ' + v + ' Tage'; setTimeout(function(){ info.textContent = ''; }, 2000); }
+  };
+
   var btnSave = document.getElementById('btn-save-fixkosten');
   if(btnSave) btnSave.onclick = function(){
     var rows = document.querySelectorAll('.fk-row');
@@ -419,6 +432,10 @@ function renderFixkostenList() {
     var opts = '<option value="">Jeden Monat</option>' +
       MONTHS.map(function(m,mi){ return '<option value="'+(mi+1)+'"'+(String(mi+1)===selVal?' selected':'')+'>'+m+'</option>'; }).join('');
     return '<div class="fk-row" style="display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap">' +
+      '<div style="display:flex;flex-direction:column;gap:2px">' +
+        '<button class="btn fk-up" data-i="'+i+'" style="padding:2px 7px;font-size:11px;line-height:1" title="Nach oben">▲</button>' +
+        '<button class="btn fk-dn" data-i="'+i+'" style="padding:2px 7px;font-size:11px;line-height:1" title="Nach unten">▼</button>' +
+      '</div>' +
       '<input class="fk-name" placeholder="Bezeichnung (z.B. 13. Gehalt)" value="'+esc(item.name||'')+'" style="flex:2;min-width:140px;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:sans-serif">' +
       '<input class="fk-betrag" type="number" placeholder="0.00" value="'+(item.betrag||'')+'" min="0" step="0.01" style="flex:1;min-width:90px;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:sans-serif">' +
       '<span style="font-family:sans-serif;font-size:13px;color:#666;white-space:nowrap">€</span>' +
@@ -427,17 +444,43 @@ function renderFixkostenList() {
     '</div>';
   }).join('');
 
+  function readFkFromDOM() {
+    var rows = [];
+    document.querySelectorAll('.fk-row').forEach(function(row){
+      var name = row.querySelector('.fk-name').value.trim();
+      var betrag = parseFloat(row.querySelector('.fk-betrag').value)||0;
+      var monatEl = row.querySelector('.fk-monat');
+      var monat = monatEl ? (parseInt(monatEl.value)||null) : null;
+      rows.push({name:name, betrag:betrag, monat:monat});
+    });
+    return rows;
+  }
+
+  el.querySelectorAll('.fk-up').forEach(function(btn){
+    btn.onclick = function(){
+      var idx = parseInt(this.dataset.i);
+      if (idx === 0) return;
+      var fk2 = readFkFromDOM();
+      var tmp = fk2[idx-1]; fk2[idx-1] = fk2[idx]; fk2[idx] = tmp;
+      saveFixkosten(fk2);
+      renderFixkostenList();
+    };
+  });
+
+  el.querySelectorAll('.fk-dn').forEach(function(btn){
+    btn.onclick = function(){
+      var idx = parseInt(this.dataset.i);
+      var fk2 = readFkFromDOM();
+      if (idx >= fk2.length-1) return;
+      var tmp = fk2[idx+1]; fk2[idx+1] = fk2[idx]; fk2[idx] = tmp;
+      saveFixkosten(fk2);
+      renderFixkostenList();
+    };
+  });
+
   el.querySelectorAll('.fk-del').forEach(function(btn){
     btn.onclick = function(){
-      // Read current DOM values before deleting
-      var fk2 = [];
-      document.querySelectorAll('.fk-row').forEach(function(row){
-        var name = row.querySelector('.fk-name').value.trim();
-        var betrag = parseFloat(row.querySelector('.fk-betrag').value)||0;
-        var monatEl = row.querySelector('.fk-monat');
-        var monat = monatEl ? (parseInt(monatEl.value)||null) : null;
-        fk2.push({name:name, betrag:betrag, monat:monat});
-      });
+      var fk2 = readFkFromDOM();
       fk2.splice(parseInt(this.dataset.i), 1);
       saveFixkosten(fk2);
       renderFixkostenList();
@@ -708,6 +751,37 @@ function renderDash() {
       '</tr>';
     }).join('');
     rec.innerHTML = '<table><thead><tr><th>Nr.</th><th>Partner</th><th>Typ</th><th style="text-align:right">Betrag</th><th>Fälligkeit</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }
+
+  // Fällige Todos
+  var todosEl = document.getElementById('d-todos');
+  if (todosEl) {
+    var vorlauf = parseInt(localStorage.getItem('bp_todo_vorlauf') || '7');
+    var inV = new Date(now.getTime() + vorlauf*86400000);
+    var dueTodos = (d.todos || []).filter(function(t){
+      return !t.erledigt && t.faellig && new Date(t.faellig) <= inV;
+    }).sort(function(a,b){ return new Date(a.faellig)-new Date(b.faellig); });
+    if (!dueTodos.length) {
+      todosEl.innerHTML = '<div class="empty">Keine fälligen To-Dos in den nächsten ' + vorlauf + ' Tagen ✓</div>';
+    } else {
+      var trows = dueTodos.map(function(t){
+        var fd = new Date(t.faellig);
+        var tage = Math.round((fd - now) / 86400000);
+        var tageStr = tage < 0
+          ? '<span style="color:#E24B4A;font-weight:600">'+Math.abs(tage)+' Tage überfällig</span>'
+          : tage === 0 ? '<span style="color:#BA7517;font-weight:600">Heute fällig</span>'
+          : '<span style="color:#f59e0b;font-weight:600">in '+tage+' Tag(en)</span>';
+        var wdh = {keine:'–',taeglich:'Täglich',woechentlich:'Wöchentlich',monatlich:'Monatlich',jaehrlich:'Jährlich'};
+        return '<tr>'+
+          '<td>'+esc(t.titel)+'</td>'+
+          '<td>'+fmtD(t.faellig)+'</td>'+
+          '<td>'+tageStr+'</td>'+
+          '<td style="font-size:11px;color:var(--t3)">'+(wdh[t.wiederholung]||'–')+'</td>'+
+          '<td><button class="btn primary" style="font-size:11px;padding:3px 10px" onclick="erledigeTodo(\''+t.id+'\')">Erledigt</button></td>'+
+        '</tr>';
+      }).join('');
+      todosEl.innerHTML = '<table><thead><tr><th>Titel</th><th>Fällig</th><th>Fälligkeit</th><th>Wiederholung</th><th></th></tr></thead><tbody>'+trows+'</tbody></table>';
+    }
   }
 }
 
@@ -2367,6 +2441,135 @@ function renderFin() {
     return '<tr><td class="mono">' + inv.nummer + '</td><td>' + sBadge(inv.typ==='ausgang'?'Ausgang':'Eingang') + '</td><td>' + (inv.partner_name||'—') + '</td><td style="color:' + (od?'#E24B4A':'') + '">' + fmtD(inv.faellig) + '</td><td>' + fmt(brutto(inv)) + '</td><td>' + sBadge(inv.status) + '</td></tr>';
   }).join('');
   op.innerHTML = '<table><thead><tr><th>Nr.</th><th>Typ</th><th>Partner</th><th>Fällig</th><th>Betrag</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+// ================================================================
+// TODOS
+// ================================================================
+var TODO_WDH = [
+  {val:'keine',       lbl:'Keine'},
+  {val:'taeglich',    lbl:'Täglich'},
+  {val:'woechentlich',lbl:'Wöchentlich'},
+  {val:'monatlich',   lbl:'Monatlich'},
+  {val:'jaehrlich',   lbl:'Jährlich'}
+];
+
+function renderTodos() {
+  var d = getDB();
+  var el = document.getElementById('todos-list');
+  if (!el) return;
+  var todos = d.todos || [];
+  if (!todos.length) {
+    el.innerHTML = '<div class="empty" style="padding:2rem">Keine To-Dos vorhanden. Klicken Sie auf „+ Neues To-Do".</div>';
+    return;
+  }
+  var wdhMap = {keine:'–',taeglich:'Täglich',woechentlich:'Wöchentlich',monatlich:'Monatlich',jaehrlich:'Jährlich'};
+  var now = new Date();
+  var rows = todos.map(function(t){
+    var fd = t.faellig ? new Date(t.faellig) : null;
+    var tage = fd ? Math.round((fd - now) / 86400000) : null;
+    var tageStr = '';
+    if (fd) {
+      tageStr = tage < 0
+        ? '<span style="color:#E24B4A;font-weight:600">'+Math.abs(tage)+' T. überfällig</span>'
+        : tage === 0 ? '<span style="color:#BA7517;font-weight:600">Heute</span>'
+        : '<span style="color:#f59e0b">in '+tage+' T.</span>';
+    }
+    var done = t.erledigt;
+    return '<tr style="'+(done?'opacity:0.45;text-decoration:line-through':'')+'">' +
+      '<td style="padding:10px 14px;font-family:sans-serif;font-size:13px">'+esc(t.titel)+'</td>' +
+      '<td style="padding:10px 8px;font-size:13px;font-family:sans-serif">'+fmtD(t.faellig)+'</td>' +
+      '<td style="padding:10px 8px">'+tageStr+'</td>' +
+      '<td style="padding:10px 8px;font-size:11px;color:var(--t3);font-family:sans-serif">'+(wdhMap[t.wiederholung]||'–')+'</td>' +
+      '<td style="padding:10px 8px;white-space:nowrap">' +
+        '<button class="btn" style="font-size:11px;padding:3px 8px;margin-right:4px" onclick="openTodoForm(\''+t.id+'\')">&#9998;</button>' +
+        (done ? '' : '<button class="btn primary" style="font-size:11px;padding:3px 8px;margin-right:4px" onclick="erledigeTodo(\''+t.id+'\')">&#10003; Erledigt</button>') +
+        '<button class="btn danger" style="font-size:11px;padding:3px 8px" onclick="deleteTodo(\''+t.id+'\')">✕</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+  el.innerHTML = '<table style="width:100%"><thead><tr>' +
+    '<th style="padding:10px 14px;text-align:left">Titel</th>' +
+    '<th style="padding:10px 8px;text-align:left">Fällig am</th>' +
+    '<th style="padding:10px 8px;text-align:left">Fälligkeit</th>' +
+    '<th style="padding:10px 8px;text-align:left">Wiederholung</th>' +
+    '<th style="padding:10px 8px"></th>' +
+  '</tr></thead><tbody>'+rows+'</tbody></table>';
+}
+
+function openTodoForm(id) {
+  var d = getDB();
+  var t = id ? (d.todos||[]).find(function(x){ return x.id===id; }) : null;
+  var wdhOpts = TODO_WDH.map(function(w){
+    return '<option value="'+w.val+'"'+(t&&t.wiederholung===w.val?' selected':(!t&&w.val==='keine'?' selected':''))+'>'+w.lbl+'</option>';
+  }).join('');
+  var body = '<h3 style="margin:0 0 1rem;font-family:sans-serif">'+(id?'To-Do bearbeiten':'Neues To-Do')+'</h3>' +
+    '<div style="display:flex;flex-direction:column;gap:12px;font-family:sans-serif">' +
+      '<div><label style="font-size:12px;color:var(--t2);display:block;margin-bottom:4px">Titel</label>' +
+        '<input id="td-titel" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;box-sizing:border-box" value="'+esc(t?t.titel:'')+'"></div>' +
+      '<div><label style="font-size:12px;color:var(--t2);display:block;margin-bottom:4px">Fällig am</label>' +
+        '<input id="td-faellig" type="date" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;box-sizing:border-box" value="'+(t?t.faellig:'')+'"></div>' +
+      '<div><label style="font-size:12px;color:var(--t2);display:block;margin-bottom:4px">Wiederholung</label>' +
+        '<select id="td-wdh" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px">'+wdhOpts+'</select></div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">' +
+        '<button class="btn" onclick="closeModal()">Abbrechen</button>' +
+        '<button class="btn primary" onclick="saveTodo(\''+( id||'')+'\')">Speichern</button>' +
+      '</div>' +
+    '</div>';
+  document.getElementById('modal-body').innerHTML = body;
+  document.getElementById('modal-bg').style.display = 'flex';
+}
+
+function saveTodo(id) {
+  var titel   = (document.getElementById('td-titel')||{value:''}).value.trim();
+  var faellig = (document.getElementById('td-faellig')||{value:''}).value;
+  var wdh     = (document.getElementById('td-wdh')||{value:'keine'}).value;
+  if (!titel) { alert('Bitte Titel eingeben'); return; }
+  var d = getDB();
+  if (!d.todos) d.todos = [];
+  if (id) {
+    var idx = d.todos.findIndex(function(t){ return t.id===id; });
+    if (idx !== -1) {
+      d.todos[idx].titel = titel;
+      d.todos[idx].faellig = faellig;
+      d.todos[idx].wiederholung = wdh;
+      d.todos[idx].erledigt = false;
+    }
+  } else {
+    d.todos.push({id:uid(), titel:titel, faellig:faellig, wiederholung:wdh, erledigt:false, erstellt:new Date().toISOString()});
+  }
+  saveDB(d);
+  closeModal();
+  renderTodos();
+}
+
+function erledigeTodo(id) {
+  var d = getDB();
+  if (!d.todos) return;
+  var idx = d.todos.findIndex(function(t){ return t.id===id; });
+  if (idx === -1) return;
+  var t = d.todos[idx];
+  t.erledigt = true;
+  // Bei Wiederholung neues Todo anlegen
+  if (t.wiederholung && t.wiederholung !== 'keine' && t.faellig) {
+    var nd = new Date(t.faellig);
+    if (t.wiederholung === 'taeglich')     nd.setDate(nd.getDate()+1);
+    if (t.wiederholung === 'woechentlich') nd.setDate(nd.getDate()+7);
+    if (t.wiederholung === 'monatlich')    nd.setMonth(nd.getMonth()+1);
+    if (t.wiederholung === 'jaehrlich')    nd.setFullYear(nd.getFullYear()+1);
+    d.todos.push({id:uid(), titel:t.titel, faellig:nd.toISOString().split('T')[0], wiederholung:t.wiederholung, erledigt:false, erstellt:new Date().toISOString()});
+  }
+  saveDB(d);
+  renderTodos();
+  renderDash();
+}
+
+function deleteTodo(id) {
+  if (!confirm('To-Do wirklich löschen?')) return;
+  var d = getDB();
+  d.todos = (d.todos||[]).filter(function(t){ return t.id!==id; });
+  saveDB(d);
+  renderTodos();
 }
 
 // ================================================================
