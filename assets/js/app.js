@@ -2392,18 +2392,16 @@ function initPathSettings() {
   function setupBrowse(btnId, inputId, key, infoId) {
     var btn = document.getElementById(btnId);
     if (!btn) return;
-    if (window.electronAPI && window.electronAPI.selectFolder) {
-      btn.onclick = function() {
+    btn.onclick = function() {
+      if (window.electronAPI && window.electronAPI.selectFolder) {
         window.electronAPI.selectFolder().then(function(folder) {
           if (!folder) return;
           var el = document.getElementById(inputId);
           if (el) el.value = folder;
           savePath(inputId, key, infoId);
         });
-      };
-    } else {
-      btn.style.display = 'none';
-    }
+      }
+    };
   }
 
   var btnARSave = document.getElementById('btn-path-ar-save');
