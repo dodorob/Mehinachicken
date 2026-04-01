@@ -19,7 +19,8 @@
     <a id="nav-ausgang"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9723;</span> Ausgangsrechnungen</a>
     <a id="nav-eingang"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9724;</span> Eingangsrechnungen</a>
     <a id="nav-neu"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">+</span> Neue Rechnung</a>
-    <a id="nav-kostenvoranschlag"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128203;</span> Kostenvoranschlag</a>
+    <div class="sec">Kostenvoranschlag</div>
+    <a id="nav-kostenvoranschlag"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128203;</span> Neuer KV</a>
     <a id="nav-kv-liste"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128196;</span> Alle Angebote</a>
     <div class="sec">Fahrzeuge &amp; Kunden</div>
     <a id="nav-kunden"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9672;</span> Kunden</a>
@@ -33,6 +34,8 @@
     <a id="nav-bankbuch"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#127984;</span> Bankbuch</a>
     <a id="nav-kassabuch"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128181;</span> Kassabuch</a>
     <a id="nav-export"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#8595;</span> Monatsexport</a>
+    <div class="sec">Planung</div>
+    <a id="nav-todos"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9989;</span> To-Do-Liste</a>
     <div class="sec">Einstellungen</div>
     <a id="nav-einstellungen"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9881;</span> Einstellungen</a>
   </nav>
@@ -41,7 +44,7 @@
 
 <div class="page active" id="page-dashboard">
   <div class="topbar"><h2>Dashboard</h2><div class="tba"><button class="btn" onclick="showMotivation()" style="background:linear-gradient(135deg,#ff6b9d,#ff8e53);color:#fff;border:none;font-size:13px;padding:8px 16px;border-radius:20px;cursor:pointer">💪 Motivation</button></div></div>
-  <div class="content"><div id="d-alerts"></div><div class="grid4" id="d-metrics"></div><div class="grid2"><div class="card"><h3>Einnahmen &amp; Ausgaben (6 Monate)</h3><canvas id="cEA"></canvas></div><div class="card"><h3>USt.-Übersicht</h3><canvas id="cUST"></canvas></div></div><div class="card"><h3>Fällig in 3 Tagen</h3><div id="d-recent"></div></div></div>
+  <div class="content"><div id="d-alerts"></div><div class="grid4" id="d-metrics"></div><div class="grid2"><div class="card"><h3>Einnahmen &amp; Ausgaben (6 Monate)</h3><canvas id="cEA"></canvas></div><div class="card"><h3>USt.-Übersicht</h3><canvas id="cUST"></canvas></div></div><div class="grid2"><div class="card"><h3>Fällig in 3 Tagen</h3><div id="d-recent"></div></div><div class="card"><h3>&#9989; Fällige To-Dos</h3><div id="d-todos"></div></div></div></div>
 </div>
 
 <div class="page" id="page-ausgang">
@@ -589,16 +592,16 @@
     <div class="card">
       <h3>Speicherordner für PDFs</h3>
       <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin-bottom:1rem">
-        Der Browser speichert PDFs immer im Standard-Download-Ordner. Tragen Sie hier Ihre gewünschten Pfade ein — diese werden als Hinweis gespeichert. Um den tatsächlichen Download-Ordner zu ändern, stellen Sie das direkt in den Browser-Einstellungen (Chrome: ⋮ → Einstellungen → Downloads) ein.
+        Wählen Sie hier die Zielordner aus. PDFs werden beim Erstellen automatisch in den jeweiligen Ordner gespeichert.
       </p>
-      <div class="fr c2">
+      <div class="fr c2" style="gap:1rem">
         <div class="fg">
           <label>Pfad Ausgangsrechnungen (AR)</label>
           <div style="display:flex;gap:6px">
             <input type="text" id="path-ar" placeholder="z.B. C:\Buchhaltung\AR" style="flex:1">
             <button class="btn primary" id="btn-path-ar-save" style="white-space:nowrap">Speichern</button>
           </div>
-          <div style="font-size:11px;color:var(--t3);margin-top:4px" id="path-ar-info"></div>
+          <div style="font-size:11px;color:var(--accent);margin-top:4px" id="path-ar-info"></div>
         </div>
         <div class="fg">
           <label>Pfad Eingangsrechnungen (ER)</label>
@@ -606,12 +609,30 @@
             <input type="text" id="path-er" placeholder="z.B. C:\Buchhaltung\ER" style="flex:1">
             <button class="btn primary" id="btn-path-er-save" style="white-space:nowrap">Speichern</button>
           </div>
-          <div style="font-size:11px;color:var(--t3);margin-top:4px" id="path-er-info"></div>
+          <div style="font-size:11px;color:var(--accent);margin-top:4px" id="path-er-info"></div>
+        </div>
+        <div class="fg">
+          <label>Pfad Kostenvoranschläge (KV)</label>
+          <div style="display:flex;gap:6px">
+            <input type="text" id="path-kv" placeholder="z.B. C:\Buchhaltung\KV" style="flex:1">
+            <button class="btn primary" id="btn-path-kv-save" style="white-space:nowrap">Speichern</button>
+          </div>
+          <div style="font-size:11px;color:var(--accent);margin-top:4px" id="path-kv-info"></div>
         </div>
       </div>
-      <div class="alert info" style="margin-top:1rem">
-        &#9432; <strong>Anleitung:</strong> Öffnen Sie Chrome → Einstellungen → Erweitert → Downloads → Speicherort ändern auf Ihren gewünschten Ordner. Deaktivieren Sie „Vor dem Herunterladen fragen" damit PDFs direkt gespeichert werden.
+    </div>
+
+    <div class="card">
+      <h3>Positions-Vorschläge</h3>
+      <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin-bottom:1rem">
+        Diese Schnellauswahl-Buttons erscheinen im Rechnungsformular und im Kostenvoranschlag bei jeder Position.
+      </p>
+      <div id="pos-badges-list"></div>
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+        <input type="text" id="pos-badge-new" placeholder="Neuer Vorschlag..." style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:sans-serif;flex:1">
+        <button class="btn primary" id="btn-pos-badge-add">+ Hinzufügen</button>
       </div>
+      <div style="font-size:11px;color:var(--accent);margin-top:6px" id="pos-badges-info"></div>
     </div>
 
     <div class="card">
@@ -628,6 +649,19 @@
     </div>
 
     <div class="card">
+      <h3>To-Do Vorlauf</h3>
+      <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin-bottom:1rem">
+        Wie viele Tage im Voraus sollen To-Dos auf dem Dashboard angezeigt werden?
+      </p>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="number" id="todo-vorlauf" min="0" max="365" value="7" style="width:80px;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+        <span style="font-family:sans-serif;font-size:13px;color:var(--t2)">Tage</span>
+        <button class="btn primary" id="btn-todo-vorlauf-save">Speichern</button>
+      </div>
+      <div style="font-size:11px;color:var(--accent);margin-top:4px" id="todo-vorlauf-info"></div>
+    </div>
+
+    <div class="card">
       <h3>Daten</h3>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn" id="btn-export-data">&#8595; Alle Daten exportieren (JSON)</button>
@@ -636,6 +670,13 @@
       </div>
       <div id="data-import-info" style="font-family:sans-serif;font-size:12px;color:var(--accent);margin-top:8px;display:none"></div>
     </div>
+  </div>
+</div>
+
+<div class="page" id="page-todos">
+  <div class="topbar"><h2>To-Do-Liste</h2><div class="tba"><button class="btn" onclick="openTodoArchiv()">&#128193; Archivierte Todos</button><button class="btn primary" onclick="openTodoForm()">+ Neues To-Do</button></div></div>
+  <div class="content">
+    <div class="card" style="padding:0"><div id="todos-list"></div></div>
   </div>
 </div>
 

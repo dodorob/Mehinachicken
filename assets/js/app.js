@@ -2,6 +2,19 @@
 // DATA
 // ================================================================
 var STORE_KEY = 'buchpro_v1';
+var POS_BADGES_KEY = 'bp_pos_badges';
+var POS_BADGES_DEFAULT = ['Links','Rechts','Vorne','Hinten'];
+
+function getPosBadges() {
+  try {
+    var v = localStorage.getItem(POS_BADGES_KEY);
+    if (v) { var a = JSON.parse(v); if (Array.isArray(a) && a.length) return a; }
+  } catch(e) {}
+  return POS_BADGES_DEFAULT.slice();
+}
+function savePosBadges(arr) {
+  localStorage.setItem(POS_BADGES_KEY, JSON.stringify(arr));
+}
 
 function loadDB() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
@@ -25,6 +38,8 @@ function getDB() {
     d.counters.ausgang = arCount + 1;
   }
   if (!d.vorlage)    d.vorlage    = dfV();
+  if (!d.todos)         d.todos         = [];
+  if (!d.todos_archiv)  d.todos_archiv  = [];
   return d;
 }
 
@@ -64,6 +79,25 @@ function updateBeschDatalist() {
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).substr(2,5);
+}
+
+function savePDFToFolder(doc, filename, folderPath, fallback) {
+  if (folderPath && window.electronAPI && window.electronAPI.savePdfToPath) {
+    var b64 = doc.output('datauristring').split(',')[1];
+    window.electronAPI.savePdfToPath(folderPath, filename, b64).then(function(result) {
+      if (result && result.success) {
+        var n = document.createElement('div');
+        n.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;background:#0f6e56;color:#fff;padding:12px 20px;border-radius:8px;font-family:sans-serif;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,0.2)';
+        n.textContent = '\u2713 PDF gespeichert: ' + result.path;
+        document.body.appendChild(n);
+        setTimeout(function(){ n.remove(); }, 3500);
+      } else {
+        fallback();
+      }
+    });
+  } else {
+    fallback();
+  }
 }
 
 function nextNum(typ) {
@@ -214,6 +248,7 @@ function SP(id) {
     if (skv) skv.oninput = function(){ renderKVListe(); };
   }
 
+  if (id === 'todos')         renderTodos();
   if (id === 'einstellungen') initEinstellungen();
 }
 
@@ -232,6 +267,7 @@ document.getElementById('nav-finanzen').addEventListener('click',     function()
 document.getElementById('nav-bankbuch').addEventListener('click',     function(){ SP('bankbuch'); });
 document.getElementById('nav-kassabuch').addEventListener('click',    function(){ SP('kassabuch'); });
 document.getElementById('nav-export').addEventListener('click',       function(){ SP('export'); });
+document.getElementById('nav-todos').addEventListener('click',         function(){ SP('todos'); });
 document.getElementById('nav-kostenvoranschlag').addEventListener('click', function(){ SP('kostenvoranschlag'); });
 document.getElementById('nav-kv-liste').addEventListener('click', function(){ SP('kv-liste'); });
 
@@ -327,11 +363,100 @@ function setActiveChip(typ, activeId) {
 // ================================================================
 // DASHBOARD
 // ================================================================
+function renderPosBadgesList() {
+  var el = document.getElementById('pos-badges-list');
+  if (!el) return;
+  var badges = getPosBadges();
+  if (!badges.length) {
+    el.innerHTML = '<div style="font-family:sans-serif;font-size:13px;color:var(--t3);padding:6px 0">Keine Vorschläge eingetragen.</div>';
+    return;
+  }
+  var dragFrom = null;
+  el.innerHTML = badges.map(function(b, i){
+    return '<div class="pb-row" draggable="true" data-i="'+i+'" style="display:flex;gap:8px;align-items:center;margin-bottom:6px;border-radius:8px;transition:background .15s">' +
+      '<span style="cursor:grab;font-size:18px;color:#bbb;padding:0 2px;user-select:none;flex-shrink:0">&#8942;</span>' +
+      '<input class="pb-val" value="'+esc(b)+'" style="flex:1;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:sans-serif">' +
+      '<button class="btn" style="padding:4px 10px;font-size:12px" onclick="savePosBadgeEdit('+i+')">&#10003;</button>' +
+      '<button class="btn danger pb-del" data-i="'+i+'" style="padding:4px 10px;font-size:12px">✕</button>' +
+    '</div>';
+  }).join('');
+
+  el.querySelectorAll('.pb-row').forEach(function(row){
+    row.addEventListener('dragstart', function(e){
+      dragFrom = parseInt(this.dataset.i);
+      e.dataTransfer.effectAllowed = 'move';
+      var self = this; setTimeout(function(){ self.style.opacity='0.4'; }, 0);
+    });
+    row.addEventListener('dragend', function(){
+      this.style.opacity='';
+      el.querySelectorAll('.pb-row').forEach(function(r){ r.style.background=''; });
+    });
+    row.addEventListener('dragover', function(e){
+      e.preventDefault();
+      el.querySelectorAll('.pb-row').forEach(function(r){ r.style.background=''; });
+      this.style.background='#f0f9f5';
+    });
+    row.addEventListener('drop', function(e){
+      e.preventDefault();
+      var toIdx = parseInt(this.dataset.i);
+      if (dragFrom === null || dragFrom === toIdx) return;
+      var arr = getPosBadges();
+      var item = arr.splice(dragFrom, 1)[0];
+      arr.splice(toIdx, 0, item);
+      savePosBadges(arr);
+      renderPosBadgesList();
+    });
+  });
+
+  el.querySelectorAll('.pb-del').forEach(function(btn){
+    btn.onclick = function(){
+      var arr = getPosBadges();
+      arr.splice(parseInt(this.dataset.i), 1);
+      savePosBadges(arr);
+      renderPosBadgesList();
+      showPosBadgesInfo('Gelöscht');
+    };
+  });
+}
+
+function savePosBadgeEdit(i) {
+  var rows = document.querySelectorAll('#pos-badges-list .pb-row');
+  var arr = getPosBadges();
+  var newVal = rows[i] ? rows[i].querySelector('.pb-val').value.trim() : '';
+  if (!newVal) return;
+  arr[i] = newVal;
+  savePosBadges(arr);
+  renderPosBadgesList();
+  showPosBadgesInfo('Gespeichert');
+}
+
+function showPosBadgesInfo(msg) {
+  var el = document.getElementById('pos-badges-info');
+  if (!el) return;
+  el.textContent = '✓ ' + msg;
+  setTimeout(function(){ el.textContent = ''; }, 2000);
+}
+
 function initEinstellungen() {
-  // Speicherpfade laden
-  var arEl=document.getElementById('path-ar'), erEl=document.getElementById('path-er');
-  if(arEl) arEl.value=localStorage.getItem('bp_path_ar')||'';
-  if(erEl) erEl.value=localStorage.getItem('bp_path_er')||'';
+  // Speicherpfade laden und Buttons verdrahten
+  initPathSettings();
+
+  // Positions-Vorschläge
+  renderPosBadgesList();
+  var btnAdd = document.getElementById('btn-pos-badge-add');
+  if (btnAdd) btnAdd.onclick = function(){
+    var inp = document.getElementById('pos-badge-new');
+    var val = inp ? inp.value.trim() : '';
+    if (!val) return;
+    var arr = getPosBadges();
+    arr.push(val);
+    savePosBadges(arr);
+    if (inp) inp.value = '';
+    renderPosBadgesList();
+    showPosBadgesInfo('Hinzugefügt: ' + val);
+  };
+  var inp = document.getElementById('pos-badge-new');
+  if (inp) inp.onkeydown = function(e){ if (e.key === 'Enter') document.getElementById('btn-pos-badge-add').click(); };
 
   // Fixkosten laden und rendern
   renderFixkostenList();
@@ -350,6 +475,16 @@ function initEinstellungen() {
     fk.push({name:'', betrag:0});
     saveFixkosten(fk);
     renderFixkostenList();
+  };
+
+  var vlEl = document.getElementById('todo-vorlauf');
+  if (vlEl) vlEl.value = localStorage.getItem('bp_todo_vorlauf') || '7';
+  var vlBtn = document.getElementById('btn-todo-vorlauf-save');
+  if (vlBtn) vlBtn.onclick = function(){
+    var v = parseInt((document.getElementById('todo-vorlauf')||{value:'7'}).value) || 7;
+    localStorage.setItem('bp_todo_vorlauf', String(v));
+    var info = document.getElementById('todo-vorlauf-info');
+    if (info) { info.textContent = '✓ Gespeichert: ' + v + ' Tage'; setTimeout(function(){ info.textContent = ''; }, 2000); }
   };
 
   var btnSave = document.getElementById('btn-save-fixkosten');
@@ -401,7 +536,8 @@ function renderFixkostenList() {
     var selVal = item.monat ? String(item.monat) : '';
     var opts = '<option value="">Jeden Monat</option>' +
       MONTHS.map(function(m,mi){ return '<option value="'+(mi+1)+'"'+(String(mi+1)===selVal?' selected':'')+'>'+m+'</option>'; }).join('');
-    return '<div class="fk-row" style="display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap">' +
+    return '<div class="fk-row" draggable="true" data-i="'+i+'" style="display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap;border-radius:8px;transition:background .15s">' +
+      '<span class="drag-handle" style="cursor:grab;font-size:20px;color:#bbb;padding:0 2px;user-select:none;flex-shrink:0" title="Verschieben">&#8942;</span>' +
       '<input class="fk-name" placeholder="Bezeichnung (z.B. 13. Gehalt)" value="'+esc(item.name||'')+'" style="flex:2;min-width:140px;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:sans-serif">' +
       '<input class="fk-betrag" type="number" placeholder="0.00" value="'+(item.betrag||'')+'" min="0" step="0.01" style="flex:1;min-width:90px;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:sans-serif">' +
       '<span style="font-family:sans-serif;font-size:13px;color:#666;white-space:nowrap">€</span>' +
@@ -410,17 +546,50 @@ function renderFixkostenList() {
     '</div>';
   }).join('');
 
+  function readFkFromDOM() {
+    var rows = [];
+    document.querySelectorAll('#fixkosten-list .fk-row').forEach(function(row){
+      var name = row.querySelector('.fk-name').value.trim();
+      var betrag = parseFloat(row.querySelector('.fk-betrag').value)||0;
+      var monatEl = row.querySelector('.fk-monat');
+      var monat = monatEl ? (parseInt(monatEl.value)||null) : null;
+      rows.push({name:name, betrag:betrag, monat:monat});
+    });
+    return rows;
+  }
+
+  var fkDragFrom = null;
+  el.querySelectorAll('.fk-row').forEach(function(row){
+    row.addEventListener('dragstart', function(e){
+      fkDragFrom = parseInt(this.dataset.i);
+      e.dataTransfer.effectAllowed = 'move';
+      var self = this;
+      setTimeout(function(){ self.style.opacity = '0.4'; }, 0);
+    });
+    row.addEventListener('dragend', function(){
+      this.style.opacity = '';
+      el.querySelectorAll('.fk-row').forEach(function(r){ r.style.background=''; });
+    });
+    row.addEventListener('dragover', function(e){
+      e.preventDefault();
+      el.querySelectorAll('.fk-row').forEach(function(r){ r.style.background=''; });
+      this.style.background = '#f0f9f5';
+    });
+    row.addEventListener('drop', function(e){
+      e.preventDefault();
+      var toIdx = parseInt(this.dataset.i);
+      if (fkDragFrom === null || fkDragFrom === toIdx) return;
+      var fk2 = readFkFromDOM();
+      var item = fk2.splice(fkDragFrom, 1)[0];
+      fk2.splice(toIdx, 0, item);
+      saveFixkosten(fk2);
+      renderFixkostenList();
+    });
+  });
+
   el.querySelectorAll('.fk-del').forEach(function(btn){
     btn.onclick = function(){
-      // Read current DOM values before deleting
-      var fk2 = [];
-      document.querySelectorAll('.fk-row').forEach(function(row){
-        var name = row.querySelector('.fk-name').value.trim();
-        var betrag = parseFloat(row.querySelector('.fk-betrag').value)||0;
-        var monatEl = row.querySelector('.fk-monat');
-        var monat = monatEl ? (parseInt(monatEl.value)||null) : null;
-        fk2.push({name:name, betrag:betrag, monat:monat});
-      });
+      var fk2 = readFkFromDOM();
       fk2.splice(parseInt(this.dataset.i), 1);
       saveFixkosten(fk2);
       renderFixkostenList();
@@ -691,6 +860,37 @@ function renderDash() {
       '</tr>';
     }).join('');
     rec.innerHTML = '<table><thead><tr><th>Nr.</th><th>Partner</th><th>Typ</th><th style="text-align:right">Betrag</th><th>Fälligkeit</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }
+
+  // Fällige Todos
+  var todosEl = document.getElementById('d-todos');
+  if (todosEl) {
+    var vorlauf = parseInt(localStorage.getItem('bp_todo_vorlauf') || '7');
+    var inV = new Date(now.getTime() + vorlauf*86400000);
+    var dueTodos = (d.todos || []).filter(function(t){
+      return !t.erledigt && t.faellig && new Date(t.faellig) <= inV;
+    }).sort(function(a,b){ return new Date(a.faellig)-new Date(b.faellig); });
+    if (!dueTodos.length) {
+      todosEl.innerHTML = '<div class="empty">Keine fälligen To-Dos in den nächsten ' + vorlauf + ' Tagen ✓</div>';
+    } else {
+      var trows = dueTodos.map(function(t){
+        var fd = new Date(t.faellig);
+        var tage = Math.round((fd - now) / 86400000);
+        var tageStr = tage < 0
+          ? '<span style="color:#E24B4A;font-weight:600">'+Math.abs(tage)+' Tage überfällig</span>'
+          : tage === 0 ? '<span style="color:#BA7517;font-weight:600">Heute fällig</span>'
+          : '<span style="color:#f59e0b;font-weight:600">in '+tage+' Tag(en)</span>';
+        var wdh = {keine:'–',taeglich:'Täglich',woechentlich:'Wöchentlich',monatlich:'Monatlich',jaehrlich:'Jährlich'};
+        return '<tr>'+
+          '<td>'+esc(t.titel)+'</td>'+
+          '<td>'+fmtD(t.faellig)+'</td>'+
+          '<td>'+tageStr+'</td>'+
+          '<td style="font-size:11px;color:var(--t3)">'+(wdh[t.wiederholung]||'–')+'</td>'+
+          '<td><button class="btn primary" style="font-size:11px;padding:3px 10px" onclick="erledigeTodo(\''+t.id+'\')">Erledigt</button></td>'+
+        '</tr>';
+      }).join('');
+      todosEl.innerHTML = '<table><thead><tr><th>Titel</th><th>Fällig</th><th>Fälligkeit</th><th>Wiederholung</th><th></th></tr></thead><tbody>'+trows+'</tbody></table>';
+    }
   }
 }
 
@@ -1213,10 +1413,7 @@ function renderItems() {
         '<td colspan="7" style="padding:6px 8px 0;border-bottom:none">' +
           '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
             '<div style="font-size:10px;font-weight:500;color:#888;font-family:sans-serif;text-transform:uppercase;letter-spacing:.5px;background:#f0f0ec;padding:3px 8px;border-radius:4px;display:inline-block">Beschreibung</div>' +
-            '<button type="button" class="pos-badge" data-i="' + i + '" data-val="Links"   style="font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid #ddd;background:#fff;cursor:pointer;font-family:sans-serif;color:#555">Links</button>' +
-            '<button type="button" class="pos-badge" data-i="' + i + '" data-val="Rechts"  style="font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid #ddd;background:#fff;cursor:pointer;font-family:sans-serif;color:#555">Rechts</button>' +
-            '<button type="button" class="pos-badge" data-i="' + i + '" data-val="Vorne"   style="font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid #ddd;background:#fff;cursor:pointer;font-family:sans-serif;color:#555">Vorne</button>' +
-            '<button type="button" class="pos-badge" data-i="' + i + '" data-val="Hinten"  style="font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid #ddd;background:#fff;cursor:pointer;font-family:sans-serif;color:#555">Hinten</button>' +
+            getPosBadges().map(function(b){ return '<button type="button" class="pos-badge" data-i="' + i + '" data-val="'+esc(b)+'" style="font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid #ddd;background:#fff;cursor:pointer;font-family:sans-serif;color:#555">'+esc(b)+'</button>'; }).join('') +
           '</div>' +
         '</td>' +
       '</tr>' +
@@ -1525,6 +1722,20 @@ function genPDF(id) {
   var d = getDB(), inv = d.invoices.find(function(i){ return i.id===id; });
   if (!inv) return;
   if (inv.typ === 'eingang' && inv.file_b64) {
+    var erPath = localStorage.getItem('bp_path_er');
+    if (erPath && window.electronAPI && window.electronAPI.savePdfToPath) {
+      var erFilename = (inv.file_name || ('ER_' + (inv.partner_name || 'Rechnung').replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_') + '_' + (inv.datum || '') + '.pdf'));
+      var erB64 = inv.file_b64.indexOf(',') !== -1 ? inv.file_b64.split(',')[1] : inv.file_b64;
+      window.electronAPI.savePdfToPath(erPath, erFilename, erB64).then(function(result) {
+        if (result && result.success) {
+          var n = document.createElement('div');
+          n.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;background:#0f6e56;color:#fff;padding:12px 20px;border-radius:8px;font-family:sans-serif;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,0.2)';
+          n.textContent = '\u2713 Datei gespeichert: ' + result.path;
+          document.body.appendChild(n);
+          setTimeout(function(){ n.remove(); }, 3500);
+        }
+      });
+    }
     // Open the stored file
     var win = window.open();
     if (win) {
@@ -1737,7 +1948,8 @@ function genPDFData(inv) {
   var fnNum = fnMatch ? String(parseInt(fnMatch[1])) : fnNr;
   var fnKz = (inv.fz_kz || '').replace(/[^a-zA-Z0-9]/g, '');
   var filename = 'Rechnung_' + fnNum + (fnKz ? '_' + fnKz : '') + '.pdf';
-  doc.save(filename);
+  var arPath = localStorage.getItem('bp_path_ar');
+  savePDFToFolder(doc, filename, arPath, function(){ doc.save(filename); });
 }
 
 // ================================================================
@@ -2338,25 +2550,269 @@ function renderFin() {
 }
 
 // ================================================================
+// TODOS
+// ================================================================
+var TODO_WDH = [
+  {val:'keine',       lbl:'Keine'},
+  {val:'taeglich',    lbl:'Täglich'},
+  {val:'woechentlich',lbl:'Wöchentlich'},
+  {val:'monatlich',   lbl:'Monatlich'},
+  {val:'jaehrlich',   lbl:'Jährlich'}
+];
+
+function renderTodos() {
+  var d = getDB();
+  var el = document.getElementById('todos-list');
+  if (!el) return;
+  var todos = d.todos || [];
+  if (!todos.length) {
+    el.innerHTML = '<div class="empty" style="padding:2rem">Keine To-Dos vorhanden. Klicken Sie auf „+ Neues To-Do".</div>';
+    return;
+  }
+  var wdhMap = {keine:'–',taeglich:'Täglich',woechentlich:'Wöchentlich',monatlich:'Monatlich',jaehrlich:'Jährlich'};
+  var now = new Date();
+  var today = now.toISOString().split('T')[0];
+  // Auto-clear erledigt_am when repeat is due again
+  var changed = false;
+  todos.forEach(function(t){
+    if (t.erledigt_am && t.faellig && t.faellig <= today) {
+      t.erledigt_am = null;
+      changed = true;
+    }
+  });
+  if (changed) saveDB(d);
+
+  var rows = todos.map(function(t, i){
+    var fd = t.faellig ? new Date(t.faellig) : null;
+    var tage = fd ? Math.round((fd - now) / 86400000) : null;
+    var wiederholung = t.wiederholung && t.wiederholung !== 'keine';
+    var recentlyDone = !!t.erledigt_am;
+
+    var statusStr = '';
+    if (recentlyDone && fd) {
+      var wdhNote = tage <= 0
+        ? '<span style="color:var(--accent);font-weight:600">Heute wieder fällig</span>'
+        : '<span style="color:var(--t2)">Wird wiederholt in <strong>'+tage+'</strong> Tag'+(tage===1?'':'en')+'</span>';
+      statusStr = '<span style="color:var(--accent);font-size:11px">&#10003; Erledigt</span> &nbsp;·&nbsp; ' + wdhNote;
+    } else if (fd) {
+      statusStr = tage < 0
+        ? '<span style="color:#E24B4A;font-weight:600">'+Math.abs(tage)+' T. überfällig</span>'
+        : tage === 0 ? '<span style="color:#BA7517;font-weight:600">Heute fällig</span>'
+        : '<span style="color:#f59e0b">in '+tage+' T.</span>';
+    }
+
+    var rowStyle = recentlyDone ? 'opacity:0.6;' : '';
+    return '<tr class="todo-row" draggable="true" data-i="'+i+'" data-id="'+t.id+'" style="'+rowStyle+'">' +
+      '<td style="padding:10px 6px;width:20px;cursor:grab;color:#bbb;font-size:18px;user-select:none">&#8942;</td>' +
+      '<td style="padding:10px 8px;font-family:sans-serif;font-size:13px">' +
+        (recentlyDone ? '<s>' : '') + esc(t.titel) + (recentlyDone ? '</s>' : '') +
+      '</td>' +
+      '<td style="padding:10px 8px;font-size:13px;font-family:sans-serif">'+fmtD(t.faellig)+'</td>' +
+      '<td style="padding:10px 8px;font-size:12px">'+statusStr+'</td>' +
+      '<td style="padding:10px 8px;font-size:11px;color:var(--t3);font-family:sans-serif">'+(wdhMap[t.wiederholung]||'–')+'</td>' +
+      '<td style="padding:10px 8px;white-space:nowrap">' +
+        (!recentlyDone ? '<button class="btn" style="font-size:11px;padding:3px 8px;margin-right:4px" onclick="openTodoForm(\''+t.id+'\')">&#9998;</button>' : '') +
+        (!recentlyDone ? '<button class="btn primary" style="font-size:11px;padding:3px 8px;margin-right:4px" onclick="erledigeTodo(\''+t.id+'\')">&#10003; Erledigt</button>' : '') +
+        '<button class="btn danger" style="font-size:11px;padding:3px 8px" onclick="deleteTodo(\''+t.id+'\')">✕</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+  el.innerHTML = '<table style="width:100%"><thead><tr>' +
+    '<th style="padding:10px 6px;width:20px"></th>' +
+    '<th style="padding:10px 8px;text-align:left">Titel</th>' +
+    '<th style="padding:10px 8px;text-align:left">Fällig am</th>' +
+    '<th style="padding:10px 8px;text-align:left">Fälligkeit</th>' +
+    '<th style="padding:10px 8px;text-align:left">Wiederholung</th>' +
+    '<th style="padding:10px 8px"></th>' +
+  '</tr></thead><tbody id="todos-tbody">'+rows+'</tbody></table>';
+
+  var tdDragFrom = null;
+  el.querySelectorAll('.todo-row').forEach(function(row){
+    row.addEventListener('dragstart', function(e){
+      tdDragFrom = parseInt(this.dataset.i);
+      e.dataTransfer.effectAllowed = 'move';
+      var self = this;
+      setTimeout(function(){ self.style.opacity = '0.4'; }, 0);
+    });
+    row.addEventListener('dragend', function(){
+      this.style.opacity = '';
+      el.querySelectorAll('.todo-row').forEach(function(r){ r.style.background=''; });
+    });
+    row.addEventListener('dragover', function(e){
+      e.preventDefault();
+      el.querySelectorAll('.todo-row').forEach(function(r){ r.style.background=''; });
+      this.style.background = '#f0f9f5';
+    });
+    row.addEventListener('drop', function(e){
+      e.preventDefault();
+      var toIdx = parseInt(this.dataset.i);
+      if (tdDragFrom === null || tdDragFrom === toIdx) return;
+      var db = getDB();
+      var item = db.todos.splice(tdDragFrom, 1)[0];
+      db.todos.splice(toIdx, 0, item);
+      saveDB(db);
+      renderTodos();
+    });
+  });
+}
+
+function openTodoForm(id) {
+  var d = getDB();
+  var t = id ? (d.todos||[]).find(function(x){ return x.id===id; }) : null;
+  var wdhOpts = TODO_WDH.map(function(w){
+    return '<option value="'+w.val+'"'+(t&&t.wiederholung===w.val?' selected':(!t&&w.val==='keine'?' selected':''))+'>'+w.lbl+'</option>';
+  }).join('');
+  var body = '<h3 style="margin:0 0 1rem;font-family:sans-serif">'+(id?'To-Do bearbeiten':'Neues To-Do')+'</h3>' +
+    '<div style="display:flex;flex-direction:column;gap:12px;font-family:sans-serif">' +
+      '<div><label style="font-size:12px;color:var(--t2);display:block;margin-bottom:4px">Titel</label>' +
+        '<input id="td-titel" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;box-sizing:border-box" value="'+esc(t?t.titel:'')+'"></div>' +
+      '<div><label style="font-size:12px;color:var(--t2);display:block;margin-bottom:4px">Fällig am</label>' +
+        '<input id="td-faellig" type="date" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;box-sizing:border-box" value="'+(t?t.faellig:'')+'"></div>' +
+      '<div><label style="font-size:12px;color:var(--t2);display:block;margin-bottom:4px">Wiederholung</label>' +
+        '<select id="td-wdh" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px">'+wdhOpts+'</select></div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">' +
+        '<button class="btn" onclick="closeModal()">Abbrechen</button>' +
+        '<button class="btn primary" onclick="saveTodo(\''+( id||'')+'\')">Speichern</button>' +
+      '</div>' +
+    '</div>';
+  document.getElementById('modal-body').innerHTML = body;
+  openModal();
+}
+
+function saveTodo(id) {
+  var titel   = (document.getElementById('td-titel')||{value:''}).value.trim();
+  var faellig = (document.getElementById('td-faellig')||{value:''}).value;
+  var wdh     = (document.getElementById('td-wdh')||{value:'keine'}).value;
+  if (!titel) { alert('Bitte Titel eingeben'); return; }
+  var d = getDB();
+  if (!d.todos) d.todos = [];
+  if (id) {
+    var idx = d.todos.findIndex(function(t){ return t.id===id; });
+    if (idx !== -1) {
+      d.todos[idx].titel = titel;
+      d.todos[idx].faellig = faellig;
+      d.todos[idx].wiederholung = wdh;
+      d.todos[idx].erledigt = false;
+    }
+  } else {
+    d.todos.push({id:uid(), titel:titel, faellig:faellig, wiederholung:wdh, erledigt:false, erstellt:new Date().toISOString()});
+  }
+  saveDB(d);
+  closeModal();
+  renderTodos();
+}
+
+function erledigeTodo(id) {
+  var d = getDB();
+  if (!d.todos) return;
+  if (!d.todos_archiv) d.todos_archiv = [];
+  var idx = d.todos.findIndex(function(t){ return t.id===id; });
+  if (idx === -1) return;
+  var t = d.todos[idx];
+  var today = new Date().toISOString().split('T')[0];
+
+  if (t.wiederholung && t.wiederholung !== 'keine' && t.faellig) {
+    // Repeating: advance date, keep in list, show "wird wiederholt" note
+    var nd = new Date(t.faellig);
+    if (t.wiederholung === 'taeglich')     nd.setDate(nd.getDate()+1);
+    if (t.wiederholung === 'woechentlich') nd.setDate(nd.getDate()+7);
+    if (t.wiederholung === 'monatlich')    nd.setMonth(nd.getMonth()+1);
+    if (t.wiederholung === 'jaehrlich')    nd.setFullYear(nd.getFullYear()+1);
+    t.faellig = nd.toISOString().split('T')[0];
+    t.erledigt_am = today;
+  } else {
+    // Non-repeating: archive it
+    t.erledigt_am = today;
+    d.todos_archiv.push(t);
+    d.todos.splice(idx, 1);
+  }
+  saveDB(d);
+  renderTodos();
+  renderDash();
+}
+
+function openTodoArchiv() {
+  var d = getDB();
+  var archiv = (d.todos_archiv || []).slice().reverse();
+  var wdhMap = {keine:'–',taeglich:'Täglich',woechentlich:'Wöchentlich',monatlich:'Monatlich',jaehrlich:'Jährlich'};
+  var rows = archiv.length
+    ? archiv.map(function(t){
+        return '<tr>' +
+          '<td style="padding:9px 10px;font-family:sans-serif;font-size:13px"><s>'+esc(t.titel)+'</s></td>' +
+          '<td style="padding:9px 10px;font-size:12px;font-family:sans-serif;color:var(--t3)">'+fmtD(t.erledigt_am)+'</td>' +
+          '<td style="padding:9px 10px;font-size:11px;color:var(--t3);font-family:sans-serif">'+(wdhMap[t.wiederholung]||'–')+'</td>' +
+          '<td style="padding:9px 10px;white-space:nowrap">' +
+            '<button class="btn" style="font-size:11px;padding:3px 8px;margin-right:4px" onclick="restoreTodo(\''+t.id+'\')">&#8629; Wiederherstellen</button>' +
+            '<button class="btn danger" style="font-size:11px;padding:3px 8px" onclick="deleteArchivTodo(\''+t.id+'\')">✕</button>' +
+          '</td>' +
+        '</tr>';
+      }).join('')
+    : '<tr><td colspan="4" style="padding:2rem;text-align:center;font-family:sans-serif;color:var(--t3)">Keine archivierten To-Dos vorhanden.</td></tr>';
+
+  document.getElementById('modal-body').innerHTML =
+    '<h3 style="margin:0 0 1rem;font-family:sans-serif">&#128193; Archivierte Todos</h3>' +
+    '<table style="width:100%"><thead><tr>' +
+      '<th>Titel</th><th>Erledigt am</th><th>Wiederholung</th><th></th>' +
+    '</tr></thead><tbody>'+rows+'</tbody></table>';
+  openModal();
+}
+
+function restoreTodo(id) {
+  var d = getDB();
+  if (!d.todos_archiv) return;
+  var idx = d.todos_archiv.findIndex(function(t){ return t.id===id; });
+  if (idx === -1) return;
+  var t = d.todos_archiv[idx];
+  t.erledigt_am = null;
+  d.todos.push(t);
+  d.todos_archiv.splice(idx, 1);
+  saveDB(d);
+  openTodoArchiv();
+  renderTodos();
+}
+
+function deleteArchivTodo(id) {
+  if (!confirm('Dauerhaft löschen?')) return;
+  var d = getDB();
+  d.todos_archiv = (d.todos_archiv||[]).filter(function(t){ return t.id!==id; });
+  saveDB(d);
+  openTodoArchiv();
+}
+
+function deleteTodo(id) {
+  if (!confirm('To-Do wirklich löschen?')) return;
+  var d = getDB();
+  d.todos = (d.todos||[]).filter(function(t){ return t.id!==id; });
+  saveDB(d);
+  renderTodos();
+}
+
+// ================================================================
 // EXPORT
 // ================================================================
 function initPathSettings() {
-  var arEl=document.getElementById('path-ar'), erEl=document.getElementById('path-er');
-  if(arEl) arEl.value = localStorage.getItem('bp_path_ar')||'';
-  if(erEl) erEl.value = localStorage.getItem('bp_path_er')||'';
-  var btnAR=document.getElementById('btn-path-ar'), btnER=document.getElementById('btn-path-er');
-  var info=document.getElementById('path-info');
-  function savePath(inputId, key) {
-    var el=document.getElementById(inputId);
-    if(!el) return;
+  var arEl = document.getElementById('path-ar');
+  var erEl = document.getElementById('path-er');
+  var kvEl = document.getElementById('path-kv');
+  if (arEl) arEl.value = localStorage.getItem('bp_path_ar') || '';
+  if (erEl) erEl.value = localStorage.getItem('bp_path_er') || '';
+  if (kvEl) kvEl.value = localStorage.getItem('bp_path_kv') || '';
+
+  function savePath(inputId, key, infoId) {
+    var el = document.getElementById(inputId);
+    if (!el) return;
     var v = el.value.trim();
     localStorage.setItem(key, v);
-    if(info){ info.style.display='block'; info.textContent='✓ Gespeichert: '+v; setTimeout(function(){ info.style.display='none'; },2500); }
+    var info = document.getElementById(infoId);
+    if (info) { info.textContent = '✓ Gespeichert: ' + v; setTimeout(function(){ info.textContent = ''; }, 2500); }
   }
-  if(btnAR) btnAR.onclick = function(){ savePath('path-ar','bp_path_ar'); };
-  if(btnER) btnER.onclick = function(){ savePath('path-er','bp_path_er'); };
-  if(arEl) arEl.onchange = function(){ savePath('path-ar','bp_path_ar'); };
-  if(erEl) erEl.onchange = function(){ savePath('path-er','bp_path_er'); };
+
+  var btnARSave = document.getElementById('btn-path-ar-save');
+  var btnERSave = document.getElementById('btn-path-er-save');
+  var btnKVSave = document.getElementById('btn-path-kv-save');
+  if (btnARSave) btnARSave.onclick = function(){ savePath('path-ar', 'bp_path_ar', 'path-ar-info'); };
+  if (btnERSave) btnERSave.onclick = function(){ savePath('path-er', 'bp_path_er', 'path-er-info'); };
+  if (btnKVSave) btnKVSave.onclick = function(){ savePath('path-kv', 'bp_path_kv', 'path-kv-info'); };
 }
 
 function initEx() {
@@ -3129,10 +3585,7 @@ function renderKVItems() {
       '</td>' +
       '<td style="padding:4px 4px">' +
         '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">' +
-          '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="Links"  style="' + badgeStyle + '">Links</button>' +
-          '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="Rechts" style="' + badgeStyle + '">Rechts</button>' +
-          '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="Vorne"  style="' + badgeStyle + '">Vorne</button>' +
-          '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="Hinten" style="' + badgeStyle + '">Hinten</button>' +
+          getPosBadges().map(function(b){ return '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="'+esc(b)+'" style="' + badgeStyle + '">'+esc(b)+'</button>'; }).join('') +
         '</div>' +
         '<input type="text" value="' + esc(it.beschreibung) + '" data-i="' + i + '" class="kv-beschreibung" placeholder="Details..." style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif">' +
       '</td>' +
@@ -3418,7 +3871,10 @@ function genKVPDF(kv) {
   doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 277, {align:'center'});
   doc.text('UID-Nr. ATU 58185458, LG f. ZRS GRAZ, FN 251792h', 105, 282, {align:'center'});
 
-  doc.save('Kostenvoranschlag.pdf');
+  var kvName = (kv.partner_name || '').replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+  var kvFilename = 'Kostenvoranschlag' + (kvName ? '_' + kvName : '') + (kv.datum ? '_' + kv.datum : '') + '.pdf';
+  var kvPath = localStorage.getItem('bp_path_kv');
+  savePDFToFolder(doc, kvFilename, kvPath, function(){ doc.save(kvFilename); });
 }
 
 // ================================================================
