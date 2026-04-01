@@ -61,7 +61,9 @@ ipcMain.handle('read-font', async (event, fontName) => {
 });
 
 ipcMain.handle('select-folder', async (event) => {
-  const result = await dialog.showOpenDialog({
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(win, {
+    title: 'Ordner auswählen',
     properties: ['openDirectory', 'createDirectory']
   });
   if (result.canceled) return null;
