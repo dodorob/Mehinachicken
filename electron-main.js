@@ -7,6 +7,32 @@ try {
   console.warn('electron-updater is unavailable; auto updates are disabled.', error);
 }
 const path = require('path');
+let dotenv = null;
+try {
+  dotenv = require('dotenv');
+} catch (error) {
+  console.warn('dotenv is unavailable; .env files will not be loaded.', error);
+}
+
+function loadUpdateTokenFromEnvFiles() {
+  if (!dotenv) {
+    return;
+  }
+
+  const candidates = [
+    path.join(process.cwd(), '.env'),
+    path.join(__dirname, '.env'),
+    path.join(process.resourcesPath || '', '.env'),
+    path.join(app.getPath('userData'), '.env'),
+  ];
+
+  candidates.forEach((envPath) => {
+    if (!envPath) {
+      return;
+    }
+    dotenv.config({ path: envPath, override: false });
+  });
+}
 
 function sendUpdateStatus(event, payload) {
   BrowserWindow.getAllWindows().forEach((window) => {
@@ -159,6 +185,7 @@ ipcMain.handle('save-pdf-to-path', async (event, folderPath, filename, base64dat
 });
 
 app.whenReady().then(() => {
+  loadUpdateTokenFromEnvFiles();
   createWindow();
   setupAutoUpdates();
 

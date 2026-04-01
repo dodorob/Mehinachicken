@@ -47,7 +47,8 @@
     ]
   },
   "dependencies": {
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.3.9",
+    "dotenv": "^16.4.5"
   },
   "repository": {
     "type": "git",
