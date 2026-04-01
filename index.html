@@ -589,28 +589,36 @@
     <div class="card">
       <h3>Speicherordner für PDFs</h3>
       <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin-bottom:1rem">
-        Der Browser speichert PDFs immer im Standard-Download-Ordner. Tragen Sie hier Ihre gewünschten Pfade ein — diese werden als Hinweis gespeichert. Um den tatsächlichen Download-Ordner zu ändern, stellen Sie das direkt in den Browser-Einstellungen (Chrome: ⋮ → Einstellungen → Downloads) ein.
+        Wählen Sie hier die Zielordner aus. PDFs werden beim Erstellen automatisch in den jeweiligen Ordner gespeichert.
       </p>
-      <div class="fr c2">
+      <div class="fr c2" style="gap:1rem">
         <div class="fg">
           <label>Pfad Ausgangsrechnungen (AR)</label>
           <div style="display:flex;gap:6px">
             <input type="text" id="path-ar" placeholder="z.B. C:\Buchhaltung\AR" style="flex:1">
+            <button class="btn" id="btn-path-ar-browse" style="white-space:nowrap">&#128193; Durchsuchen</button>
             <button class="btn primary" id="btn-path-ar-save" style="white-space:nowrap">Speichern</button>
           </div>
-          <div style="font-size:11px;color:var(--t3);margin-top:4px" id="path-ar-info"></div>
+          <div style="font-size:11px;color:var(--accent);margin-top:4px" id="path-ar-info"></div>
         </div>
         <div class="fg">
           <label>Pfad Eingangsrechnungen (ER)</label>
           <div style="display:flex;gap:6px">
             <input type="text" id="path-er" placeholder="z.B. C:\Buchhaltung\ER" style="flex:1">
+            <button class="btn" id="btn-path-er-browse" style="white-space:nowrap">&#128193; Durchsuchen</button>
             <button class="btn primary" id="btn-path-er-save" style="white-space:nowrap">Speichern</button>
           </div>
-          <div style="font-size:11px;color:var(--t3);margin-top:4px" id="path-er-info"></div>
+          <div style="font-size:11px;color:var(--accent);margin-top:4px" id="path-er-info"></div>
         </div>
-      </div>
-      <div class="alert info" style="margin-top:1rem">
-        &#9432; <strong>Anleitung:</strong> Öffnen Sie Chrome → Einstellungen → Erweitert → Downloads → Speicherort ändern auf Ihren gewünschten Ordner. Deaktivieren Sie „Vor dem Herunterladen fragen" damit PDFs direkt gespeichert werden.
+        <div class="fg">
+          <label>Pfad Kostenvoranschläge (KV)</label>
+          <div style="display:flex;gap:6px">
+            <input type="text" id="path-kv" placeholder="z.B. C:\Buchhaltung\KV" style="flex:1">
+            <button class="btn" id="btn-path-kv-browse" style="white-space:nowrap">&#128193; Durchsuchen</button>
+            <button class="btn primary" id="btn-path-kv-save" style="white-space:nowrap">Speichern</button>
+          </div>
+          <div style="font-size:11px;color:var(--accent);margin-top:4px" id="path-kv-info"></div>
+        </div>
       </div>
     </div>
 

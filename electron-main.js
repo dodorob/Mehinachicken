@@ -60,6 +60,25 @@ ipcMain.handle('read-font', async (event, fontName) => {
   }
 });
 
+ipcMain.handle('select-folder', async (event) => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (result.canceled) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle('save-pdf-to-path', async (event, folderPath, filename, base64data) => {
+  try {
+    const fullPath = path.join(folderPath, filename);
+    const buffer = Buffer.from(base64data, 'base64');
+    fs.writeFileSync(fullPath, buffer);
+    return { success: true, path: fullPath };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 app.whenReady().then(() => {
   createWindow();
   setupAutoUpdates();

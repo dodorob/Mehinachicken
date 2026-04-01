@@ -66,6 +66,25 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).substr(2,5);
 }
 
+function savePDFToFolder(doc, filename, folderPath, fallback) {
+  if (folderPath && window.electronAPI && window.electronAPI.savePdfToPath) {
+    var b64 = doc.output('datauristring').split(',')[1];
+    window.electronAPI.savePdfToPath(folderPath, filename, b64).then(function(result) {
+      if (result && result.success) {
+        var n = document.createElement('div');
+        n.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;background:#0f6e56;color:#fff;padding:12px 20px;border-radius:8px;font-family:sans-serif;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,0.2)';
+        n.textContent = '\u2713 PDF gespeichert: ' + result.path;
+        document.body.appendChild(n);
+        setTimeout(function(){ n.remove(); }, 3500);
+      } else {
+        fallback();
+      }
+    });
+  } else {
+    fallback();
+  }
+}
+
 function nextNum(typ) {
   var raw = localStorage.getItem('buchpro_v1');
   var d = raw ? JSON.parse(raw) : {};
@@ -1525,6 +1544,20 @@ function genPDF(id) {
   var d = getDB(), inv = d.invoices.find(function(i){ return i.id===id; });
   if (!inv) return;
   if (inv.typ === 'eingang' && inv.file_b64) {
+    var erPath = localStorage.getItem('bp_path_er');
+    if (erPath && window.electronAPI && window.electronAPI.savePdfToPath) {
+      var erFilename = (inv.file_name || ('ER_' + (inv.partner_name || 'Rechnung').replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_') + '_' + (inv.datum || '') + '.pdf'));
+      var erB64 = inv.file_b64.indexOf(',') !== -1 ? inv.file_b64.split(',')[1] : inv.file_b64;
+      window.electronAPI.savePdfToPath(erPath, erFilename, erB64).then(function(result) {
+        if (result && result.success) {
+          var n = document.createElement('div');
+          n.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;background:#0f6e56;color:#fff;padding:12px 20px;border-radius:8px;font-family:sans-serif;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,0.2)';
+          n.textContent = '\u2713 Datei gespeichert: ' + result.path;
+          document.body.appendChild(n);
+          setTimeout(function(){ n.remove(); }, 3500);
+        }
+      });
+    }
     // Open the stored file
     var win = window.open();
     if (win) {
@@ -1737,7 +1770,8 @@ function genPDFData(inv) {
   var fnNum = fnMatch ? String(parseInt(fnMatch[1])) : fnNr;
   var fnKz = (inv.fz_kz || '').replace(/[^a-zA-Z0-9]/g, '');
   var filename = 'Rechnung_' + fnNum + (fnKz ? '_' + fnKz : '') + '.pdf';
-  doc.save(filename);
+  var arPath = localStorage.getItem('bp_path_ar');
+  savePDFToFolder(doc, filename, arPath, function(){ doc.save(filename); });
 }
 
 // ================================================================
@@ -2341,22 +2375,49 @@ function renderFin() {
 // EXPORT
 // ================================================================
 function initPathSettings() {
-  var arEl=document.getElementById('path-ar'), erEl=document.getElementById('path-er');
-  if(arEl) arEl.value = localStorage.getItem('bp_path_ar')||'';
-  if(erEl) erEl.value = localStorage.getItem('bp_path_er')||'';
-  var btnAR=document.getElementById('btn-path-ar'), btnER=document.getElementById('btn-path-er');
-  var info=document.getElementById('path-info');
-  function savePath(inputId, key) {
-    var el=document.getElementById(inputId);
-    if(!el) return;
+  var arEl = document.getElementById('path-ar');
+  var erEl = document.getElementById('path-er');
+  var kvEl = document.getElementById('path-kv');
+  if (arEl) arEl.value = localStorage.getItem('bp_path_ar') || '';
+  if (erEl) erEl.value = localStorage.getItem('bp_path_er') || '';
+  if (kvEl) kvEl.value = localStorage.getItem('bp_path_kv') || '';
+
+  function savePath(inputId, key, infoId) {
+    var el = document.getElementById(inputId);
+    if (!el) return;
     var v = el.value.trim();
     localStorage.setItem(key, v);
-    if(info){ info.style.display='block'; info.textContent='✓ Gespeichert: '+v; setTimeout(function(){ info.style.display='none'; },2500); }
+    var info = document.getElementById(infoId);
+    if (info) { info.textContent = '✓ Gespeichert: ' + v; setTimeout(function(){ info.textContent = ''; }, 2500); }
   }
-  if(btnAR) btnAR.onclick = function(){ savePath('path-ar','bp_path_ar'); };
-  if(btnER) btnER.onclick = function(){ savePath('path-er','bp_path_er'); };
-  if(arEl) arEl.onchange = function(){ savePath('path-ar','bp_path_ar'); };
-  if(erEl) erEl.onchange = function(){ savePath('path-er','bp_path_er'); };
+
+  function setupBrowse(btnId, inputId, key, infoId) {
+    var btn = document.getElementById(btnId);
+    if (!btn) return;
+    if (window.electronAPI && window.electronAPI.selectFolder) {
+      btn.onclick = function() {
+        window.electronAPI.selectFolder().then(function(folder) {
+          if (!folder) return;
+          var el = document.getElementById(inputId);
+          if (el) el.value = folder;
+          savePath(inputId, key, infoId);
+        });
+      };
+    } else {
+      btn.style.display = 'none';
+    }
+  }
+
+  var btnARSave = document.getElementById('btn-path-ar-save');
+  var btnERSave = document.getElementById('btn-path-er-save');
+  var btnKVSave = document.getElementById('btn-path-kv-save');
+  if (btnARSave) btnARSave.onclick = function(){ savePath('path-ar', 'bp_path_ar', 'path-ar-info'); };
+  if (btnERSave) btnERSave.onclick = function(){ savePath('path-er', 'bp_path_er', 'path-er-info'); };
+  if (btnKVSave) btnKVSave.onclick = function(){ savePath('path-kv', 'bp_path_kv', 'path-kv-info'); };
+
+  setupBrowse('btn-path-ar-browse', 'path-ar', 'bp_path_ar', 'path-ar-info');
+  setupBrowse('btn-path-er-browse', 'path-er', 'bp_path_er', 'path-er-info');
+  setupBrowse('btn-path-kv-browse', 'path-kv', 'bp_path_kv', 'path-kv-info');
 }
 
 function initEx() {
@@ -3418,7 +3479,10 @@ function genKVPDF(kv) {
   doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 277, {align:'center'});
   doc.text('UID-Nr. ATU 58185458, LG f. ZRS GRAZ, FN 251792h', 105, 282, {align:'center'});
 
-  doc.save('Kostenvoranschlag.pdf');
+  var kvName = (kv.partner_name || '').replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+  var kvFilename = 'Kostenvoranschlag' + (kvName ? '_' + kvName : '') + (kv.datum ? '_' + kv.datum : '') + '.pdf';
+  var kvPath = localStorage.getItem('bp_path_kv');
+  savePDFToFolder(doc, kvFilename, kvPath, function(){ doc.save(kvFilename); });
 }
 
 // ================================================================
