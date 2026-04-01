@@ -590,6 +590,18 @@
   <div class="topbar"><h2>Einstellungen</h2></div>
   <div class="content">
     <div class="card">
+      <h3>App-Updates</h3>
+      <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin-bottom:1rem">
+        Aktuelle Version: <strong id="current-version">wird geladen...</strong>
+      </p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn primary" id="btn-check-updates">Nach Updates suchen</button>
+        <button class="btn" id="btn-download-update" style="display:none">Download starten</button>
+      </div>
+      <div id="update-info" style="font-family:sans-serif;font-size:12px;color:var(--accent);margin-top:8px"></div>
+    </div>
+
+    <div class="card">
       <h3>Speicherordner für PDFs</h3>
       <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin-bottom:1rem">
         Wählen Sie hier die Zielordner aus. PDFs werden beim Erstellen automatisch in den jeweiligen Ordner gespeichert.
