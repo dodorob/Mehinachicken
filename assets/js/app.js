@@ -431,11 +431,8 @@ function renderFixkostenList() {
     var selVal = item.monat ? String(item.monat) : '';
     var opts = '<option value="">Jeden Monat</option>' +
       MONTHS.map(function(m,mi){ return '<option value="'+(mi+1)+'"'+(String(mi+1)===selVal?' selected':'')+'>'+m+'</option>'; }).join('');
-    return '<div class="fk-row" style="display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap">' +
-      '<div style="display:flex;flex-direction:column;gap:2px">' +
-        '<button class="btn fk-up" data-i="'+i+'" style="padding:2px 7px;font-size:11px;line-height:1" title="Nach oben">▲</button>' +
-        '<button class="btn fk-dn" data-i="'+i+'" style="padding:2px 7px;font-size:11px;line-height:1" title="Nach unten">▼</button>' +
-      '</div>' +
+    return '<div class="fk-row" draggable="true" data-i="'+i+'" style="display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap;border-radius:8px;transition:background .15s">' +
+      '<span class="drag-handle" style="cursor:grab;font-size:20px;color:#bbb;padding:0 2px;user-select:none;flex-shrink:0" title="Verschieben">&#8942;</span>' +
       '<input class="fk-name" placeholder="Bezeichnung (z.B. 13. Gehalt)" value="'+esc(item.name||'')+'" style="flex:2;min-width:140px;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:sans-serif">' +
       '<input class="fk-betrag" type="number" placeholder="0.00" value="'+(item.betrag||'')+'" min="0" step="0.01" style="flex:1;min-width:90px;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:sans-serif">' +
       '<span style="font-family:sans-serif;font-size:13px;color:#666;white-space:nowrap">€</span>' +
@@ -446,7 +443,7 @@ function renderFixkostenList() {
 
   function readFkFromDOM() {
     var rows = [];
-    document.querySelectorAll('.fk-row').forEach(function(row){
+    document.querySelectorAll('#fixkosten-list .fk-row').forEach(function(row){
       var name = row.querySelector('.fk-name').value.trim();
       var betrag = parseFloat(row.querySelector('.fk-betrag').value)||0;
       var monatEl = row.querySelector('.fk-monat');
@@ -456,26 +453,33 @@ function renderFixkostenList() {
     return rows;
   }
 
-  el.querySelectorAll('.fk-up').forEach(function(btn){
-    btn.onclick = function(){
-      var idx = parseInt(this.dataset.i);
-      if (idx === 0) return;
+  var fkDragFrom = null;
+  el.querySelectorAll('.fk-row').forEach(function(row){
+    row.addEventListener('dragstart', function(e){
+      fkDragFrom = parseInt(this.dataset.i);
+      e.dataTransfer.effectAllowed = 'move';
+      var self = this;
+      setTimeout(function(){ self.style.opacity = '0.4'; }, 0);
+    });
+    row.addEventListener('dragend', function(){
+      this.style.opacity = '';
+      el.querySelectorAll('.fk-row').forEach(function(r){ r.style.background=''; });
+    });
+    row.addEventListener('dragover', function(e){
+      e.preventDefault();
+      el.querySelectorAll('.fk-row').forEach(function(r){ r.style.background=''; });
+      this.style.background = '#f0f9f5';
+    });
+    row.addEventListener('drop', function(e){
+      e.preventDefault();
+      var toIdx = parseInt(this.dataset.i);
+      if (fkDragFrom === null || fkDragFrom === toIdx) return;
       var fk2 = readFkFromDOM();
-      var tmp = fk2[idx-1]; fk2[idx-1] = fk2[idx]; fk2[idx] = tmp;
+      var item = fk2.splice(fkDragFrom, 1)[0];
+      fk2.splice(toIdx, 0, item);
       saveFixkosten(fk2);
       renderFixkostenList();
-    };
-  });
-
-  el.querySelectorAll('.fk-dn').forEach(function(btn){
-    btn.onclick = function(){
-      var idx = parseInt(this.dataset.i);
-      var fk2 = readFkFromDOM();
-      if (idx >= fk2.length-1) return;
-      var tmp = fk2[idx+1]; fk2[idx+1] = fk2[idx]; fk2[idx] = tmp;
-      saveFixkosten(fk2);
-      renderFixkostenList();
-    };
+    });
   });
 
   el.querySelectorAll('.fk-del').forEach(function(btn){
@@ -2465,7 +2469,7 @@ function renderTodos() {
   }
   var wdhMap = {keine:'–',taeglich:'Täglich',woechentlich:'Wöchentlich',monatlich:'Monatlich',jaehrlich:'Jährlich'};
   var now = new Date();
-  var rows = todos.map(function(t){
+  var rows = todos.map(function(t, i){
     var fd = t.faellig ? new Date(t.faellig) : null;
     var tage = fd ? Math.round((fd - now) / 86400000) : null;
     var tageStr = '';
@@ -2476,8 +2480,9 @@ function renderTodos() {
         : '<span style="color:#f59e0b">in '+tage+' T.</span>';
     }
     var done = t.erledigt;
-    return '<tr style="'+(done?'opacity:0.45;text-decoration:line-through':'')+'">' +
-      '<td style="padding:10px 14px;font-family:sans-serif;font-size:13px">'+esc(t.titel)+'</td>' +
+    return '<tr class="todo-row" draggable="true" data-i="'+i+'" data-id="'+t.id+'" style="'+(done?'opacity:0.45;text-decoration:line-through':'')+'">' +
+      '<td style="padding:10px 6px;width:20px;cursor:grab;color:#bbb;font-size:18px;user-select:none">&#8942;</td>' +
+      '<td style="padding:10px 8px;font-family:sans-serif;font-size:13px">'+esc(t.titel)+'</td>' +
       '<td style="padding:10px 8px;font-size:13px;font-family:sans-serif">'+fmtD(t.faellig)+'</td>' +
       '<td style="padding:10px 8px">'+tageStr+'</td>' +
       '<td style="padding:10px 8px;font-size:11px;color:var(--t3);font-family:sans-serif">'+(wdhMap[t.wiederholung]||'–')+'</td>' +
@@ -2489,12 +2494,42 @@ function renderTodos() {
     '</tr>';
   }).join('');
   el.innerHTML = '<table style="width:100%"><thead><tr>' +
-    '<th style="padding:10px 14px;text-align:left">Titel</th>' +
+    '<th style="padding:10px 6px;width:20px"></th>' +
+    '<th style="padding:10px 8px;text-align:left">Titel</th>' +
     '<th style="padding:10px 8px;text-align:left">Fällig am</th>' +
     '<th style="padding:10px 8px;text-align:left">Fälligkeit</th>' +
     '<th style="padding:10px 8px;text-align:left">Wiederholung</th>' +
     '<th style="padding:10px 8px"></th>' +
-  '</tr></thead><tbody>'+rows+'</tbody></table>';
+  '</tr></thead><tbody id="todos-tbody">'+rows+'</tbody></table>';
+
+  var tdDragFrom = null;
+  el.querySelectorAll('.todo-row').forEach(function(row){
+    row.addEventListener('dragstart', function(e){
+      tdDragFrom = parseInt(this.dataset.i);
+      e.dataTransfer.effectAllowed = 'move';
+      var self = this;
+      setTimeout(function(){ self.style.opacity = '0.4'; }, 0);
+    });
+    row.addEventListener('dragend', function(){
+      this.style.opacity = '';
+      el.querySelectorAll('.todo-row').forEach(function(r){ r.style.background=''; });
+    });
+    row.addEventListener('dragover', function(e){
+      e.preventDefault();
+      el.querySelectorAll('.todo-row').forEach(function(r){ r.style.background=''; });
+      this.style.background = '#f0f9f5';
+    });
+    row.addEventListener('drop', function(e){
+      e.preventDefault();
+      var toIdx = parseInt(this.dataset.i);
+      if (tdDragFrom === null || tdDragFrom === toIdx) return;
+      var db = getDB();
+      var item = db.todos.splice(tdDragFrom, 1)[0];
+      db.todos.splice(toIdx, 0, item);
+      saveDB(db);
+      renderTodos();
+    });
+  });
 }
 
 function openTodoForm(id) {
@@ -2517,7 +2552,7 @@ function openTodoForm(id) {
       '</div>' +
     '</div>';
   document.getElementById('modal-body').innerHTML = body;
-  document.getElementById('modal-bg').style.display = 'flex';
+  openModal();
 }
 
 function saveTodo(id) {
