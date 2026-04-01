@@ -1,4 +1,5 @@
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+const fs = require('fs');
 let autoUpdater = null;
 try {
   ({ autoUpdater } = require('electron-updater'));
@@ -14,6 +15,7 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
 
@@ -47,6 +49,37 @@ function setupAutoUpdates() {
     console.error('Auto-update check failed:', error);
   });
 }
+
+ipcMain.handle('read-font', async (event, fontName) => {
+  try {
+    const fontPath = path.join('C:\\Windows\\Fonts', fontName);
+    const data = fs.readFileSync(fontPath);
+    return data.toString('base64');
+  } catch (e) {
+    return null;
+  }
+});
+
+ipcMain.handle('select-folder', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(win, {
+    title: 'Ordner auswählen',
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (result.canceled) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle('save-pdf-to-path', async (event, folderPath, filename, base64data) => {
+  try {
+    const fullPath = path.join(folderPath, filename);
+    const buffer = Buffer.from(base64data, 'base64');
+    fs.writeFileSync(fullPath, buffer);
+    return { success: true, path: fullPath };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
 
 app.whenReady().then(() => {
   createWindow();
