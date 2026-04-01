@@ -1385,7 +1385,7 @@ function openInlineKundeModal() {
 
 function calcMat() { renderSum(); }
 
-function addItem(type) { itemsData.push({titel:'',desc:'',menge:1,preis:0,ust:20,type:type||'stunden',djevad_h:0,helmut_h:0}); renderItems(); }
+function addItem(type) { itemsData.push({titel:'',desc:'',menge:1,preis:0,ust:20,type:type||'stunden',djevad_h:0,helmut_h:0,fz_marke:'',fz_kz:''}); renderItems(); }
 
 function removeItem(i) {
   if (itemsData.length === 1) return;
@@ -1394,8 +1394,7 @@ function removeItem(i) {
 }
 
 function updateItem(i, f, v) {
-  // String fields: titel, desc — Numeric fields: menge, preis, ust
-  if (f === 'titel' || f === 'desc') {
+  if (f === 'titel' || f === 'desc' || f === 'fz_marke' || f === 'fz_kz') {
     itemsData[i][f] = v;
   } else {
     itemsData[i][f] = parseFloat(v) || 0;
@@ -1408,6 +1407,17 @@ function renderItems() {
     var lineTotal = it.menge * it.preis * (1 + it.ust/100);
     var bg = i % 2 === 1 ? 'background:#fafafa' : 'background:#fff';
     return (
+      // Fahrzeug row
+      '<tr style="' + bg + '">' +
+        '<td colspan="7" style="padding:4px 8px 0;border-bottom:none">' +
+          '<div style="display:flex;align-items:center;gap:8px">' +
+            '<span style="font-family:sans-serif;font-size:10px;color:#aaa;white-space:nowrap">Fahrzeug:</span>' +
+            '<input type="text" class="item-fz-marke" data-i="' + i + '" value="' + esc(it.fz_marke||'') + '" placeholder="Modell (optional)" style="flex:1;padding:4px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif">' +
+            '<span style="font-family:sans-serif;font-size:10px;color:#aaa;white-space:nowrap">KZ:</span>' +
+            '<input type="text" class="item-fz-kz" data-i="' + i + '" value="' + esc(it.fz_kz||'') + '" placeholder="Kennzeichen" style="width:120px;padding:4px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif">' +
+          '</div>' +
+        '</td>' +
+      '</tr>' +
       // Label row: gray "Beschreibung" + position badges
       '<tr style="' + bg + '">' +
         '<td colspan="7" style="padding:6px 8px 0;border-bottom:none">' +
@@ -1554,6 +1564,12 @@ function renderItems() {
   });
   document.querySelectorAll('.item-helmut-h').forEach(function(el){
     el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'helmut_h', this.value); });
+  });
+  document.querySelectorAll('.item-fz-marke').forEach(function(el){
+    el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'fz_marke', this.value); });
+  });
+  document.querySelectorAll('.item-fz-kz').forEach(function(el){
+    el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'fz_kz', this.value); });
   });
   if (document.getElementById('mat-auto') && document.getElementById('mat-auto').checked) calcMat();
   else renderSum();
@@ -1752,55 +1768,48 @@ function genPDF(id) {
 function genPDFData(inv) {
   var jsPDF = window.jspdf.jsPDF;
   var doc = new jsPDF({unit:'mm', format:'a4'});
-  var d = getDB(), v = d.vorlage || dfV();
-  var ff = v.font==='georgia' ? 'times' : v.font==='courier' ? 'courier' : 'helvetica';
-
-  var xL = 25;
-  var xR = 190;
-
-  // ── SCHRIFTART Malgun Gothic Semilight (falls verfügbar) ──────────
-  var headerFont = 'helvetica';
-
-  function setF(sz, bold) {
-    doc.setFont(headerFont, 'normal');
-    doc.setFontSize(sz || 11);
-    doc.setTextColor(30, 30, 30);
-  }
 
   function numFmt(n) {
     return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
   }
-  if (_malgunFontB64) {
+
+  var xL = 25;
+  var xR = 190;
+
+  // ── Georgia Font laden (Fallback: times) ──────────────────────────
+  var georgiaFont = 'times';
+  if (_georgiaFontB64) {
     try {
-      doc.addFileToVFS('malgunsl.ttf', _malgunFontB64);
-      doc.addFont('malgunsl.ttf', 'MalgunGothicSL', 'normal');
-      headerFont = 'MalgunGothicSL';
-    } catch(e) { headerFont = 'helvetica'; }
+      doc.addFileToVFS('georgia.ttf', _georgiaFontB64);
+      doc.addFont('georgia.ttf', 'Georgia', 'normal');
+      georgiaFont = 'Georgia';
+    } catch(e) {}
+  }
+  if (_georgiaBoldFontB64) {
+    try {
+      doc.addFileToVFS('georgiab.ttf', _georgiaBoldFontB64);
+      doc.addFont('georgiab.ttf', 'Georgia', 'bold');
+    } catch(e) {}
   }
 
-  // ── KOPFZEILE ─────────────────────────────────────────────────────
-  doc.setFont(headerFont, 'normal');
+  // ── KOPFZEILE (Georgia, zentriert) ───────────────────────────────
   doc.setTextColor(30, 30, 30);
-  doc.setFontSize(28);
+  doc.setFont(georgiaFont, 'bold');
+  doc.setFontSize(24);
   doc.text('KAROSSERIEFACHWERKSTÄTTE', 105, 25, {align:'center'});
-  doc.setFontSize(20);
-  doc.text('KURT LINDITSCH GMBH', 105, 35, {align:'center'});
+  doc.setFontSize(22);
+  doc.text('KURT LINDITSCH GMBH', 105, 34, {align:'center'});
+  doc.setFont(georgiaFont, 'normal');
+  doc.setFontSize(9);
+  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 41, {align:'center'});
+  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 46, {align:'center'});
+
+  // ── Ab jetzt: Times New Roman, Größe 10 ─────────────────────────
+  doc.setFont('times', 'normal');
   doc.setFontSize(10);
-  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 43, {align:'center'});
-  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 49, {align:'center'});
+  doc.setTextColor(30, 30, 30);
 
-  // ── TABELLE AMOUNT BLOCK ──────────────────────────────────────────
-  // All € symbols at fixed xEuro, all numbers right-aligned at xR
-  // xEuro is calculated once from the widest number in the table
-  // so all € signs are perfectly aligned
-
-  // ── Y=66 DATUM rechtsbündig ───────────────────────────────────────
-  setF(11);
-  doc.text('Graz, ' + fmtD(inv.datum), xR, 66, {align:'right'});
-
-  // ── Y=67 KUNDE linksbündig ────────────────────────────────────────
-  var y = 67;
-  setF(11);
+  // ── KUNDENADRESSE ab 5,7cm ───────────────────────────────────────
   var partnerLines = [];
   if (inv.partner_info) {
     inv.partner_info.split('\n').forEach(function(l){ if(l.trim()) partnerLines.push(l.trim()); });
@@ -1809,144 +1818,205 @@ function genPDFData(inv) {
     partnerLines.unshift('Privatkunde/Barzahler');
   }
   if (partnerLines.length === 0 && inv.privatkunde) partnerLines = ['Privatkunde/Barzahler'];
-  partnerLines.forEach(function(l) { doc.text(l, xL, y); y += 6; });
+  var yAddr = 57;
+  partnerLines.forEach(function(l) {
+    doc.text(l, xL, yAddr);
+    yAddr += 5;
+  });
 
-  // ── Y=103 LEISTUNGSDATUM rechtsbündig ────────────────────────────
-  setF(11);
+  // ── DATUM 8,2cm rechtsbündig ─────────────────────────────────────
+  doc.text('Graz, ' + fmtD(inv.datum), xR, 82, {align:'right'});
+
+  // ── LEISTUNGSDATUM 8,9cm rechtsbündig ────────────────────────────
   if (inv.leistungsdatum) {
-    doc.text('Leistungsdatum: ' + fmtD(inv.leistungsdatum), xR, 103, {align:'right'});
+    doc.text('Leistungsdatum: ' + fmtD(inv.leistungsdatum), xR, 89, {align:'right'});
   }
 
-  // ── Y=119 RECHNUNG NR. fett linksbündig ──────────────────────────
-  setF(12, true);
+  // ── RECHNUNG NR.: fett, Größe 12, linksbündig ───────────────────
+  doc.setFont('times', 'bold');
+  doc.setFontSize(12);
   var rNr = inv.nummer || '';
   var nrMatch = rNr.match(/(\d+)$/);
   var nrDisplay = nrMatch ? (parseInt(nrMatch[1]) < 10 ? String(parseInt(nrMatch[1])).padStart(2,'0') : String(parseInt(nrMatch[1]))) : rNr;
-  doc.text('Rechnung Nr. ' + nrDisplay, xL, 119);
+  doc.text('Rechnung Nr.: ' + nrDisplay, xL, 100);
+  doc.setFont('times', 'normal');
+  doc.setFontSize(10);
 
-  // ── Y=130 FAHRZEUG linksbündig ────────────────────────────────────
-  setF(11);
-  if (inv.fz_marke || inv.fz_kz) {
-    var fzStr = (inv.fz_marke || '') + (inv.fz_kz ? (inv.fz_marke ? ', ' : '') + 'amtl. KZ ' + inv.fz_kz : '');
-    doc.text(fzStr, xL, 130);
-  }
-
-  // ── Y=135 BESCHREIBUNG linksbündig ───────────────────────────────
-  setF(11);
-  var yDesc = 135;
-  (inv.items || []).forEach(function(it) {
-    if (it.titel && it.titel.trim()) {
-      doc.text(it.titel.trim(), xL, yDesc);
-      yDesc += 6;
-    }
-  });
-
-  // ── TABELLE ───────────────────────────────────────────────────────
+  // ── TABELLEN-SETUP ───────────────────────────────────────────────
   var matAmt = (inv.materialkosten && inv.materialkosten > 0) ? inv.materialkosten : 0;
   var hasMat = matAmt > 0;
-  var mklbl = inv.mat_auto ? 'Kleinmaterial 6%' : 'Materialkosten';
-
-  var nt = netto(inv);
-  var va = vatAmt(inv);
-  var totalH = nt + matAmt + va;
-
+  var mklbl = inv.mat_auto ? '6% Kleinmaterial' : 'Materialkosten';
+  var nt = netto(inv), va = vatAmt(inv), totalH = nt + matAmt + va;
   var ustRates = [];
-  (inv.items||[]).forEach(function(it){
-    if(it.ust>0 && ustRates.indexOf(it.ust)===-1) ustRates.push(it.ust);
-  });
+  (inv.items||[]).forEach(function(it){ if(it.ust>0&&ustRates.indexOf(it.ust)===-1) ustRates.push(it.ust); });
   var ustPct = ustRates.length > 0 ? ustRates.join('/') : '20';
 
-  // Collect all amounts to find widest number -> set xEuro
-  setF(11, false);
-  var allAmounts = [nt, va, totalH];
-  (inv.items||[]).forEach(function(it){
-    allAmounts.push(it.menge * it.preis * (1 + it.ust/100));
-  });
-  if (hasMat) allAmounts.push(matAmt);
+  var xCol2 = 148, xCol3 = 166;
+  var rowH = 6, hdrH = 8, gapH = 4;
 
-  var maxNumW = 0;
-  allAmounts.forEach(function(n) {
-    var w = doc.getTextWidth(numFmt(n));
-    if (w > maxNumW) maxNumW = w;
-  });
-  // xEuro: 5mm (0.5cm) left of widest number's left edge
-  // widest number right edge = xR, left edge = xR - maxNumW
-  var xEuro = xR - maxNumW - 5;  // 5mm gap between € and number
-  var lineStart = xEuro - 1;     // underline starts 1mm before €
+  function grayLine() { doc.setDrawColor(0xD9,0xD9,0xD9); doc.setLineWidth(0.3); }
+  function blackLine() { doc.setDrawColor(30,30,30); doc.setLineWidth(0.3); }
 
-  // Draw one table row: label LEFT, € at xEuro, number right at xR
-  function tRow(label, n, yy, bold) {
-    setF(11, bold);
-    doc.text(label, xL, yy);
-    doc.text('€', xEuro, yy);
-    doc.text(numFmt(n), xR, yy, {align:'right'});
+  // Effektives Fahrzeug pro Position (Item-Ebene, sonst Invoice-Ebene)
+  function getEffCar(it) {
+    var m = (it.fz_marke||'').trim(), k = (it.fz_kz||'').trim();
+    if (!m && !k) { m = (inv.fz_marke||'').trim(); k = (inv.fz_kz||'').trim(); }
+    return {marke:m, kz:k, key:m+'|||'+k};
+  }
+  function buildFzStr(car) {
+    return car.marke + (car.kz ? (car.marke?', ':'') + 'amtl. KZ.: ' + car.kz : '');
   }
 
-  // Y=170: Stunden rows + extra lines
-  var yCur = 170;
-  (inv.items || []).forEach(function(it) {
-    var lineTotal = it.menge * it.preis * (1 + it.ust / 100);
-    var menge = parseFloat(it.menge) || 1;
-    var lbl = menge === 1 ? '1 Stunde Arbeitszeit' : (String(it.menge) + ' Stunden Arbeitszeit');
-    tRow(lbl, lineTotal, yCur);
-    yCur += 5;
-    // Extra free line (below stunden)
-    if (it.extraLabel && it.extraLabel.trim() && it.extraBetrag) {
-      var extraTotal = it.extraBetrag * (1 + (it.extraUst != null ? it.extraUst : 20) / 100);
-      tRow(it.extraLabel.trim(), extraTotal, yCur);
-      yCur += 5;
+  // Eindeutige Fahrzeuge ermitteln
+  var uniqueCarKeys = [];
+  (inv.items||[]).forEach(function(it) {
+    var k = getEffCar(it).key;
+    if (uniqueCarKeys.indexOf(k) === -1) uniqueCarKeys.push(k);
+  });
+  var multiCar = uniqueCarKeys.length > 1;
+
+  // ── Tabelle zeichnen ─────────────────────────────────────────────
+  function drawTable(yT, contentRows) {
+    var yHdrBottom   = yT + hdrH;
+    var yItemsBottom = yHdrBottom + contentRows.length * rowH;
+    var yGapBottom   = yItemsBottom + gapH;
+    var yNettoTop    = yGapBottom,   yNettoBottom  = yNettoTop  + rowH;
+    var yMwstTop     = yNettoBottom, yMwstBottom   = yMwstTop   + rowH;
+    var yGesamtTop   = yMwstBottom,  yGesamtBottom = yGesamtTop + rowH;
+
+    // Außenrahmen + obere Linie
+    grayLine();
+    doc.line(xL, yT, xL, yGesamtBottom);
+    doc.line(xR, yT, xR, yGesamtBottom);
+    doc.line(xL, yT, xR, yT);
+    doc.line(xL, yHdrBottom, xR, yHdrBottom);
+    // Spaltenteiler (volle Höhe)
+    doc.line(xCol2, yT, xCol2, yGesamtBottom);
+    doc.line(xCol3, yT, xCol3, yGesamtBottom);
+    // Zeilentrenner Items
+    for (var ri = 0; ri < contentRows.length; ri++) {
+      doc.line(xL, yHdrBottom + (ri+1)*rowH, xR, yHdrBottom + (ri+1)*rowH);
     }
-  });
+    doc.line(xL, yGapBottom, xR, yGapBottom);
+    // Netto: grau links + schwarz Betrag-Spalte
+    grayLine(); doc.line(xL, yNettoBottom, xCol3, yNettoBottom);
+    blackLine(); doc.line(xCol3, yNettoBottom, xR, yNettoBottom);
+    // MwSt: grau
+    grayLine(); doc.line(xL, yMwstBottom, xR, yMwstBottom);
+    // Gesamt: grau links + schwarz doppelt Betrag-Spalte
+    grayLine(); doc.line(xL, yGesamtBottom, xCol3, yGesamtBottom);
+    blackLine();
+    doc.line(xCol3, yGesamtBottom,     xR, yGesamtBottom);
+    doc.line(xCol3, yGesamtBottom + 1, xR, yGesamtBottom + 1);
 
-  // Materialkosten
-  var yMat = yCur;
-  if (hasMat) { tRow(mklbl, matAmt, yMat); yCur += 5; }
+    // Kopfzeile Text (erste Spalte immer leer)
+    doc.setFont('times','normal'); doc.setFontSize(10);
+    doc.text('Anzahl', xCol2 + (xCol3-xCol2)/2, yT + hdrH - 2, {align:'center'});
+    doc.text('Betrag', xR - 2,                  yT + hdrH - 2, {align:'right'});
 
-  var yNetto  = yCur;
-  var yMwst   = yCur + 5;
-  var yGesamt = yCur + 10;
+    // Content-Zeilen
+    for (var ri2 = 0; ri2 < contentRows.length; ri2++) {
+      var row = contentRows[ri2];
+      var rowY = yHdrBottom + ri2*rowH + rowH - 2;
+      doc.setFont('times','normal'); doc.setFontSize(10);
+      if (row.type === 'carhead') {
+        doc.setFont('times','bold');
+        doc.text(buildFzStr(row.car), xL + 2, rowY);
+        doc.setFont('times','normal');
+      } else if (row.type === 'titel') {
+        doc.text((row.it.titel||'').trim(), xL + 2, rowY);
+      } else if (row.type === 'stunden') {
+        var menge = parseFloat(row.it.menge)||1;
+        doc.text(menge===1?'Arbeitsstunde':'Arbeitsstunden', xL + 2, rowY);
+        doc.text(String(row.it.menge), xCol2+(xCol3-xCol2)/2, rowY, {align:'center'});
+        var lt = row.it.menge * row.it.preis * (1 + row.it.ust/100);
+        doc.text('€  '+numFmt(lt), xR - 2, rowY, {align:'right'});
+      } else if (row.type === 'extra') {
+        var et = row.it.extraBetrag * (1 + (row.it.extraUst!=null?row.it.extraUst:20)/100);
+        doc.text(row.it.extraLabel.trim(), xL + 2, rowY);
+        doc.text('€  '+numFmt(et), xR - 2, rowY, {align:'right'});
+      } else if (row.type === 'mat') {
+        doc.text(mklbl, xL + 2, rowY);
+        doc.text('€  '+numFmt(matAmt), xR - 2, rowY, {align:'right'});
+      }
+    }
 
-  tRow('Netto', nt, yNetto);
+    // Summenzeilen
+    doc.setFont('times','normal'); doc.setFontSize(10);
+    doc.text('Netto',              xL+2, yNettoTop  + rowH - 2);
+    doc.text('€  '+numFmt(nt),    xR-2, yNettoTop  + rowH - 2, {align:'right'});
+    doc.text('MwSt. '+ustPct+'%', xL+2, yMwstTop   + rowH - 2);
+    doc.text('€  '+numFmt(va),    xR-2, yMwstTop   + rowH - 2, {align:'right'});
+    doc.setFont('times','bold');
+    doc.text('Gesamtbetrag',       xL+2, yGesamtTop + rowH - 2);
+    doc.text('€  '+numFmt(totalH), xR-2, yGesamtTop + rowH - 2, {align:'right'});
+    doc.setFont('times','normal');
 
-  // MwSt — draw then underline only amount (from lineStart, 2cm = 20mm long)
-  tRow('+' + ustPct + '% Mwst.', va, yMwst);
-  doc.setDrawColor(30,30,30);
-  doc.setLineWidth(0.3);
-  doc.line(lineStart, yMwst + 2, lineStart + 20, yMwst + 2);
-
-  // Gesamt — dynamic position
-  var yGesamtAmt = yGesamt + 0.5;
-  setF(11, false);
-  doc.text('Gesamt', xL, yGesamt);
-  doc.text('€', xEuro, yGesamtAmt);
-  doc.text(numFmt(totalH), xR, yGesamtAmt, {align:'right'});
-  doc.setLineWidth(0.3);
-  doc.line(lineStart, yGesamtAmt + 2, lineStart + 20, yGesamtAmt + 2);
-  doc.line(lineStart, yGesamtAmt + 3, lineStart + 20, yGesamtAmt + 3);
-
-  // ── BEZAHLT IN BAR (nur Kassa) ────────────────────────────────────
-  if (inv.zahlungsart === 'kassa') {
-    setF(11);
-    doc.setTextColor(30, 30, 30);
-    var today = fmtD(new Date().toISOString().split('T')[0]);
-    var kbNr = inv.kassenbeleg_nr || '';
-    doc.text('Bezahlt in Bar am ' + today + '     -     Kassenbeleg Nr. ' + kbNr, xL, 255);
+    return yGesamtBottom;
   }
 
-  // ── FUßZEILE ──────────────────────────────────────────────────────
-  doc.setFont(headerFont, 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(30, 30, 30);
-  doc.text('Zahlbar sofort nach Erhalt der Rechnung netto Kassa!', 105, 272, {align:'center'});
-  doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 277, {align:'center'});
-  doc.text('UID-Nr. ATU 58185458, LG f. ZRS GRAZ, FN 251792h', 105, 282, {align:'center'});
+  // ── Zeilen aufbauen + Tabelle ausgeben ───────────────────────────
+  var contentRows = [];
+  var yT, yGesamtBottom;
 
-  // Build filename: Rechnung_X_Kennzeichen.pdf
+  if (!multiCar) {
+    // Einzelfahrzeug: Modell + Beschreibung außerhalb der Tabelle
+    var mainCar = (inv.items||[]).length > 0
+      ? getEffCar(inv.items[0])
+      : {marke:(inv.fz_marke||'').trim(), kz:(inv.fz_kz||'').trim()};
+    var mainCarStr = buildFzStr(mainCar);
+    doc.setFont('times','normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+    if (mainCarStr) doc.text(mainCarStr, xL, 115);
+
+    var yTitles = 121;
+    (inv.items||[]).forEach(function(it) {
+      if (it.titel && it.titel.trim()) { doc.text(it.titel.trim(), xL, yTitles); yTitles += 5; }
+    });
+    yT = Math.max(134, yTitles + 7);
+
+    (inv.items||[]).forEach(function(it) {
+      contentRows.push({type:'stunden', it:it});
+      if (it.extraLabel && it.extraLabel.trim() && it.extraBetrag) contentRows.push({type:'extra', it:it});
+    });
+    if (hasMat) contentRows.push({type:'mat'});
+
+  } else {
+    // Mehrere Fahrzeuge: Fahrzeug-Header + Beschreibung in der Tabelle
+    yT = 115;
+    uniqueCarKeys.forEach(function(carKey) {
+      var parts = carKey.split('|||');
+      contentRows.push({type:'carhead', car:{marke:parts[0], kz:parts[1]}});
+      (inv.items||[]).forEach(function(it) {
+        if (getEffCar(it).key !== carKey) return;
+        if (it.titel && it.titel.trim()) contentRows.push({type:'titel', it:it});
+        contentRows.push({type:'stunden', it:it});
+        if (it.extraLabel && it.extraLabel.trim() && it.extraBetrag) contentRows.push({type:'extra', it:it});
+      });
+    });
+    if (hasMat) contentRows.push({type:'mat'});
+  }
+
+  yGesamtBottom = drawTable(yT, contentRows);
+
+  // ── BEZAHLT IN BAR (nur Kassa UND > 400€) ───────────────────────
+  if (inv.zahlungsart === 'kassa' && totalH > 400) {
+    doc.setFont('times','normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+    var kbNr = inv.kassenbeleg_nr || '';
+    doc.text('Bezahlt in Bar am ' + fmtD(inv.datum) + '  -  Kassenbeleg Nr.: ' + kbNr, xL, yGesamtBottom + 1 + 20);
+  }
+
+  // ── FUßZEILE ab 26,4cm ───────────────────────────────────────────
+  doc.setFont(georgiaFont,'normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+  doc.text('Zahlbar sofort nach Erhalt der Rechnung netto Kassa!', 105, 264, {align:'center'});
+  doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 269, {align:'center'});
+  doc.text('UID-Nr. ATU 58185458, LG f. ZRS GRAZ, FN 251792h', 105, 274, {align:'center'});
+
+  // ── Dateiname ─────────────────────────────────────────────────────
   var fnNr = inv.nummer || '';
-  // Extract clean number from AR-2026-01 -> 01
   var fnMatch = fnNr.match(/(\d+)$/);
   var fnNum = fnMatch ? String(parseInt(fnMatch[1])) : fnNr;
-  var fnKz = (inv.fz_kz || '').replace(/[^a-zA-Z0-9]/g, '');
+  var firstKz = ((inv.items&&inv.items[0]&&(inv.items[0].fz_kz||'').trim()) || (inv.fz_kz||''));
+  var fnKz = firstKz.replace(/[^a-zA-Z0-9]/g,'');
   var filename = 'Rechnung_' + fnNum + (fnKz ? '_' + fnKz : '') + '.pdf';
   var arPath = localStorage.getItem('bp_path_ar');
   savePDFToFolder(doc, filename, arPath, function(){ doc.save(filename); });
@@ -3253,11 +3323,19 @@ function updateItemExtra(i, field, value) {
 }
 
 var _malgunFontB64 = null;
+var _georgiaFontB64 = null;
+var _georgiaBoldFontB64 = null;
 
 function loadMalgunFont() {
   if (window.electronAPI && window.electronAPI.readFont) {
     window.electronAPI.readFont('malgunsl.ttf').then(function(b64) {
       if (b64) _malgunFontB64 = b64;
+    });
+    window.electronAPI.readFont('georgia.ttf').then(function(b64) {
+      if (b64) _georgiaFontB64 = b64;
+    });
+    window.electronAPI.readFont('georgiab.ttf').then(function(b64) {
+      if (b64) _georgiaBoldFontB64 = b64;
     });
   }
 }
