@@ -626,6 +626,19 @@
     </div>
 
     <div class="card">
+      <h3>Positions-Vorschläge</h3>
+      <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin-bottom:1rem">
+        Diese Schnellauswahl-Buttons erscheinen im Rechnungsformular und im Kostenvoranschlag bei jeder Position.
+      </p>
+      <div id="pos-badges-list"></div>
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+        <input type="text" id="pos-badge-new" placeholder="Neuer Vorschlag..." style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:sans-serif;flex:1">
+        <button class="btn primary" id="btn-pos-badge-add">+ Hinzufügen</button>
+      </div>
+      <div style="font-size:11px;color:var(--accent);margin-top:6px" id="pos-badges-info"></div>
+    </div>
+
+    <div class="card">
       <h3>Fixkosten</h3>
       <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin-bottom:1rem">
         Tragen Sie hier Ihre monatlichen Fixkosten ein. Diese werden in der Statistik berücksichtigt.

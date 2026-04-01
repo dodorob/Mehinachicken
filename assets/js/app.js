@@ -2,6 +2,19 @@
 // DATA
 // ================================================================
 var STORE_KEY = 'buchpro_v1';
+var POS_BADGES_KEY = 'bp_pos_badges';
+var POS_BADGES_DEFAULT = ['Links','Rechts','Vorne','Hinten'];
+
+function getPosBadges() {
+  try {
+    var v = localStorage.getItem(POS_BADGES_KEY);
+    if (v) { var a = JSON.parse(v); if (Array.isArray(a) && a.length) return a; }
+  } catch(e) {}
+  return POS_BADGES_DEFAULT.slice();
+}
+function savePosBadges(arr) {
+  localStorage.setItem(POS_BADGES_KEY, JSON.stringify(arr));
+}
 
 function loadDB() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
@@ -350,9 +363,100 @@ function setActiveChip(typ, activeId) {
 // ================================================================
 // DASHBOARD
 // ================================================================
+function renderPosBadgesList() {
+  var el = document.getElementById('pos-badges-list');
+  if (!el) return;
+  var badges = getPosBadges();
+  if (!badges.length) {
+    el.innerHTML = '<div style="font-family:sans-serif;font-size:13px;color:var(--t3);padding:6px 0">Keine Vorschläge eingetragen.</div>';
+    return;
+  }
+  var dragFrom = null;
+  el.innerHTML = badges.map(function(b, i){
+    return '<div class="pb-row" draggable="true" data-i="'+i+'" style="display:flex;gap:8px;align-items:center;margin-bottom:6px;border-radius:8px;transition:background .15s">' +
+      '<span style="cursor:grab;font-size:18px;color:#bbb;padding:0 2px;user-select:none;flex-shrink:0">&#8942;</span>' +
+      '<input class="pb-val" value="'+esc(b)+'" style="flex:1;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:sans-serif">' +
+      '<button class="btn" style="padding:4px 10px;font-size:12px" onclick="savePosBadgeEdit('+i+')">&#10003;</button>' +
+      '<button class="btn danger pb-del" data-i="'+i+'" style="padding:4px 10px;font-size:12px">✕</button>' +
+    '</div>';
+  }).join('');
+
+  el.querySelectorAll('.pb-row').forEach(function(row){
+    row.addEventListener('dragstart', function(e){
+      dragFrom = parseInt(this.dataset.i);
+      e.dataTransfer.effectAllowed = 'move';
+      var self = this; setTimeout(function(){ self.style.opacity='0.4'; }, 0);
+    });
+    row.addEventListener('dragend', function(){
+      this.style.opacity='';
+      el.querySelectorAll('.pb-row').forEach(function(r){ r.style.background=''; });
+    });
+    row.addEventListener('dragover', function(e){
+      e.preventDefault();
+      el.querySelectorAll('.pb-row').forEach(function(r){ r.style.background=''; });
+      this.style.background='#f0f9f5';
+    });
+    row.addEventListener('drop', function(e){
+      e.preventDefault();
+      var toIdx = parseInt(this.dataset.i);
+      if (dragFrom === null || dragFrom === toIdx) return;
+      var arr = getPosBadges();
+      var item = arr.splice(dragFrom, 1)[0];
+      arr.splice(toIdx, 0, item);
+      savePosBadges(arr);
+      renderPosBadgesList();
+    });
+  });
+
+  el.querySelectorAll('.pb-del').forEach(function(btn){
+    btn.onclick = function(){
+      var arr = getPosBadges();
+      arr.splice(parseInt(this.dataset.i), 1);
+      savePosBadges(arr);
+      renderPosBadgesList();
+      showPosBadgesInfo('Gelöscht');
+    };
+  });
+}
+
+function savePosBadgeEdit(i) {
+  var rows = document.querySelectorAll('#pos-badges-list .pb-row');
+  var arr = getPosBadges();
+  var newVal = rows[i] ? rows[i].querySelector('.pb-val').value.trim() : '';
+  if (!newVal) return;
+  arr[i] = newVal;
+  savePosBadges(arr);
+  renderPosBadgesList();
+  showPosBadgesInfo('Gespeichert');
+}
+
+function showPosBadgesInfo(msg) {
+  var el = document.getElementById('pos-badges-info');
+  if (!el) return;
+  el.textContent = '✓ ' + msg;
+  setTimeout(function(){ el.textContent = ''; }, 2000);
+}
+
 function initEinstellungen() {
   // Speicherpfade laden und Buttons verdrahten
   initPathSettings();
+
+  // Positions-Vorschläge
+  renderPosBadgesList();
+  var btnAdd = document.getElementById('btn-pos-badge-add');
+  if (btnAdd) btnAdd.onclick = function(){
+    var inp = document.getElementById('pos-badge-new');
+    var val = inp ? inp.value.trim() : '';
+    if (!val) return;
+    var arr = getPosBadges();
+    arr.push(val);
+    savePosBadges(arr);
+    if (inp) inp.value = '';
+    renderPosBadgesList();
+    showPosBadgesInfo('Hinzugefügt: ' + val);
+  };
+  var inp = document.getElementById('pos-badge-new');
+  if (inp) inp.onkeydown = function(e){ if (e.key === 'Enter') document.getElementById('btn-pos-badge-add').click(); };
 
   // Fixkosten laden und rendern
   renderFixkostenList();
@@ -1309,10 +1413,7 @@ function renderItems() {
         '<td colspan="7" style="padding:6px 8px 0;border-bottom:none">' +
           '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
             '<div style="font-size:10px;font-weight:500;color:#888;font-family:sans-serif;text-transform:uppercase;letter-spacing:.5px;background:#f0f0ec;padding:3px 8px;border-radius:4px;display:inline-block">Beschreibung</div>' +
-            '<button type="button" class="pos-badge" data-i="' + i + '" data-val="Links"   style="font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid #ddd;background:#fff;cursor:pointer;font-family:sans-serif;color:#555">Links</button>' +
-            '<button type="button" class="pos-badge" data-i="' + i + '" data-val="Rechts"  style="font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid #ddd;background:#fff;cursor:pointer;font-family:sans-serif;color:#555">Rechts</button>' +
-            '<button type="button" class="pos-badge" data-i="' + i + '" data-val="Vorne"   style="font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid #ddd;background:#fff;cursor:pointer;font-family:sans-serif;color:#555">Vorne</button>' +
-            '<button type="button" class="pos-badge" data-i="' + i + '" data-val="Hinten"  style="font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid #ddd;background:#fff;cursor:pointer;font-family:sans-serif;color:#555">Hinten</button>' +
+            getPosBadges().map(function(b){ return '<button type="button" class="pos-badge" data-i="' + i + '" data-val="'+esc(b)+'" style="font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid #ddd;background:#fff;cursor:pointer;font-family:sans-serif;color:#555">'+esc(b)+'</button>'; }).join('') +
           '</div>' +
         '</td>' +
       '</tr>' +
@@ -3503,10 +3604,7 @@ function renderKVItems() {
       '</td>' +
       '<td style="padding:4px 4px">' +
         '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">' +
-          '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="Links"  style="' + badgeStyle + '">Links</button>' +
-          '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="Rechts" style="' + badgeStyle + '">Rechts</button>' +
-          '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="Vorne"  style="' + badgeStyle + '">Vorne</button>' +
-          '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="Hinten" style="' + badgeStyle + '">Hinten</button>' +
+          getPosBadges().map(function(b){ return '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="'+esc(b)+'" style="' + badgeStyle + '">'+esc(b)+'</button>'; }).join('') +
         '</div>' +
         '<input type="text" value="' + esc(it.beschreibung) + '" data-i="' + i + '" class="kv-beschreibung" placeholder="Details..." style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif">' +
       '</td>' +
