@@ -15,7 +15,6 @@
     "appId": "com.mehinachicken.app",
     "productName": "Mehinachicken",
     "files": [
-      ".env",
       "index.html",
       "assets/**/*",
       "electron-main.js",
