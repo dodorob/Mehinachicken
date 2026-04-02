@@ -2077,12 +2077,13 @@ function genPDFData(inv) {
   blackLine();
   doc.line(xL, tY + hdrH, xR, tY + hdrH);
 
-  // ── Header-Text ──────────────────────────────────────────────────
+  // ── Header-Text (vertikal zentriert) ────────────────────────────
+  var hdrTextY = tY + hdrH / 2 + 1.5;  // Baseline für visuell zentrierten 10pt-Text
   doc.setFont('times','normal'); doc.setFontSize(10);
-  doc.text('Fahrzeug',     xL + 2,      tY + hdrH - 2);
-  doc.text('Beschreibung', colFzEnd + 2, tY + hdrH - 2);
-  doc.text('Anzahl',       colAnz,       tY + hdrH - 2, {align:'center'});
-  doc.text('Betrag (€)',   xR - 2,       tY + hdrH - 2, {align:'right'});
+  doc.text('Fahrzeug',     xL + 2,      hdrTextY);
+  doc.text('Beschreibung', colFzEnd + 2, hdrTextY);
+  doc.text('Anzahl',       colAnz,       hdrTextY, {align:'center'});
+  doc.text('Betrag (€)',   xR - 2,       hdrTextY, {align:'right'});
 
   // ── Content-Zeilen ───────────────────────────────────────────────
   var yCur = tY + hdrH;
@@ -2138,13 +2139,16 @@ function genPDFData(inv) {
   doc.text('Netto',              xL + 2, yNettoY);
   doc.text('€', xEuro, yNettoY);
   doc.text(numFmt(nt),    xR - 2, yNettoY, {align:'right'});
-  // Linie unter Netto
+  // Linie unter Netto: volle Breite (Netto bis Betrag)
   blackLine();
-  doc.line(xEuro - 1, yNettoY + 1, xR, yNettoY + 1);
+  doc.line(xL, yNettoY + 1, xR, yNettoY + 1);
 
   doc.text('MwSt. '+ustPct+'%', xL + 2, yMwstY);
   doc.text('€', xEuro, yMwstY);
   doc.text(numFmt(va),    xR - 2, yMwstY, {align:'right'});
+  // Linie unter MwSt-Betrag
+  blackLine();
+  doc.line(xEuro - 1, yMwstY + 1, xR, yMwstY + 1);
 
   doc.setFont('times','bold');
   doc.text('Gesamtbetrag',  xL + 2, yGesamtY);
