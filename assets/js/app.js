@@ -1109,9 +1109,7 @@ function initForm() {
   document.getElementById('f-alerts').innerHTML = '';
   document.getElementById('f-alerts2').innerHTML = '';
 
-  var bankomatRow = document.getElementById('bankomat-row');
-  if (bankomatRow) bankomatRow.style.display = 'none';
-  setKassaTyp('bar');
+  setPay('bank');
   document.getElementById('mat-auto').checked = false;
   if (document.getElementById('inv-privat')) document.getElementById('inv-privat').checked = false;
   if (document.getElementById('inv-djevad')) document.getElementById('inv-djevad').checked = false;
@@ -2156,8 +2154,8 @@ function genPDFData(inv) {
 
   yGesamtBottom = drawTable(yT, contentRows);
 
-  // ── BEZAHLT IN BAR (nur Kassa UND > 400€) ───────────────────────
-  if (inv.zahlungsart === 'kassa' && totalH > 400) {
+  // ── BEZAHLT IN BAR / BANKOMAT (alle Kassa-Zahlungen) ────────────
+  if (inv.zahlungsart === 'kassa') {
     doc.setFont('times','normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
     var kbNr = inv.kassenbeleg_nr || '';
     var bezahltText = (inv.kassa_typ === 'bankomat')
