@@ -2183,7 +2183,9 @@ function genPDFData(inv) {
   var firstKz = ((inv.items&&inv.items[0]&&(inv.items[0].fz_kz||'').trim()) || (inv.fz_kz||''));
   var fnKz = firstKz.replace(/[^a-zA-Z0-9]/g,'');
   var filename = 'Rechnung_' + fnNum + (fnKz ? '_' + fnKz : '') + '.pdf';
-  var arPath = localStorage.getItem('bp_path_ar');
+  var arPath = inv.zahlungsart === 'kassa'
+    ? (localStorage.getItem('bp_path_ar_kassa') || localStorage.getItem('bp_path_ar'))
+    : (localStorage.getItem('bp_path_ar_bank')  || localStorage.getItem('bp_path_ar'));
   savePDFToFolder(doc, filename, arPath, function(){ doc.save(filename); });
 }
 
@@ -3029,10 +3031,12 @@ function deleteTodo(id) {
 // EXPORT
 // ================================================================
 function initPathSettings() {
-  var arEl = document.getElementById('path-ar');
-  var erEl = document.getElementById('path-er');
-  var kvEl = document.getElementById('path-kv');
-  if (arEl) arEl.value = localStorage.getItem('bp_path_ar') || '';
+  var arBankEl  = document.getElementById('path-ar-bank');
+  var arKassaEl = document.getElementById('path-ar-kassa');
+  var erEl      = document.getElementById('path-er');
+  var kvEl      = document.getElementById('path-kv');
+  if (arBankEl)  arBankEl.value  = localStorage.getItem('bp_path_ar_bank')  || localStorage.getItem('bp_path_ar') || '';
+  if (arKassaEl) arKassaEl.value = localStorage.getItem('bp_path_ar_kassa') || localStorage.getItem('bp_path_ar') || '';
   if (erEl) erEl.value = localStorage.getItem('bp_path_er') || '';
   if (kvEl) kvEl.value = localStorage.getItem('bp_path_kv') || '';
 
@@ -3045,10 +3049,12 @@ function initPathSettings() {
     if (info) { info.textContent = '✓ Gespeichert: ' + v; setTimeout(function(){ info.textContent = ''; }, 2500); }
   }
 
-  var btnARSave = document.getElementById('btn-path-ar-save');
-  var btnERSave = document.getElementById('btn-path-er-save');
-  var btnKVSave = document.getElementById('btn-path-kv-save');
-  if (btnARSave) btnARSave.onclick = function(){ savePath('path-ar', 'bp_path_ar', 'path-ar-info'); };
+  var btnARBankSave  = document.getElementById('btn-path-ar-bank-save');
+  var btnARKassaSave = document.getElementById('btn-path-ar-kassa-save');
+  var btnERSave      = document.getElementById('btn-path-er-save');
+  var btnKVSave      = document.getElementById('btn-path-kv-save');
+  if (btnARBankSave)  btnARBankSave.onclick  = function(){ savePath('path-ar-bank',  'bp_path_ar_bank',  'path-ar-bank-info'); };
+  if (btnARKassaSave) btnARKassaSave.onclick = function(){ savePath('path-ar-kassa', 'bp_path_ar_kassa', 'path-ar-kassa-info'); };
   if (btnERSave) btnERSave.onclick = function(){ savePath('path-er', 'bp_path_er', 'path-er-info'); };
   if (btnKVSave) btnKVSave.onclick = function(){ savePath('path-kv', 'bp_path_kv', 'path-kv-info'); };
 }
