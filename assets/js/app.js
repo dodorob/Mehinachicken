@@ -1128,7 +1128,7 @@ function initForm() {
   var erF = document.getElementById('er-faellig'); if(erF) erF.value = erDue;
   var erPct = document.getElementById('er-ust-pct'); if(erPct) erPct.value = '20';
   updateFT();
-  itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0}];
+  itemsData = [{titel:'Sprenglerarb.: ',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0}];
   renderItems();
   // Wire up toggle buttons (re-wire after SP)
   wireFormButtons();
@@ -1536,7 +1536,11 @@ function openInlineKundeModal() {
 
 function calcMat() { renderSum(); }
 
-function addItem(type) { itemsData.push({titel:'',desc:'',menge:1,preis:0,ust:20,type:type||'stunden',djevad_h:0,helmut_h:0,fz_marke:'',fz_kz:''}); renderItems(); }
+function addItem(type) {
+  var defaultTitel = (document.getElementById('typ') && document.getElementById('typ').value === 'ausgang') ? 'Sprenglerarb.: ' : '';
+  itemsData.push({titel:defaultTitel,desc:'',menge:1,preis:0,ust:20,type:type||'stunden',djevad_h:0,helmut_h:0,fz_marke:'',fz_kz:''});
+  renderItems();
+}
 
 function removeItem(i) {
   if (itemsData.length === 1) return;
@@ -2178,12 +2182,19 @@ function genPDFData(inv) {
 
   // ── Dateiname ─────────────────────────────────────────────────────
   var fnNr = inv.nummer || '';
-  var fnMatch = fnNr.match(/(\d+)$/);
-  var fnNum = fnMatch ? String(parseInt(fnMatch[1])) : fnNr;
+  var fnKunde = '';
+  if (!inv.privatkunde && inv.partner_name) {
+    fnKunde = inv.partner_name.trim().replace(/\s+/g,'_').replace(/[^a-zA-Z0-9äöüÄÖÜß_\-]/g,'');
+  }
   var firstKz = ((inv.items&&inv.items[0]&&(inv.items[0].fz_kz||'').trim()) || (inv.fz_kz||''));
   var fnKz = firstKz.replace(/[^a-zA-Z0-9]/g,'');
-  var filename = 'Rechnung_' + fnNum + (fnKz ? '_' + fnKz : '') + '.pdf';
-  var arPath = localStorage.getItem('bp_path_ar');
+  var filename = 'RechnungNR.' + fnNr;
+  if (fnKunde) filename += '_' + fnKunde;
+  if (fnKz) filename += '_' + fnKz;
+  filename += '.pdf';
+  var arPath = inv.zahlungsart === 'kassa'
+    ? (localStorage.getItem('bp_path_ar_kassa') || localStorage.getItem('bp_path_ar'))
+    : (localStorage.getItem('bp_path_ar_bank')  || localStorage.getItem('bp_path_ar'));
   savePDFToFolder(doc, filename, arPath, function(){ doc.save(filename); });
 }
 
@@ -3029,10 +3040,12 @@ function deleteTodo(id) {
 // EXPORT
 // ================================================================
 function initPathSettings() {
-  var arEl = document.getElementById('path-ar');
-  var erEl = document.getElementById('path-er');
-  var kvEl = document.getElementById('path-kv');
-  if (arEl) arEl.value = localStorage.getItem('bp_path_ar') || '';
+  var arBankEl  = document.getElementById('path-ar-bank');
+  var arKassaEl = document.getElementById('path-ar-kassa');
+  var erEl      = document.getElementById('path-er');
+  var kvEl      = document.getElementById('path-kv');
+  if (arBankEl)  arBankEl.value  = localStorage.getItem('bp_path_ar_bank')  || localStorage.getItem('bp_path_ar') || '';
+  if (arKassaEl) arKassaEl.value = localStorage.getItem('bp_path_ar_kassa') || localStorage.getItem('bp_path_ar') || '';
   if (erEl) erEl.value = localStorage.getItem('bp_path_er') || '';
   if (kvEl) kvEl.value = localStorage.getItem('bp_path_kv') || '';
 
@@ -3045,10 +3058,12 @@ function initPathSettings() {
     if (info) { info.textContent = '✓ Gespeichert: ' + v; setTimeout(function(){ info.textContent = ''; }, 2500); }
   }
 
-  var btnARSave = document.getElementById('btn-path-ar-save');
-  var btnERSave = document.getElementById('btn-path-er-save');
-  var btnKVSave = document.getElementById('btn-path-kv-save');
-  if (btnARSave) btnARSave.onclick = function(){ savePath('path-ar', 'bp_path_ar', 'path-ar-info'); };
+  var btnARBankSave  = document.getElementById('btn-path-ar-bank-save');
+  var btnARKassaSave = document.getElementById('btn-path-ar-kassa-save');
+  var btnERSave      = document.getElementById('btn-path-er-save');
+  var btnKVSave      = document.getElementById('btn-path-kv-save');
+  if (btnARBankSave)  btnARBankSave.onclick  = function(){ savePath('path-ar-bank',  'bp_path_ar_bank',  'path-ar-bank-info'); };
+  if (btnARKassaSave) btnARKassaSave.onclick = function(){ savePath('path-ar-kassa', 'bp_path_ar_kassa', 'path-ar-kassa-info'); };
   if (btnERSave) btnERSave.onclick = function(){ savePath('path-er', 'bp_path_er', 'path-er-info'); };
   if (btnKVSave) btnKVSave.onclick = function(){ savePath('path-kv', 'bp_path_kv', 'path-kv-info'); };
 }
@@ -3963,11 +3978,24 @@ function genKVPDF(kv) {
   var xL = 25;
   var xR = 190;
 
-  // Font (Malgun Gothic falls verfügbar)
-  var headerFont = 'helvetica';
+  // ── Georgia Font laden (Fallback: times) ──────────────────────────
+  var georgiaFont = 'times';
+  if (_georgiaFontB64) {
+    try {
+      doc.addFileToVFS('georgia.ttf', _georgiaFontB64);
+      doc.addFont('georgia.ttf', 'Georgia', 'normal');
+      georgiaFont = 'Georgia';
+    } catch(e) {}
+  }
+  if (_georgiaBoldFontB64) {
+    try {
+      doc.addFileToVFS('georgiab.ttf', _georgiaBoldFontB64);
+      doc.addFont('georgiab.ttf', 'Georgia', 'bold');
+    } catch(e) {}
+  }
 
   function setF(sz, bold) {
-    doc.setFont(headerFont, 'normal');
+    doc.setFont('times', 'normal');
     doc.setFontSize(sz || 11);
     doc.setTextColor(30, 30, 30);
   }
@@ -3976,25 +4004,17 @@ function genKVPDF(kv) {
     return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
   }
 
+  // ── KOPFZEILE (Georgia, zentriert) ───────────────────────────────
   doc.setTextColor(30, 30, 30);
-  if (_malgunFontB64) {
-    try {
-      doc.addFileToVFS('malgunsl.ttf', _malgunFontB64);
-      doc.addFont('malgunsl.ttf', 'MalgunGothicSL', 'normal');
-      headerFont = 'MalgunGothicSL';
-    } catch(e) { headerFont = 'helvetica'; }
-  }
-
-  // KOPFZEILE (identisch mit Rechnung)
-  doc.setFont(headerFont, 'normal');
-  doc.setTextColor(30, 30, 30);
-  doc.setFontSize(28);
+  doc.setFont(georgiaFont, 'bold');
+  doc.setFontSize(24);
   doc.text('KAROSSERIEFACHWERKSTÄTTE', 105, 25, {align:'center'});
-  doc.setFontSize(20);
-  doc.text('KURT LINDITSCH GMBH', 105, 35, {align:'center'});
-  doc.setFontSize(10);
-  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 43, {align:'center'});
-  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 49, {align:'center'});
+  doc.setFontSize(22);
+  doc.text('KURT LINDITSCH GMBH', 105, 34, {align:'center'});
+  doc.setFont(georgiaFont, 'normal');
+  doc.setFontSize(9);
+  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 41, {align:'center'});
+  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 46, {align:'center'});
 
   // TITEL — fett, oben (vor Datum)
   doc.setFont(ff, 'bold');
@@ -4111,7 +4131,7 @@ function genKVPDF(kv) {
   doc.text('Änderungen vorbehalten.', xL, 261);
 
   // FUßZEILE (ohne "Zahlbar sofort..." — nur Bankdaten + UID)
-  doc.setFont(headerFont, 'normal');
+  doc.setFont(georgiaFont, 'normal');
   doc.setFontSize(8);
   doc.setTextColor(30, 30, 30);
   doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 277, {align:'center'});
