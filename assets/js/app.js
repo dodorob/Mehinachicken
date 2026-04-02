@@ -166,7 +166,7 @@ function brutto(inv) {
     var extra = it.extraBetrag ? it.extraBetrag * (1 + (it.extraUst!=null?it.extraUst:20)/100) : 0;
     return s + base + extra;
   }, 0);
-  return b + (inv.materialkosten || 0);
+  return b + (inv.materialkosten || 0) * 1.2;
 }
 
 function netto(inv) {
@@ -178,11 +178,12 @@ function netto(inv) {
 
 function vatAmt(inv) {
   if (inv.typ === 'eingang' && inv.er_ust != null && inv.er_ust > 0) return inv.er_ust;
-  return (inv.items || []).reduce(function(s,it){
+  var items_vat = (inv.items || []).reduce(function(s,it){
     var base = it.menge * it.preis * it.ust/100;
     var extra = it.extraBetrag ? it.extraBetrag * (it.extraUst!=null?it.extraUst:20)/100 : 0;
     return s + base + extra;
   }, 0);
+  return items_vat + (inv.materialkosten || 0) * 0.2;
 }
 
 function sBadge(s) {
@@ -1749,6 +1750,7 @@ function renderSum() {
     if (matInfoEl) matInfoEl.textContent = '';
   }
 
+  v += matVal * 0.2;
   var nettoGesamt = n + matVal;
   var gesamt = nettoGesamt + v;
 
