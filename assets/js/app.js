@@ -2009,13 +2009,11 @@ function genPDFData(inv) {
   (inv.items||[]).forEach(function(it){ if(it.ust>0&&ustRates.indexOf(it.ust)===-1) ustRates.push(it.ust); });
   var ustPct = ustRates.length > 0 ? ustRates.join('/') : '20';
 
-  // ── Spalten-Layout (KV-Stil, 4 Spalten) ─────────────────────────
-  var colFzEnd   = xL + 50;  // 75mm  – Ende Fahrzeug-Spalte
-  var colAnzLine = 155;       // Trennlinie Beschreibung | Anzahl
-  var colBetLine = 170;       // Trennlinie Anzahl | Betrag
-  var rowH = 6, hdrH = 8, gapH = 4;
+  // ── Spalten-Layout (4 Spalten) ───────────────────────────────────
+  var colFzEnd = xL + 50;  // 75mm – Ende Fahrzeug-Spalte
+  var colAnz   = 155;       // Anzahl-Spalte (zentriert)
+  var rowH = 6, hdrH = 8;
 
-  function grayLine() { doc.setDrawColor(0xD9,0xD9,0xD9); doc.setLineWidth(0.3); }
   function blackLine() { doc.setDrawColor(30,30,30); doc.setLineWidth(0.3); }
 
   function getEffCar(it) {
@@ -2045,44 +2043,41 @@ function genPDFData(inv) {
       rows.push({type:'stunden', it:it});
       if (it.extraLabel && it.extraLabel.trim() && it.extraBetrag) rows.push({type:'extra', it:it});
     });
-    // Mindest-Höhe: 2 Zeilen wenn Marke + KZ vorhanden
     if (group.car.marke && group.car.kz && rows.length < 2) rows.push({type:'pad'});
     return rows;
   }
 
-  // Gesamte Content-Zeilen für Höhenberechnung
-  var allContentRows = [];
-  carGroups.forEach(function(g) { allContentRows = allContentRows.concat(buildSubRows(g)); });
-  if (hasMat) allContentRows.push({type:'mat'});
+  // ── € Ausrichtung: breiteste Zahl vorausberechnen ────────────────
+  doc.setFont('times','normal'); doc.setFontSize(10);
+  var allAmounts = [];
+  carGroups.forEach(function(g) {
+    buildSubRows(g).forEach(function(row) {
+      if (row.type === 'stunden') allAmounts.push(row.it.menge * row.it.preis * (1 + row.it.ust/100));
+      else if (row.type === 'extra') allAmounts.push(row.it.extraBetrag * (1 + (row.it.extraUst!=null?row.it.extraUst:20)/100));
+    });
+  });
+  if (hasMat) allAmounts.push(matAmt);
+  allAmounts.push(nt, va, totalH);
+  var maxNumW = 0;
+  allAmounts.forEach(function(n) { var w = doc.getTextWidth(numFmt(n)); if (w > maxNumW) maxNumW = w; });
+  var xEuro = xR - maxNumW - 6;  // € immer an dieser Position
 
   var tY = 113;
-  var contentTotalH = allContentRows.length * rowH;
-  var yContentEnd = tY + hdrH + contentTotalH;
-  var yGap = yContentEnd + gapH;
-  var yNettoBottom  = yGap + rowH;
-  var yMwstBottom   = yNettoBottom + rowH;
-  var yGesamtBottom = yMwstBottom + rowH;
 
-  // ── Grauer Hintergrund: Header-Zeile + Fahrzeug-Spalte ───────────
+  // ── Grauer Hintergrund nur für Header-Zeile ───────────────────────
   doc.setFillColor(245, 245, 242);
   doc.rect(xL, tY, xR - xL, hdrH, 'F');
-  doc.rect(xL, tY + hdrH, colFzEnd - xL, contentTotalH, 'F');
 
-  // ── Äußerer Rahmen & Spaltenteiler ──────────────────────────────
-  grayLine();
-  doc.rect(xL, tY, xR - xL, hdrH + contentTotalH, 'S');
-  doc.line(colFzEnd,   tY, colFzEnd,   yContentEnd);
-  doc.line(colAnzLine, tY, colAnzLine, yContentEnd);
-  doc.line(colBetLine, tY, colBetLine, yContentEnd);
+  // ── Schwarze Linie unter Header ──────────────────────────────────
   blackLine();
   doc.line(xL, tY + hdrH, xR, tY + hdrH);
 
   // ── Header-Text ──────────────────────────────────────────────────
   doc.setFont('times','normal'); doc.setFontSize(10);
-  doc.text('Fahrzeug',     xL + 2,                       tY + hdrH - 2);
-  doc.text('Beschreibung', colFzEnd + 2,                 tY + hdrH - 2);
-  doc.text('Anzahl',       (colAnzLine+colBetLine)/2,    tY + hdrH - 2, {align:'center'});
-  doc.text('Betrag (€)',   xR - 2,                       tY + hdrH - 2, {align:'right'});
+  doc.text('Fahrzeug',     xL + 2,      tY + hdrH - 2);
+  doc.text('Beschreibung', colFzEnd + 2, tY + hdrH - 2);
+  doc.text('Anzahl',       colAnz,       tY + hdrH - 2, {align:'center'});
+  doc.text('Betrag (€)',   xR - 2,       tY + hdrH - 2, {align:'right'});
 
   // ── Content-Zeilen ───────────────────────────────────────────────
   var yCur = tY + hdrH;
@@ -2091,7 +2086,6 @@ function genPDFData(inv) {
     var car = group.car;
     var subRows = buildSubRows(group);
 
-    // Fahrzeug in grauer Spalte
     doc.setFont('times','normal'); doc.setFontSize(10);
     if (car.marke) doc.text(car.marke, xL + 2, yCur + rowH - 2);
     if (car.kz)    doc.text(car.kz,    xL + 2, yCur + 2*rowH - 2);
@@ -2105,17 +2099,16 @@ function genPDFData(inv) {
       } else if (row.type === 'stunden') {
         var menge = parseFloat(row.it.menge)||1;
         doc.text(menge===1?'Arbeitsstunde':'Arbeitsstunden', colFzEnd + 2, rowY);
-        doc.text(String(row.it.menge), (colAnzLine+colBetLine)/2, rowY, {align:'center'});
+        doc.text(String(row.it.menge), colAnz, rowY, {align:'center'});
         var lt = row.it.menge * row.it.preis * (1 + row.it.ust/100);
-        doc.text('€  '+numFmt(lt), xR - 2, rowY, {align:'right'});
+        doc.text('€', xEuro, rowY);
+        doc.text(numFmt(lt), xR - 2, rowY, {align:'right'});
       } else if (row.type === 'extra') {
         var et = row.it.extraBetrag * (1 + (row.it.extraUst!=null?row.it.extraUst:20)/100);
         doc.text((row.it.extraLabel||'').trim(), colFzEnd + 2, rowY);
-        doc.text('€  '+numFmt(et), xR - 2, rowY, {align:'right'});
+        doc.text('€', xEuro, rowY);
+        doc.text(numFmt(et), xR - 2, rowY, {align:'right'});
       }
-      // 'pad' type: no text, just takes up space
-      grayLine();
-      doc.line(xL, yCur + (ri+1)*rowH, xR, yCur + (ri+1)*rowH);
     }
     yCur += subRows.length * rowH;
   });
@@ -2124,34 +2117,39 @@ function genPDFData(inv) {
   if (hasMat) {
     doc.setFont('times','normal'); doc.setFontSize(10);
     doc.text(mklbl, colFzEnd + 2, yCur + rowH - 2);
-    doc.text('€  '+numFmt(matAmt), xR - 2, yCur + rowH - 2, {align:'right'});
-    grayLine();
-    doc.line(xL, yCur + rowH, xR, yCur + rowH);
+    doc.text('€', xEuro, yCur + rowH - 2);
+    doc.text(numFmt(matAmt), xR - 2, yCur + rowH - 2, {align:'right'});
     yCur += rowH;
   }
 
-  // ── Summenzeilen ─────────────────────────────────────────────────
-  grayLine();
-  doc.line(xL, yGap, xL, yGesamtBottom);
-  doc.line(xR, yGap, xR, yGesamtBottom);
-  doc.line(xL, yGap, xR, yGap);
-  grayLine(); doc.line(xL, yNettoBottom, colBetLine, yNettoBottom);
-  blackLine(); doc.line(colBetLine, yNettoBottom, xR, yNettoBottom);
-  grayLine(); doc.line(xL, yMwstBottom, xR, yMwstBottom);
-  grayLine(); doc.line(xL, yGesamtBottom, colBetLine, yGesamtBottom);
-  blackLine();
-  doc.line(colBetLine, yGesamtBottom,     xR, yGesamtBottom);
-  doc.line(colBetLine, yGesamtBottom + 1, xR, yGesamtBottom + 1);
+  // ── Summenzeilen (kein Rahmen, nur Linien bei Netto + Gesamt) ────
+  var ySumStart = yCur + 4;
+  var yNettoY   = ySumStart + rowH - 2;
+  var yMwstY    = ySumStart + 2*rowH - 2;
+  var yGesamtY  = ySumStart + 3*rowH - 2;
+  var yGesamtBottom = ySumStart + 3*rowH;
 
   doc.setFont('times','normal'); doc.setFontSize(10);
-  doc.text('Netto',              xL + 2, yGap + rowH - 2);
-  doc.text('€  '+numFmt(nt),    xR - 2, yGap + rowH - 2, {align:'right'});
-  doc.text('MwSt. '+ustPct+'%', xL + 2, yNettoBottom + rowH - 2);
-  doc.text('€  '+numFmt(va),    xR - 2, yNettoBottom + rowH - 2, {align:'right'});
+  doc.text('Netto',              xL + 2, yNettoY);
+  doc.text('€', xEuro, yNettoY);
+  doc.text(numFmt(nt),    xR - 2, yNettoY, {align:'right'});
+  // Linie unter Netto
+  blackLine();
+  doc.line(xEuro - 1, yNettoY + 1, xR, yNettoY + 1);
+
+  doc.text('MwSt. '+ustPct+'%', xL + 2, yMwstY);
+  doc.text('€', xEuro, yMwstY);
+  doc.text(numFmt(va),    xR - 2, yMwstY, {align:'right'});
+
   doc.setFont('times','bold');
-  doc.text('Gesamtbetrag',       xL + 2, yMwstBottom + rowH - 2);
-  doc.text('€  '+numFmt(totalH), xR - 2, yMwstBottom + rowH - 2, {align:'right'});
+  doc.text('Gesamtbetrag',  xL + 2, yGesamtY);
+  doc.text('€', xEuro, yGesamtY);
+  doc.text(numFmt(totalH), xR - 2, yGesamtY, {align:'right'});
   doc.setFont('times','normal');
+  // Doppelte Linie unter Gesamtbetrag
+  blackLine();
+  doc.line(xEuro - 1, yGesamtY + 1, xR, yGesamtY + 1);
+  doc.line(xEuro - 1, yGesamtY + 2, xR, yGesamtY + 2);
 
   // ── BEZAHLT IN BAR / BANKOMAT (alle Kassa-Zahlungen) ────────────
   if (inv.zahlungsart === 'kassa') {
