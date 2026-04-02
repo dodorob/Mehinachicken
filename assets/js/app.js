@@ -144,9 +144,14 @@ function previewNum(typ) {
 // HELPERS
 // ================================================================
 var MONTHS = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+var FIN_M = new Date().getMonth(), FIN_Y = new Date().getFullYear();
 
 function fmt(n) {
   return new Intl.NumberFormat('de-AT', {style:'currency', currency:'EUR'}).format(n || 0);
+}
+
+function fmtAmt(n) {
+  return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n || 0);
 }
 
 function fmtD(s) {
@@ -227,7 +232,11 @@ function SP(id) {
   if (id === 'lieferanten') { renderLief(); var el=document.getElementById('s-lieferanten'); if(el) el.oninput=function(){ renderLief(); }; }
   if (id === 'zahlungen')  renderZ();
   if (id === 'statistik')  renderStatistik();
-  if (id === 'finanzen')   renderFin();
+  if (id === 'finanzen') {
+    renderFin();
+    var fpl=document.getElementById('fin-prev'); if(fpl) fpl.onclick=function(){ FIN_M--; if(FIN_M<0){FIN_M=11;FIN_Y--;} renderFin(); };
+    var fnl=document.getElementById('fin-next'); if(fnl) fnl.onclick=function(){ FIN_M++; if(FIN_M>11){FIN_M=0;FIN_Y++;} renderFin(); };
+  }
   if (id === 'bankbuch') {
     initBuchMonat('bank');
     var bb=document.getElementById('btn-bankbuch-pdf'); if(bb) bb.onclick=function(){ exportBuchKassaPDF('bank'); };
@@ -282,7 +291,6 @@ document.getElementById('btn-reset-form').addEventListener('click',    function(
 document.getElementById('btn-save-inv').addEventListener('click',      function(){ saveInvoice(); });
 document.getElementById('btn-add-item').addEventListener('click',      function(){ addItem(); });
 document.getElementById('btn-scan-k').addEventListener('click',        function(){ openScanner(); });
-document.getElementById('btn-scan-f').addEventListener('click',        function(){ openScanner(); });
 document.getElementById('btn-new-kunde').addEventListener('click',     function(){ openKundeModal(); });
 document.getElementById('btn-new-fz').addEventListener('click',        function(){ openFzModal(null); });
 document.getElementById('btn-new-lief').addEventListener('click',      function(){ openLiefModal(); });
@@ -352,9 +360,7 @@ document.getElementById('f-courier').addEventListener('click',   function(){ set
 document.getElementById('typ').addEventListener('change', function(){ updateFT(); });
 // partner change handled in wireFormButtons()
 
-// Export selects
-document.getElementById('ex-m').addEventListener('change', function(){ updateExDays(); updateExP(); });
-document.getElementById('ex-y').addEventListener('change', function(){ updateExDays(); updateExP(); });
+// Export selects are wired in initEx()
 
 function setActiveChip(typ, activeId) {
   var prefix = 'chip-' + typ + '-';
@@ -933,7 +939,7 @@ function renderDash() {
     }
   });
   document.getElementById('d-metrics').innerHTML =
-    '<div class="metric green"><div class="lbl">Umsatz</div><div class="val">' + fmt(tI-tE) + '</div></div>' +
+    '<div class="metric '+(tI-tE>=0?'green':'red')+'"><div class="lbl">Umsatz</div><div class="val">' + fmt(tI-tE) + '</div></div>' +
     '<div class="metric green"><div class="lbl">Einnahmen</div><div class="val">' + fmt(tI) + '</div><div class="sub">Monat: ' + fmt(mI) + '</div></div>' +
     '<div class="metric red"><div class="lbl">Ausgaben</div><div class="val">' + fmt(tE) + '</div><div class="sub">Monat: ' + fmt(mE) + '</div></div>' +
     '<div class="metric amber"><div class="lbl">USt.-Schuld</div><div class="val">' + fmt(vC-vP) + '</div></div>';
@@ -2761,7 +2767,8 @@ function editInv(id) {
 // FINANZEN
 // ================================================================
 function renderFin() {
-  var d = getDB(), now = new Date(), m = now.getMonth(), y = now.getFullYear();
+  var d = getDB(), m = FIN_M, y = FIN_Y;
+  var lbl = document.getElementById('fin-month-label'); if(lbl) lbl.textContent = MONTHS[m] + ' ' + y;
   var tI=0,tE=0,vC=0,vP=0,mVC=0,mVP=0;
   d.invoices.forEach(function(inv){
     var b=brutto(inv), v=vatAmt(inv);
@@ -3071,44 +3078,63 @@ function initPathSettings() {
 }
 
 function initEx() {
-  var sm=document.getElementById('ex-m'), sy=document.getElementById('ex-y');
-  sm.innerHTML = MONTHS.map(function(m,i){ return '<option value="'+i+'">'+m+'</option>'; }).join('');
-  var now = new Date(); sm.value = now.getMonth(); sy.innerHTML = '';
-  for (var y=now.getFullYear()-2; y<=now.getFullYear(); y++) sy.innerHTML += '<option value="'+y+'">'+y+'</option>';
-  sy.value = now.getFullYear();
-  updateExDays();
-  renderExport();
-  var dVon=document.getElementById('ex-d-von'), dBis=document.getElementById('ex-d-bis');
-  if(dVon) dVon.addEventListener('change', function(){ renderExport(); });
-  if(dBis) dBis.addEventListener('change', function(){ renderExport(); });
+  var now = new Date(), curM = now.getMonth(), curY = now.getFullYear();
+  var lastDay = new Date(curY, curM+1, 0).getDate();
+  initExDateSel('ex-von', 1, curM, curY);
+  initExDateSel('ex-bis', lastDay, curM, curY);
+  ['ex-von-d','ex-von-m','ex-von-y','ex-bis-d','ex-bis-m','ex-bis-y'].forEach(function(id){
+    var el=document.getElementById(id); if(!el) return;
+    el.addEventListener('change', function(){
+      if(id==='ex-von-m'||id==='ex-von-y') updateExDaysFor('ex-von');
+      if(id==='ex-bis-m'||id==='ex-bis-y') updateExDaysFor('ex-bis');
+      renderExport();
+    });
+  });
   var se=document.getElementById('s-export'); if(se) se.oninput=function(){ renderExport(); };
   var bfe=document.getElementById('btn-filter-export'); if(bfe) bfe.onclick=function(){ openFilterModal('export','buch'); };
+  renderExport();
 }
 
-function updateExDays() {
-  var m=parseInt(document.getElementById('ex-m').value), y=parseInt(document.getElementById('ex-y').value);
-  var lastDay=new Date(y,m+1,0).getDate();
-  var dVon=document.getElementById('ex-d-von'), dBis=document.getElementById('ex-d-bis');
-  if(!dVon||!dBis) return;
-  var prevVon=parseInt(dVon.value)||1, prevBis=parseInt(dBis.value)||lastDay;
+function initExDateSel(prefix, day, m, y) {
+  var sd=document.getElementById(prefix+'-d'), sm=document.getElementById(prefix+'-m'), sy=document.getElementById(prefix+'-y');
+  if(!sd||!sm||!sy) return;
+  sm.innerHTML=MONTHS.map(function(mn,i){return '<option value="'+i+'">'+mn+'</option>';}).join('');
+  sm.value=m;
+  sy.innerHTML='';
+  var now=new Date();
+  for(var yr=now.getFullYear()-2;yr<=now.getFullYear();yr++) sy.innerHTML+='<option value="'+yr+'">'+yr+'</option>';
+  sy.value=y;
+  updateExDaysFor(prefix, day);
+}
+
+function updateExDaysFor(prefix, selectedDay) {
+  var sm=document.getElementById(prefix+'-m'), sy=document.getElementById(prefix+'-y'), sd=document.getElementById(prefix+'-d');
+  if(!sm||!sy||!sd) return;
+  var lm=parseInt(sm.value), ly=parseInt(sy.value), lastDay=new Date(ly,lm+1,0).getDate();
+  var prev=selectedDay!=null?selectedDay:(parseInt(sd.value)||1);
   var opts=''; for(var d=1;d<=lastDay;d++) opts+='<option value="'+d+'">'+d+'.</option>';
-  dVon.innerHTML=opts; dBis.innerHTML=opts;
-  dVon.value=prevVon<=lastDay?String(prevVon):'1';
-  dBis.value=prevBis<=lastDay?String(prevBis):String(lastDay);
+  sd.innerHTML=opts; sd.value=prev<=lastDay?String(prev):String(lastDay);
+}
+
+function getExVonStr() {
+  var d=document.getElementById('ex-von-d'), m=document.getElementById('ex-von-m'), y=document.getElementById('ex-von-y');
+  if(!d||!m||!y) return '';
+  return y.value+'-'+String(parseInt(m.value)+1).padStart(2,'0')+'-'+String(parseInt(d.value)).padStart(2,'0');
+}
+
+function getExBisStr() {
+  var d=document.getElementById('ex-bis-d'), m=document.getElementById('ex-bis-m'), y=document.getElementById('ex-bis-y');
+  if(!d||!m||!y) return '';
+  return y.value+'-'+String(parseInt(m.value)+1).padStart(2,'0')+'-'+String(parseInt(d.value)).padStart(2,'0');
 }
 
 function getExD() {
-  var m=parseInt(document.getElementById('ex-m').value), y=parseInt(document.getElementById('ex-y').value);
-  return getDB().invoices.filter(function(inv){ var dt=new Date(inv.datum); return dt.getMonth()===m && dt.getFullYear()===y; });
+  var vonStr=getExVonStr(), bisStr=getExBisStr();
+  return getDB().invoices.filter(function(inv){return inv.datum>=vonStr&&inv.datum<=bisStr;});
 }
 
 function getExFiltered() {
-  var m=parseInt(document.getElementById('ex-m').value), yr=parseInt(document.getElementById('ex-y').value);
-  var lastDay=new Date(yr,m+1,0).getDate();
-  var dVonEl=document.getElementById('ex-d-von'), dBisEl=document.getElementById('ex-d-bis');
-  var dVon=dVonEl?parseInt(dVonEl.value):1, dBis=dBisEl?parseInt(dBisEl.value):lastDay;
-  var vonStr=yr+'-'+String(m+1).padStart(2,'0')+'-'+String(dVon).padStart(2,'0');
-  var bisStr=yr+'-'+String(m+1).padStart(2,'0')+'-'+String(dBis).padStart(2,'0');
+  var vonStr=getExVonStr(), bisStr=getExBisStr();
   var s=(document.getElementById('s-export')||{value:''}).value.toLowerCase();
   var st=(document.getElementById('f-export-status')||{value:''}).value;
   return getDB().invoices.filter(function(i){
@@ -3120,12 +3146,8 @@ function getExFiltered() {
 }
 
 function renderExport() {
-  var m=parseInt(document.getElementById('ex-m').value), y=parseInt(document.getElementById('ex-y').value);
-  var lastDay=new Date(y,m+1,0).getDate();
-  var dVon=document.getElementById('ex-d-von'), dBis=document.getElementById('ex-d-bis');
-  var dVonV=dVon?parseInt(dVon.value):1, dBisV=dBis?parseInt(dBis.value):lastDay;
-  var label=MONTHS[m]+' '+y;
-  if(dVonV!==1||dBisV!==lastDay) label+=', '+dVonV+'. – '+dBisV+'.';
+  var vonStr=getExVonStr(), bisStr=getExBisStr();
+  var label=fmtD(vonStr)+' – '+fmtD(bisStr);
   var invs=getExFiltered();
   var inc=invs.filter(function(i){return i.typ==='ausgang';}).reduce(function(s,i){return s+brutto(i);},0);
   var exp=invs.filter(function(i){return i.typ==='eingang';}).reduce(function(s,i){return s+brutto(i);},0);
@@ -3757,10 +3779,10 @@ function buildRows(invs) {
     var lfd=(inv.nummer||'').replace(/[^0-9]/g,'').replace(/^0+/,'');
     var zart=inv.zahlungsart==='kassa'?'Kassa':'Bank';
     rows.push([fmtD(inv.datum),inv.nummer||'',lfd,zart,
-      isAR?br.toFixed(2).replace('.',','):'',
-      isAR?va.toFixed(2).replace('.',','):'',
-      isAR?'':br.toFixed(2).replace('.',','),
-      isAR?'':va.toFixed(2).replace('.',','),
+      isAR?fmtAmt(br):'',
+      isAR?fmtAmt(va):'',
+      isAR?'':fmtAmt(br),
+      isAR?'':fmtAmt(va),
       '']);
   });
   var tEB=0,tEV=0,tAB=0,tAV=0;
@@ -3769,9 +3791,9 @@ function buildRows(invs) {
     if(i.typ==='ausgang'){tEB+=br;tEV+=va;}else{tAB+=br;tAV+=va;}
   });
   var saldo=tEB-tAB;
-  var salStr=(saldo>=0?'+ ':'− ')+Math.abs(saldo).toFixed(2).replace('.',',');
+  var salStr=(saldo>=0?'+ ':'− ')+fmtAmt(Math.abs(saldo));
   rows.push([]);
-  rows.push(['GESAMT','','','',tEB.toFixed(2).replace('.',','),tEV.toFixed(2).replace('.',','),tAB.toFixed(2).replace('.',','),tAV.toFixed(2).replace('.',','),salStr]);
+  rows.push(['GESAMT','','','',fmtAmt(tEB),fmtAmt(tEV),fmtAmt(tAB),fmtAmt(tAV),salStr]);
   return rows;
 }
 function toCSV(rows){
@@ -3810,21 +3832,17 @@ function dlBuch(art,fmt){
   else toPDF(rows,title);
 }
 function dlExport(fmt){
-  var m=parseInt(document.getElementById('ex-m').value);
-  var yr=parseInt(document.getElementById('ex-y').value);
-  var lastDay=new Date(yr,m+1,0).getDate();
-  var dVonEl=document.getElementById('ex-d-von'), dBisEl=document.getElementById('ex-d-bis');
-  var dVon=dVonEl?parseInt(dVonEl.value):1, dBis=dBisEl?parseInt(dBisEl.value):lastDay;
   var invs=getExFiltered();
-  var dayPart=(dVon===1&&dBis===lastDay)?'':'_'+dVon+'-'+dBis;
-  var title='Export_'+String(m+1).padStart(2,'0')+'_'+yr+dayPart;
+  var vonStr=getExVonStr(), bisStr=getExBisStr();
+  var title='Export_'+vonStr+'_'+bisStr;
   var rows=buildRows(invs);
   if(fmt==='excel'){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([toCSV(rows)],{type:'text/csv;charset=utf-8;'}));a.download=title+'.csv';a.click();}
   else toPDF(rows,title);
 }
 function dlExportYear(fmt){
   var d=getDB();
-  var yr=parseInt(document.getElementById('ex-y').value);
+  var yEl=document.getElementById('ex-von-y');
+  var yr=yEl?parseInt(yEl.value):new Date().getFullYear();
   var invs=d.invoices.filter(function(i){if(!i.datum)return false;var dt=new Date(i.datum);return dt.getFullYear()===yr;}).sort(function(a,b){return a.datum>b.datum?1:-1;});
   var title='Export_'+yr;
   var rows=buildRows(invs);

@@ -352,7 +352,7 @@
 </div>
 
 <div class="page" id="page-fahrzeuge">
-  <div class="topbar"><h2>Fahrzeuge</h2><div class="tba"><button class="btn" id="btn-scan-f">&#128247; Zulassung scannen</button><button class="btn primary" id="btn-new-fz">+ Neues Fahrzeug</button></div></div>
+  <div class="topbar"><h2>Fahrzeuge</h2><div class="tba"><button class="btn primary" id="btn-new-fz">+ Neues Fahrzeug</button></div></div>
   <div class="content"><div class="sbar" style="margin-bottom:.5rem"><input type="text" id="s-fahrzeuge" placeholder="Fahrzeuge suchen..." style="flex:1"></div><div class="card" style="padding:0"><div id="tbl-fahrzeuge"></div></div></div>
 </div>
 
@@ -401,7 +401,7 @@
 </div>
 
 <div class="page" id="page-finanzen">
-  <div class="topbar"><h2>Finanzen &amp; Umsatzsteuer</h2></div>
+  <div class="topbar"><h2>Finanzen &amp; Umsatzsteuer</h2><div class="tba" style="display:flex;align-items:center;gap:8px"><button class="btn" id="fin-prev">&#8249;</button><span id="fin-month-label" style="font-size:13px;font-weight:500;min-width:110px;text-align:center"></span><button class="btn" id="fin-next">&#8250;</button></div></div>
   <div class="content">
     <div id="fin-metrics" class="grid4"></div>
     <div class="grid2">
@@ -452,14 +452,15 @@
   <div class="topbar"><h2>Monatsexport</h2><div class="tba"><button class="btn" onclick="dlExport('excel')">&#8595; Excel</button> <button class="btn" onclick="dlExport('pdf')">&#8595; PDF</button></div></div>
   <div class="content">
     <div id="export-metrics" class="grid4" style="margin-bottom:1.5rem"></div>
-    <div style="padding:.75rem 1.5rem;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--card);border-bottom:1px solid var(--border)">
-      <span style="font-size:13px;font-weight:500;color:var(--t2)">Monat:</span>
-      <select id="ex-m" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
-      <select id="ex-y" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
-      <span style="font-size:13px;font-weight:500;color:var(--t2);margin-left:8px">Tag:</span>
-      <select id="ex-d-von" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
-      <span style="font-size:13px;color:var(--t2)">–</span>
-      <select id="ex-d-bis" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+    <div style="padding:.75rem 1.5rem;display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:var(--card);border-bottom:1px solid var(--border)">
+      <span style="font-size:13px;font-weight:500;color:var(--t2)">Von:</span>
+      <select id="ex-von-d" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+      <select id="ex-von-m" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+      <select id="ex-von-y" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+      <span style="font-size:13px;font-weight:500;color:var(--t2);margin-left:8px">Bis:</span>
+      <select id="ex-bis-d" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+      <select id="ex-bis-m" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+      <select id="ex-bis-y" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
     </div>
     <div style="padding:.75rem 1.5rem;display:flex;gap:8px;align-items:center;background:var(--card);border-bottom:1px solid var(--border);margin-bottom:0">
       <button class="btn" id="btn-filter-export" style="display:flex;align-items:center;gap:6px;font-size:13px">&#9776; Filter <span id="f-export-badge" style="display:none;background:var(--accent);color:#fff;border-radius:20px;padding:1px 7px;font-size:11px"></span></button>
