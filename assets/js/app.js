@@ -1128,7 +1128,7 @@ function initForm() {
   var erF = document.getElementById('er-faellig'); if(erF) erF.value = erDue;
   var erPct = document.getElementById('er-ust-pct'); if(erPct) erPct.value = '20';
   updateFT();
-  itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0}];
+  itemsData = [{titel:'Sprenglerarb.: ',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0}];
   renderItems();
   // Wire up toggle buttons (re-wire after SP)
   wireFormButtons();
@@ -1536,7 +1536,11 @@ function openInlineKundeModal() {
 
 function calcMat() { renderSum(); }
 
-function addItem(type) { itemsData.push({titel:'',desc:'',menge:1,preis:0,ust:20,type:type||'stunden',djevad_h:0,helmut_h:0,fz_marke:'',fz_kz:''}); renderItems(); }
+function addItem(type) {
+  var defaultTitel = (document.getElementById('typ') && document.getElementById('typ').value === 'ausgang') ? 'Sprenglerarb.: ' : '';
+  itemsData.push({titel:defaultTitel,desc:'',menge:1,preis:0,ust:20,type:type||'stunden',djevad_h:0,helmut_h:0,fz_marke:'',fz_kz:''});
+  renderItems();
+}
 
 function removeItem(i) {
   if (itemsData.length === 1) return;
@@ -2178,11 +2182,16 @@ function genPDFData(inv) {
 
   // ── Dateiname ─────────────────────────────────────────────────────
   var fnNr = inv.nummer || '';
-  var fnMatch = fnNr.match(/(\d+)$/);
-  var fnNum = fnMatch ? String(parseInt(fnMatch[1])) : fnNr;
+  var fnKunde = '';
+  if (!inv.privatkunde && inv.partner_name) {
+    fnKunde = inv.partner_name.trim().replace(/\s+/g,'_').replace(/[^a-zA-Z0-9äöüÄÖÜß_\-]/g,'');
+  }
   var firstKz = ((inv.items&&inv.items[0]&&(inv.items[0].fz_kz||'').trim()) || (inv.fz_kz||''));
   var fnKz = firstKz.replace(/[^a-zA-Z0-9]/g,'');
-  var filename = 'Rechnung_' + fnNum + (fnKz ? '_' + fnKz : '') + '.pdf';
+  var filename = 'RechnungNR.' + fnNr;
+  if (fnKunde) filename += '_' + fnKunde;
+  if (fnKz) filename += '_' + fnKz;
+  filename += '.pdf';
   var arPath = inv.zahlungsart === 'kassa'
     ? (localStorage.getItem('bp_path_ar_kassa') || localStorage.getItem('bp_path_ar'))
     : (localStorage.getItem('bp_path_ar_bank')  || localStorage.getItem('bp_path_ar'));
