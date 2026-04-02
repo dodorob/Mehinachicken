@@ -537,6 +537,36 @@ function initEinstellungen() {
   // Speicherpfade laden und Buttons verdrahten
   initPathSettings();
 
+  // Zähler & Startnummern laden
+  (function() {
+    var db = getDB();
+    var c = db.counters || {};
+    var elAusgang   = document.getElementById('counter-ausgang');
+    var elLfdBank   = document.getElementById('counter-lfd-bank');
+    var elLfdKassa  = document.getElementById('counter-lfd-kassa');
+    var elKb        = document.getElementById('counter-kassenbeleg');
+    if (elAusgang)  elAusgang.value  = c.ausgang       || 1;
+    if (elLfdBank)  elLfdBank.value  = c.lfd_bank      || 1;
+    if (elLfdKassa) elLfdKassa.value = c.lfd_kassa     || 1;
+    if (elKb)       elKb.value       = c.kassenbeleg   || 1;
+
+    var btnSaveCounters = document.getElementById('btn-save-counters');
+    if (btnSaveCounters) btnSaveCounters.onclick = function() {
+      var d2 = getDB();
+      var newAusgang  = parseInt((document.getElementById('counter-ausgang')||{value:'1'}).value) || 1;
+      var newLfdBank  = parseInt((document.getElementById('counter-lfd-bank')||{value:'1'}).value) || 1;
+      var newLfdKassa = parseInt((document.getElementById('counter-lfd-kassa')||{value:'1'}).value) || 1;
+      var newKb       = parseInt((document.getElementById('counter-kassenbeleg')||{value:'1'}).value) || 1;
+      d2.counters.ausgang     = newAusgang;
+      d2.counters.lfd_bank    = newLfdBank;
+      d2.counters.lfd_kassa   = newLfdKassa;
+      d2.counters.kassenbeleg = newKb;
+      saveDB(d2);
+      var info = document.getElementById('counter-info');
+      if (info) { info.textContent = '\u2713 Zähler gespeichert'; setTimeout(function(){ info.textContent = ''; }, 2500); }
+    };
+  })();
+
   // Positions-Vorschläge
   renderPosBadgesList();
   var btnAdd = document.getElementById('btn-pos-badge-add');
@@ -1079,6 +1109,7 @@ function initForm() {
   document.getElementById('f-alerts').innerHTML = '';
   document.getElementById('f-alerts2').innerHTML = '';
 
+  setPay('bank');
   document.getElementById('mat-auto').checked = false;
   if (document.getElementById('inv-privat')) document.getElementById('inv-privat').checked = false;
   if (document.getElementById('inv-djevad')) document.getElementById('inv-djevad').checked = false;
@@ -1117,6 +1148,10 @@ function wireFormButtons() {
     erBtn.onclick = function(){ setTyp('eingang'); };
     bankBtn.onclick = function(){ setPay('bank'); };
     kassaBtn.onclick = function(){ setPay('kassa'); };
+    var barBtn2 = document.getElementById('toggle-bar');
+    var bankomatBtn2 = document.getElementById('toggle-bankomat');
+    if (barBtn2) barBtn2.onclick = function(){ setKassaTyp('bar'); };
+    if (bankomatBtn2) bankomatBtn2.onclick = function(){ setKassaTyp('bankomat'); };
     matAuto.onchange = function(){
       if (this.checked) { var m=document.getElementById('mat-manuell'); if(m) m.value=''; }
       renderSum();
@@ -1366,19 +1401,38 @@ function resetERForm() {
   window._erFile = null; window._erFileB64 = null; window._erFileName = null;
 }
 
+function setKassaTyp(typ) {
+  var ktEl = document.getElementById('kassa-typ');
+  var barBtn = document.getElementById('toggle-bar');
+  var bankomatBtn = document.getElementById('toggle-bankomat');
+  if (!ktEl) return;
+  ktEl.value = typ;
+  if (typ === 'bankomat') {
+    if (bankomatBtn) { bankomatBtn.style.background = 'var(--accent)'; bankomatBtn.style.color = '#fff'; }
+    if (barBtn) { barBtn.style.background = '#f0f0ec'; barBtn.style.color = 'var(--t2)'; }
+  } else {
+    if (barBtn) { barBtn.style.background = 'var(--accent)'; barBtn.style.color = '#fff'; }
+    if (bankomatBtn) { bankomatBtn.style.background = '#f0f0ec'; bankomatBtn.style.color = 'var(--t2)'; }
+  }
+}
+
 function setPay(pay) {
   document.getElementById('zahlungsart').value = pay;
   var bankBtn = document.getElementById('toggle-bank');
   var kassaBtn = document.getElementById('toggle-kassa');
+  var bankomatRow = document.getElementById('bankomat-row');
   if (!bankBtn) return;
   if (pay === 'bank') {
     bankBtn.style.background = 'var(--accent)'; bankBtn.style.color = '#fff';
     kassaBtn.style.background = '#f0f0ec'; kassaBtn.style.color = 'var(--t2)';
     document.getElementById('pay-label').textContent = 'Banküberweisung';
+    if (bankomatRow) bankomatRow.style.display = 'none';
+    setKassaTyp('bar');
   } else {
     kassaBtn.style.background = 'var(--accent)'; kassaBtn.style.color = '#fff';
     bankBtn.style.background = '#f0f0ec'; bankBtn.style.color = 'var(--t2)';
     document.getElementById('pay-label').textContent = 'Barzahlung / Kassa';
+    if (bankomatRow) bankomatRow.style.display = '';
   }
   refreshNumbers();
 }
@@ -1774,7 +1828,10 @@ function saveInvoice() {
     var dPre = getDB();
     nummer = dPre.invoices.find(function(i){ return i.id===editId; }).nummer;
   } else {
-    nummer = nextNum(typ);  // increments correct counter based on zahlungsart
+    nextNum(typ);  // increments correct counter based on zahlungsart
+    // Use manually entered value from rnr field if present, else use auto-generated
+    var rnrFieldVal = (document.getElementById('rnr')||{value:''}).value.trim();
+    nummer = rnrFieldVal || String(getDB().counters.ausgang - 1).padStart(2,'0');
   }
   // Read FRESH from localStorage AFTER nextNum incremented the counters
   var d = getDB();
@@ -1799,6 +1856,9 @@ function saveInvoice() {
     notizen: document.getElementById('notizen').value,
     kassenbeleg_nr: (document.getElementById('zahlungsart').value === 'kassa')
       ? ((document.getElementById('kassa-beleg-nr')||{value:''}).value || '')
+      : '',
+    kassa_typ: (document.getElementById('zahlungsart').value === 'kassa')
+      ? ((document.getElementById('kassa-typ')||{value:'bar'}).value || 'bar')
       : '',
     items: itemsData.map(function(it){ return Object.assign({}, it); }),
     materialkosten: matVal,
@@ -2094,11 +2154,14 @@ function genPDFData(inv) {
 
   yGesamtBottom = drawTable(yT, contentRows);
 
-  // ── BEZAHLT IN BAR (nur Kassa UND > 400€) ───────────────────────
-  if (inv.zahlungsart === 'kassa' && totalH > 400) {
+  // ── BEZAHLT IN BAR / BANKOMAT (alle Kassa-Zahlungen) ────────────
+  if (inv.zahlungsart === 'kassa') {
     doc.setFont('times','normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
     var kbNr = inv.kassenbeleg_nr || '';
-    doc.text('Bezahlt in Bar am ' + fmtD(inv.datum) + '  -  Kassenbeleg Nr.: ' + kbNr, xL, yGesamtBottom + 1 + 20);
+    var bezahltText = (inv.kassa_typ === 'bankomat')
+      ? 'Bezahlt am ' + fmtD(inv.datum) + ' mit Bankomat  -  Kassenbeleg Nr.: ' + kbNr
+      : 'Bezahlt in Bar am ' + fmtD(inv.datum) + '  -  Kassenbeleg Nr.: ' + kbNr;
+    doc.text(bezahltText, xL, yGesamtBottom + 1 + 20);
   }
 
   // ── FUßZEILE ab 26,4cm ───────────────────────────────────────────
@@ -2637,6 +2700,9 @@ function editInv(id) {
   document.getElementById('rnr').value = inv.nummer;
   document.getElementById('zahlungsart').value = inv.zahlungsart || 'bank';
   setPay(inv.zahlungsart || 'bank');
+  if (inv.zahlungsart === 'kassa' && inv.kassa_typ) {
+    setKassaTyp(inv.kassa_typ);
+  }
   if (inv.datum)     document.getElementById('datum').value = inv.datum;
   if (inv.leistungsdatum) document.getElementById('leistungsdatum').value = inv.leistungsdatum;
   if (inv.faellig)   document.getElementById('faellig').value = inv.faellig;
