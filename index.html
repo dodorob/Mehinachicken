@@ -352,7 +352,7 @@
 </div>
 
 <div class="page" id="page-fahrzeuge">
-  <div class="topbar"><h2>Fahrzeuge</h2><div class="tba"><button class="btn" id="btn-scan-f">&#128247; Zulassung scannen</button><button class="btn primary" id="btn-new-fz">+ Neues Fahrzeug</button></div></div>
+  <div class="topbar"><h2>Fahrzeuge</h2><div class="tba"><button class="btn primary" id="btn-new-fz">+ Neues Fahrzeug</button></div></div>
   <div class="content"><div class="sbar" style="margin-bottom:.5rem"><input type="text" id="s-fahrzeuge" placeholder="Fahrzeuge suchen..." style="flex:1"></div><div class="card" style="padding:0"><div id="tbl-fahrzeuge"></div></div></div>
 </div>
 
@@ -401,7 +401,7 @@
 </div>
 
 <div class="page" id="page-finanzen">
-  <div class="topbar"><h2>Finanzen &amp; Umsatzsteuer</h2></div>
+  <div class="topbar"><h2>Finanzen &amp; Umsatzsteuer</h2><div class="tba" style="display:flex;align-items:center;gap:8px"><button class="btn" id="fin-prev">&#8249;</button><span id="fin-month-label" style="font-size:13px;font-weight:500;min-width:110px;text-align:center"></span><button class="btn" id="fin-next">&#8250;</button></div></div>
   <div class="content">
     <div id="fin-metrics" class="grid4"></div>
     <div class="grid2">
@@ -416,6 +416,11 @@
   <div class="topbar"><h2>Bankbuch</h2><div class="tba"><button class="btn" onclick="dlBuch('bank','excel')">&#8595; Excel</button> <button class="btn" onclick="dlBuch('bank','pdf')">&#8595; PDF</button></div></div>
   <div class="content">
     <div id="bankbuch-metrics" class="grid4" style="margin-bottom:1.5rem"></div>
+    <div style="padding:.75rem 1.5rem;display:flex;gap:8px;align-items:center;background:var(--card);border-bottom:1px solid var(--border)">
+      <span style="font-size:13px;font-weight:500;color:var(--t2)">Monat:</span>
+      <select id="buch-bank-m" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+      <select id="buch-bank-y" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+    </div>
     <div style="padding:.75rem 1.5rem;display:flex;gap:8px;align-items:center;background:var(--card);border-bottom:1px solid var(--border);margin-bottom:0">
       <button class="btn" id="btn-filter-bankbuch" style="display:flex;align-items:center;gap:6px;font-size:13px">&#9776; Filter <span id="f-bankbuch-badge" style="display:none;background:var(--accent);color:#fff;border-radius:20px;padding:1px 7px;font-size:11px"></span></button>
       <input type="text" id="s-bankbuch" placeholder="Schnellsuche..." style="flex:1;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px">
@@ -429,6 +434,11 @@
   <div class="topbar"><h2>Kassabuch</h2><div class="tba"><button class="btn" onclick="dlBuch('kassa','excel')">&#8595; Excel</button> <button class="btn" onclick="dlBuch('kassa','pdf')">&#8595; PDF</button></div></div>
   <div class="content">
     <div id="kassabuch-metrics" class="grid4" style="margin-bottom:1.5rem"></div>
+    <div style="padding:.75rem 1.5rem;display:flex;gap:8px;align-items:center;background:var(--card);border-bottom:1px solid var(--border)">
+      <span style="font-size:13px;font-weight:500;color:var(--t2)">Monat:</span>
+      <select id="buch-kassa-m" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+      <select id="buch-kassa-y" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+    </div>
     <div style="padding:.75rem 1.5rem;display:flex;gap:8px;align-items:center;background:var(--card);border-bottom:1px solid var(--border);margin-bottom:0">
       <button class="btn" id="btn-filter-kassabuch" style="display:flex;align-items:center;gap:6px;font-size:13px">&#9776; Filter <span id="f-kassabuch-badge" style="display:none;background:var(--accent);color:#fff;border-radius:20px;padding:1px 7px;font-size:11px"></span></button>
       <input type="text" id="s-kassabuch" placeholder="Schnellsuche..." style="flex:1;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px">
@@ -439,23 +449,30 @@
 </div>
 
 <div class="page" id="page-export">
-  <div class="topbar"><h2>Monatsexport</h2></div>
+  <div class="topbar"><h2>Monatsexport</h2><div class="tba"><button class="btn" onclick="dlExport('excel')">&#8595; Excel</button> <button class="btn" onclick="dlExport('pdf')">&#8595; PDF</button></div></div>
   <div class="content">
-    
-    <div class="card">
-      <div class="fr c2">
-        <div class="fg"><label>Monat</label><select id="ex-m"></select></div>
-        <div class="fg"><label>Jahr</label><select id="ex-y"></select></div>
-      </div>
-      <div id="ex-prev"></div>
-      <div style="display:flex;gap:8px;margin-top:1rem;flex-wrap:wrap;align-items:center">
-        <span style="font-family:sans-serif;font-size:12px;font-weight:500;color:var(--t2)">Monat:</span>
-        <button class="btn primary" onclick="dlExport('excel')">&#8595; Excel</button>
-        <button class="btn" onclick="dlExport('pdf')">&#8595; PDF</button>
-        <span style="font-family:sans-serif;font-size:12px;font-weight:500;color:var(--t2);margin-left:8px">Ganzes Jahr:</span>
-        <button class="btn primary" onclick="dlExportYear('excel')">&#8595; Excel</button>
-        <button class="btn" onclick="dlExportYear('pdf')">&#8595; PDF</button>
-      </div>
+    <div id="export-metrics" class="grid4" style="margin-bottom:1.5rem"></div>
+    <div style="padding:.75rem 1.5rem;display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:var(--card);border-bottom:1px solid var(--border)">
+      <span style="font-size:13px;font-weight:500;color:var(--t2)">Von:</span>
+      <select id="ex-von-d" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+      <select id="ex-von-m" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+      <select id="ex-von-y" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+      <span style="font-size:13px;font-weight:500;color:var(--t2);margin-left:8px">Bis:</span>
+      <select id="ex-bis-d" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+      <select id="ex-bis-m" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+      <select id="ex-bis-y" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+    </div>
+    <div style="padding:.75rem 1.5rem;display:flex;gap:8px;align-items:center;background:var(--card);border-bottom:1px solid var(--border);margin-bottom:0">
+      <button class="btn" id="btn-filter-export" style="display:flex;align-items:center;gap:6px;font-size:13px">&#9776; Filter <span id="f-export-badge" style="display:none;background:var(--accent);color:#fff;border-radius:20px;padding:1px 7px;font-size:11px"></span></button>
+      <input type="text" id="s-export" placeholder="Schnellsuche..." style="flex:1;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+    </div>
+    <input type="hidden" id="f-export-status">
+    <div id="ex-prev" style="padding:.5rem 1.5rem"></div>
+    <div class="card" style="padding:0"><div id="tbl-export"></div></div>
+    <div style="padding:1rem 1.5rem;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <span style="font-family:sans-serif;font-size:12px;font-weight:500;color:var(--t2)">Ganzes Jahr:</span>
+      <button class="btn primary" onclick="dlExportYear('excel')">&#8595; Excel</button>
+      <button class="btn" onclick="dlExportYear('pdf')">&#8595; PDF</button>
     </div>
   </div>
 </div>
@@ -755,6 +772,13 @@
 
 
 <script src="assets/js/app.js"></script>
+<script>
+document.addEventListener('click', function(e) {
+  if (e.target.type === 'date' && typeof e.target.showPicker === 'function') {
+    e.target.showPicker();
+  }
+});
+</script>
 
 </body>
 </html>
