@@ -1982,12 +1982,12 @@ function genPDFData(inv) {
     yAddr += 5;
   });
 
-  // ── DATUM 5,1cm rechtsbündig ─────────────────────────────────────
-  doc.text('Graz, ' + fmtD(inv.datum), xR, 51, {align:'right'});
+  // ── DATUM 5,7cm rechtsbündig ─────────────────────────────────────
+  doc.text('Graz, ' + fmtD(inv.datum), xR, 57, {align:'right'});
 
-  // ── LEISTUNGSDATUM 8,8cm rechtsbündig ────────────────────────────
+  // ── LEISTUNGSDATUM 9,5cm rechtsbündig ────────────────────────────
   if (inv.leistungsdatum) {
-    doc.text('Leistungsdatum: ' + fmtD(inv.leistungsdatum), xR, 88, {align:'right'});
+    doc.text('Leistungsdatum: ' + fmtD(inv.leistungsdatum), xR, 95, {align:'right'});
   }
 
   // ── RECHNUNG NR.: fett, Größe 12, linksbündig ───────────────────
@@ -2014,7 +2014,7 @@ function genPDFData(inv) {
   var colAnz   = 155;       // Anzahl-Spalte (zentriert)
   var rowH = 6, hdrH = 8;
 
-  function blackLine() { doc.setDrawColor(30,30,30); doc.setLineWidth(0.3); }
+  function blackLine() { doc.setDrawColor(30,30,30); doc.setLineWidth(0.225); }
 
   function getEffCar(it) {
     var m = (it.fz_marke||'').trim(), k = (it.fz_kz||'').trim();
