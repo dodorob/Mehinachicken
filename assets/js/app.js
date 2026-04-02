@@ -1982,12 +1982,12 @@ function genPDFData(inv) {
     yAddr += 5;
   });
 
-  // ── DATUM 8,2cm rechtsbündig ─────────────────────────────────────
-  doc.text('Graz, ' + fmtD(inv.datum), xR, 82, {align:'right'});
+  // ── DATUM 5,1cm rechtsbündig ─────────────────────────────────────
+  doc.text('Graz, ' + fmtD(inv.datum), xR, 51, {align:'right'});
 
-  // ── LEISTUNGSDATUM 8,9cm rechtsbündig ────────────────────────────
+  // ── LEISTUNGSDATUM 8,8cm rechtsbündig ────────────────────────────
   if (inv.leistungsdatum) {
-    doc.text('Leistungsdatum: ' + fmtD(inv.leistungsdatum), xR, 89, {align:'right'});
+    doc.text('Leistungsdatum: ' + fmtD(inv.leistungsdatum), xR, 88, {align:'right'});
   }
 
   // ── RECHNUNG NR.: fett, Größe 12, linksbündig ───────────────────
@@ -2043,6 +2043,11 @@ function genPDFData(inv) {
       rows.push({type:'stunden', it:it});
       if (it.extraLabel && it.extraLabel.trim() && it.extraBetrag) rows.push({type:'extra', it:it});
     });
+    // KZ liegt immer auf Zeile 2 (Index 1) – Arbeitsstunden darf dort nicht stehen
+    if (group.car.kz && rows.length > 0 && rows[0].type === 'titel') {
+      rows.splice(1, 0, {type:'pad'});
+    }
+    // Mindest-Höhe: 2 Zeilen wenn Marke + KZ vorhanden (kein Titel-Fall)
     if (group.car.marke && group.car.kz && rows.length < 2) rows.push({type:'pad'});
     return rows;
   }
