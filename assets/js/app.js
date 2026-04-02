@@ -3978,11 +3978,24 @@ function genKVPDF(kv) {
   var xL = 25;
   var xR = 190;
 
-  // Font (Malgun Gothic falls verfügbar)
-  var headerFont = 'helvetica';
+  // ── Georgia Font laden (Fallback: times) ──────────────────────────
+  var georgiaFont = 'times';
+  if (_georgiaFontB64) {
+    try {
+      doc.addFileToVFS('georgia.ttf', _georgiaFontB64);
+      doc.addFont('georgia.ttf', 'Georgia', 'normal');
+      georgiaFont = 'Georgia';
+    } catch(e) {}
+  }
+  if (_georgiaBoldFontB64) {
+    try {
+      doc.addFileToVFS('georgiab.ttf', _georgiaBoldFontB64);
+      doc.addFont('georgiab.ttf', 'Georgia', 'bold');
+    } catch(e) {}
+  }
 
   function setF(sz, bold) {
-    doc.setFont(headerFont, 'normal');
+    doc.setFont('times', 'normal');
     doc.setFontSize(sz || 11);
     doc.setTextColor(30, 30, 30);
   }
@@ -3991,25 +4004,17 @@ function genKVPDF(kv) {
     return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
   }
 
+  // ── KOPFZEILE (Georgia, zentriert) ───────────────────────────────
   doc.setTextColor(30, 30, 30);
-  if (_malgunFontB64) {
-    try {
-      doc.addFileToVFS('malgunsl.ttf', _malgunFontB64);
-      doc.addFont('malgunsl.ttf', 'MalgunGothicSL', 'normal');
-      headerFont = 'MalgunGothicSL';
-    } catch(e) { headerFont = 'helvetica'; }
-  }
-
-  // KOPFZEILE (identisch mit Rechnung)
-  doc.setFont(headerFont, 'normal');
-  doc.setTextColor(30, 30, 30);
-  doc.setFontSize(28);
+  doc.setFont(georgiaFont, 'bold');
+  doc.setFontSize(24);
   doc.text('KAROSSERIEFACHWERKSTÄTTE', 105, 25, {align:'center'});
-  doc.setFontSize(20);
-  doc.text('KURT LINDITSCH GMBH', 105, 35, {align:'center'});
-  doc.setFontSize(10);
-  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 43, {align:'center'});
-  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 49, {align:'center'});
+  doc.setFontSize(22);
+  doc.text('KURT LINDITSCH GMBH', 105, 34, {align:'center'});
+  doc.setFont(georgiaFont, 'normal');
+  doc.setFontSize(9);
+  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 41, {align:'center'});
+  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 46, {align:'center'});
 
   // TITEL — fett, oben (vor Datum)
   doc.setFont(ff, 'bold');
@@ -4126,7 +4131,7 @@ function genKVPDF(kv) {
   doc.text('Änderungen vorbehalten.', xL, 261);
 
   // FUßZEILE (ohne "Zahlbar sofort..." — nur Bankdaten + UID)
-  doc.setFont(headerFont, 'normal');
+  doc.setFont(georgiaFont, 'normal');
   doc.setFontSize(8);
   doc.setTextColor(30, 30, 30);
   doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 277, {align:'center'});
