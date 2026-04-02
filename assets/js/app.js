@@ -1976,18 +1976,18 @@ function genPDFData(inv) {
     partnerLines.unshift('Privatkunde/Barzahler');
   }
   if (partnerLines.length === 0 && inv.privatkunde) partnerLines = ['Privatkunde/Barzahler'];
-  var yAddr = 57;
+  var yAddr = 64;
   partnerLines.forEach(function(l) {
     doc.text(l, xL, yAddr);
     yAddr += 5;
   });
 
-  // ── DATUM 8,2cm rechtsbündig ─────────────────────────────────────
-  doc.text('Graz, ' + fmtD(inv.datum), xR, 82, {align:'right'});
+  // ── DATUM 5,7cm rechtsbündig ─────────────────────────────────────
+  doc.text('Graz, ' + fmtD(inv.datum), xR, 57, {align:'right'});
 
-  // ── LEISTUNGSDATUM 8,9cm rechtsbündig ────────────────────────────
+  // ── LEISTUNGSDATUM 9,5cm rechtsbündig ────────────────────────────
   if (inv.leistungsdatum) {
-    doc.text('Leistungsdatum: ' + fmtD(inv.leistungsdatum), xR, 89, {align:'right'});
+    doc.text('Leistungsdatum: ' + fmtD(inv.leistungsdatum), xR, 95, {align:'right'});
   }
 
   // ── RECHNUNG NR.: fett, Größe 12, linksbündig ───────────────────
@@ -2009,152 +2009,156 @@ function genPDFData(inv) {
   (inv.items||[]).forEach(function(it){ if(it.ust>0&&ustRates.indexOf(it.ust)===-1) ustRates.push(it.ust); });
   var ustPct = ustRates.length > 0 ? ustRates.join('/') : '20';
 
-  var xCol2 = 148, xCol3 = 166;
-  var rowH = 6, hdrH = 8, gapH = 4;
+  // ── Spalten-Layout (4 Spalten) ───────────────────────────────────
+  var colFzEnd = xL + 50;  // 75mm – Ende Fahrzeug-Spalte
+  var colAnz   = 155;       // Anzahl-Spalte (zentriert)
+  var rowH = 6, hdrH = 8;
 
-  function grayLine() { doc.setDrawColor(0xD9,0xD9,0xD9); doc.setLineWidth(0.3); }
-  function blackLine() { doc.setDrawColor(30,30,30); doc.setLineWidth(0.3); }
+  function blackLine() { doc.setDrawColor(30,30,30); doc.setLineWidth(0.225); }
 
-  // Effektives Fahrzeug pro Position (Item-Ebene, sonst Invoice-Ebene)
   function getEffCar(it) {
     var m = (it.fz_marke||'').trim(), k = (it.fz_kz||'').trim();
     if (!m && !k) { m = (inv.fz_marke||'').trim(); k = (inv.fz_kz||'').trim(); }
     return {marke:m, kz:k, key:m+'|||'+k};
   }
-  function buildFzStr(car) {
-    return car.marke + (car.kz ? (car.marke?', ':'') + 'amtl. KZ.: ' + car.kz : '');
+
+  // Fahrzeug-Gruppen aufbauen
+  var carGroups = [];
+  var seenCarKeys = [];
+  (inv.items||[]).forEach(function(it) {
+    var car = getEffCar(it);
+    var idx = seenCarKeys.indexOf(car.key);
+    if (idx === -1) {
+      seenCarKeys.push(car.key);
+      carGroups.push({car:car, items:[]});
+      idx = carGroups.length - 1;
+    }
+    carGroups[idx].items.push(it);
+  });
+
+  function buildSubRows(group) {
+    var rows = [];
+    group.items.forEach(function(it) {
+      if (it.titel && it.titel.trim()) rows.push({type:'titel', it:it});
+      rows.push({type:'stunden', it:it});
+      if (it.extraLabel && it.extraLabel.trim() && it.extraBetrag) rows.push({type:'extra', it:it});
+    });
+    // KZ liegt immer auf Zeile 2 (Index 1) – Arbeitsstunden darf dort nicht stehen
+    if (group.car.kz && rows.length > 0 && rows[0].type === 'titel') {
+      rows.splice(1, 0, {type:'pad'});
+    }
+    // Mindest-Höhe: 2 Zeilen wenn Marke + KZ vorhanden (kein Titel-Fall)
+    if (group.car.marke && group.car.kz && rows.length < 2) rows.push({type:'pad'});
+    return rows;
   }
 
-  // Eindeutige Fahrzeuge ermitteln
-  var uniqueCarKeys = [];
-  (inv.items||[]).forEach(function(it) {
-    var k = getEffCar(it).key;
-    if (uniqueCarKeys.indexOf(k) === -1) uniqueCarKeys.push(k);
+  // ── € Ausrichtung: breiteste Zahl vorausberechnen ────────────────
+  doc.setFont('times','normal'); doc.setFontSize(10);
+  var allAmounts = [];
+  carGroups.forEach(function(g) {
+    buildSubRows(g).forEach(function(row) {
+      if (row.type === 'stunden') allAmounts.push(row.it.menge * row.it.preis * (1 + row.it.ust/100));
+      else if (row.type === 'extra') allAmounts.push(row.it.extraBetrag * (1 + (row.it.extraUst!=null?row.it.extraUst:20)/100));
+    });
   });
-  var multiCar = uniqueCarKeys.length > 1;
+  if (hasMat) allAmounts.push(matAmt);
+  allAmounts.push(nt, va, totalH);
+  var maxNumW = 0;
+  allAmounts.forEach(function(n) { var w = doc.getTextWidth(numFmt(n)); if (w > maxNumW) maxNumW = w; });
+  var xEuro = xR - maxNumW - 6;  // € immer an dieser Position
 
-  // ── Tabelle zeichnen ─────────────────────────────────────────────
-  function drawTable(yT, contentRows) {
-    var yHdrBottom   = yT + hdrH;
-    var yItemsBottom = yHdrBottom + contentRows.length * rowH;
-    var yGapBottom   = yItemsBottom + gapH;
-    var yNettoTop    = yGapBottom,   yNettoBottom  = yNettoTop  + rowH;
-    var yMwstTop     = yNettoBottom, yMwstBottom   = yMwstTop   + rowH;
-    var yGesamtTop   = yMwstBottom,  yGesamtBottom = yGesamtTop + rowH;
+  var tY = 113;
 
-    // Außenrahmen + obere Linie
-    grayLine();
-    doc.line(xL, yT, xL, yGesamtBottom);
-    doc.line(xR, yT, xR, yGesamtBottom);
-    doc.line(xL, yT, xR, yT);
-    doc.line(xL, yHdrBottom, xR, yHdrBottom);
-    // Spaltenteiler (volle Höhe)
-    doc.line(xCol2, yT, xCol2, yGesamtBottom);
-    doc.line(xCol3, yT, xCol3, yGesamtBottom);
-    // Zeilentrenner Items
-    for (var ri = 0; ri < contentRows.length; ri++) {
-      doc.line(xL, yHdrBottom + (ri+1)*rowH, xR, yHdrBottom + (ri+1)*rowH);
-    }
-    doc.line(xL, yGapBottom, xR, yGapBottom);
-    // Netto: grau links + schwarz Betrag-Spalte
-    grayLine(); doc.line(xL, yNettoBottom, xCol3, yNettoBottom);
-    blackLine(); doc.line(xCol3, yNettoBottom, xR, yNettoBottom);
-    // MwSt: grau
-    grayLine(); doc.line(xL, yMwstBottom, xR, yMwstBottom);
-    // Gesamt: grau links + schwarz doppelt Betrag-Spalte
-    grayLine(); doc.line(xL, yGesamtBottom, xCol3, yGesamtBottom);
-    blackLine();
-    doc.line(xCol3, yGesamtBottom,     xR, yGesamtBottom);
-    doc.line(xCol3, yGesamtBottom + 1, xR, yGesamtBottom + 1);
+  // ── Grauer Hintergrund nur für Header-Zeile ───────────────────────
+  doc.setFillColor(245, 245, 242);
+  doc.rect(xL, tY, xR - xL, hdrH, 'F');
 
-    // Kopfzeile Text (erste Spalte immer leer)
+  // ── Schwarze Linie unter Header ──────────────────────────────────
+  blackLine();
+  doc.line(xL, tY + hdrH, xR, tY + hdrH);
+
+  // ── Header-Text (vertikal zentriert) ────────────────────────────
+  var hdrTextY = tY + hdrH / 2 + 1.5;  // Baseline für visuell zentrierten 10pt-Text
+  doc.setFont('times','normal'); doc.setFontSize(10);
+  doc.text('Fahrzeug',     xL + 2,      hdrTextY);
+  doc.text('Beschreibung', colFzEnd + 2, hdrTextY);
+  doc.text('Anzahl',       colAnz,       hdrTextY, {align:'center'});
+  doc.text('Betrag (€)',   xR - 2,       hdrTextY, {align:'right'});
+
+  // ── Content-Zeilen ───────────────────────────────────────────────
+  var yCur = tY + hdrH;
+
+  carGroups.forEach(function(group) {
+    var car = group.car;
+    var subRows = buildSubRows(group);
+
     doc.setFont('times','normal'); doc.setFontSize(10);
-    doc.text('Anzahl', xCol2 + (xCol3-xCol2)/2, yT + hdrH - 2, {align:'center'});
-    doc.text('Betrag', xR - 2,                  yT + hdrH - 2, {align:'right'});
+    if (car.marke) doc.text(car.marke, xL + 2, yCur + rowH - 2);
+    if (car.kz)    doc.text(car.kz,    xL + 2, yCur + 2*rowH - 2);
 
-    // Content-Zeilen
-    for (var ri2 = 0; ri2 < contentRows.length; ri2++) {
-      var row = contentRows[ri2];
-      var rowY = yHdrBottom + ri2*rowH + rowH - 2;
+    for (var ri = 0; ri < subRows.length; ri++) {
+      var row = subRows[ri];
+      var rowY = yCur + ri * rowH + rowH - 2;
       doc.setFont('times','normal'); doc.setFontSize(10);
-      if (row.type === 'carhead') {
-        doc.setFont('times','bold');
-        doc.text(buildFzStr(row.car), xL + 2, rowY);
-        doc.setFont('times','normal');
-      } else if (row.type === 'titel') {
-        doc.text((row.it.titel||'').trim(), xL + 2, rowY);
+      if (row.type === 'titel') {
+        doc.text((row.it.titel||'').trim(), colFzEnd + 2, rowY);
       } else if (row.type === 'stunden') {
         var menge = parseFloat(row.it.menge)||1;
-        doc.text(menge===1?'Arbeitsstunde':'Arbeitsstunden', xL + 2, rowY);
-        doc.text(String(row.it.menge), xCol2+(xCol3-xCol2)/2, rowY, {align:'center'});
+        doc.text(menge===1?'Arbeitsstunde':'Arbeitsstunden', colFzEnd + 2, rowY);
+        doc.text(String(row.it.menge), colAnz, rowY, {align:'center'});
         var lt = row.it.menge * row.it.preis * (1 + row.it.ust/100);
-        doc.text('€  '+numFmt(lt), xR - 2, rowY, {align:'right'});
+        doc.text('€', xEuro, rowY);
+        doc.text(numFmt(lt), xR - 2, rowY, {align:'right'});
       } else if (row.type === 'extra') {
         var et = row.it.extraBetrag * (1 + (row.it.extraUst!=null?row.it.extraUst:20)/100);
-        doc.text(row.it.extraLabel.trim(), xL + 2, rowY);
-        doc.text('€  '+numFmt(et), xR - 2, rowY, {align:'right'});
-      } else if (row.type === 'mat') {
-        doc.text(mklbl, xL + 2, rowY);
-        doc.text('€  '+numFmt(matAmt), xR - 2, rowY, {align:'right'});
+        doc.text((row.it.extraLabel||'').trim(), colFzEnd + 2, rowY);
+        doc.text('€', xEuro, rowY);
+        doc.text(numFmt(et), xR - 2, rowY, {align:'right'});
       }
     }
+    yCur += subRows.length * rowH;
+  });
 
-    // Summenzeilen
+  // ── Materialkosten-Zeile ─────────────────────────────────────────
+  if (hasMat) {
     doc.setFont('times','normal'); doc.setFontSize(10);
-    doc.text('Netto',              xL+2, yNettoTop  + rowH - 2);
-    doc.text('€  '+numFmt(nt),    xR-2, yNettoTop  + rowH - 2, {align:'right'});
-    doc.text('MwSt. '+ustPct+'%', xL+2, yMwstTop   + rowH - 2);
-    doc.text('€  '+numFmt(va),    xR-2, yMwstTop   + rowH - 2, {align:'right'});
-    doc.setFont('times','bold');
-    doc.text('Gesamtbetrag',       xL+2, yGesamtTop + rowH - 2);
-    doc.text('€  '+numFmt(totalH), xR-2, yGesamtTop + rowH - 2, {align:'right'});
-    doc.setFont('times','normal');
-
-    return yGesamtBottom;
+    doc.text(mklbl, colFzEnd + 2, yCur + rowH - 2);
+    doc.text('€', xEuro, yCur + rowH - 2);
+    doc.text(numFmt(matAmt), xR - 2, yCur + rowH - 2, {align:'right'});
+    yCur += rowH;
   }
 
-  // ── Zeilen aufbauen + Tabelle ausgeben ───────────────────────────
-  var contentRows = [];
-  var yT, yGesamtBottom;
+  // ── Summenzeilen (kein Rahmen, nur Linien bei Netto + Gesamt) ────
+  var ySumStart = yCur + 4;
+  var yNettoY   = ySumStart + rowH - 2;
+  var yMwstY    = ySumStart + 2*rowH - 2;
+  var yGesamtY  = ySumStart + 3*rowH - 2;
+  var yGesamtBottom = ySumStart + 3*rowH;
 
-  if (!multiCar) {
-    // Einzelfahrzeug: Modell + Beschreibung außerhalb der Tabelle
-    var mainCar = (inv.items||[]).length > 0
-      ? getEffCar(inv.items[0])
-      : {marke:(inv.fz_marke||'').trim(), kz:(inv.fz_kz||'').trim()};
-    var mainCarStr = buildFzStr(mainCar);
-    doc.setFont('times','normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
-    if (mainCarStr) doc.text(mainCarStr, xL, 115);
+  doc.setFont('times','normal'); doc.setFontSize(10);
+  doc.text('Netto',              xL + 2, yNettoY);
+  doc.text('€', xEuro, yNettoY);
+  doc.text(numFmt(nt),    xR - 2, yNettoY, {align:'right'});
+  // Linie unter Netto: volle Breite (Netto bis Betrag)
+  blackLine();
+  doc.line(xL, yNettoY + 1, xR, yNettoY + 1);
 
-    var yTitles = 121;
-    (inv.items||[]).forEach(function(it) {
-      if (it.titel && it.titel.trim()) { doc.text(it.titel.trim(), xL, yTitles); yTitles += 5; }
-    });
-    yT = Math.max(134, yTitles + 7);
+  doc.text('MwSt. '+ustPct+'%', xL + 2, yMwstY);
+  doc.text('€', xEuro, yMwstY);
+  doc.text(numFmt(va),    xR - 2, yMwstY, {align:'right'});
+  // Linie unter MwSt-Betrag
+  blackLine();
+  doc.line(xEuro - 1, yMwstY + 1, xR, yMwstY + 1);
 
-    (inv.items||[]).forEach(function(it) {
-      contentRows.push({type:'stunden', it:it});
-      if (it.extraLabel && it.extraLabel.trim() && it.extraBetrag) contentRows.push({type:'extra', it:it});
-    });
-    if (hasMat) contentRows.push({type:'mat'});
-
-  } else {
-    // Mehrere Fahrzeuge: Fahrzeug-Header + Beschreibung in der Tabelle
-    yT = 115;
-    uniqueCarKeys.forEach(function(carKey) {
-      var parts = carKey.split('|||');
-      contentRows.push({type:'carhead', car:{marke:parts[0], kz:parts[1]}});
-      (inv.items||[]).forEach(function(it) {
-        if (getEffCar(it).key !== carKey) return;
-        if (it.titel && it.titel.trim()) contentRows.push({type:'titel', it:it});
-        contentRows.push({type:'stunden', it:it});
-        if (it.extraLabel && it.extraLabel.trim() && it.extraBetrag) contentRows.push({type:'extra', it:it});
-      });
-    });
-    if (hasMat) contentRows.push({type:'mat'});
-  }
-
-  yGesamtBottom = drawTable(yT, contentRows);
+  doc.setFont('times','bold');
+  doc.text('Gesamtbetrag',  xL + 2, yGesamtY);
+  doc.text('€', xEuro, yGesamtY);
+  doc.text(numFmt(totalH), xR - 2, yGesamtY, {align:'right'});
+  doc.setFont('times','normal');
+  // Doppelte Linie unter Gesamtbetrag
+  blackLine();
+  doc.line(xEuro - 1, yGesamtY + 1, xR, yGesamtY + 1);
+  doc.line(xEuro - 1, yGesamtY + 2, xR, yGesamtY + 2);
 
   // ── BEZAHLT IN BAR / BANKOMAT (alle Kassa-Zahlungen) ────────────
   if (inv.zahlungsart === 'kassa') {
