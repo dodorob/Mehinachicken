@@ -3653,12 +3653,13 @@ function getBuchInvs(art) {
   return invs.sort(function(a,b){return a.datum>b.datum?1:-1;});
 }
 function buildRows(invs) {
-  var rows=[['RE Datum','RE Nr.','Lfd. Nr.','Einnahmen','USt.','Ausgabe','USt.','Saldo']];
+  var rows=[['RE Datum','RE Nr.','Lfd. Nr.','Zahlungsart','Einnahmen','USt.','Ausgabe','USt.','Saldo']];
   invs.forEach(function(inv){
     var nt=netto(inv),va=vatAmt(inv),br=Math.round((nt+va+(inv.materialkosten||0))*100)/100;
     var isAR=inv.typ==='ausgang';
     var lfd=(inv.nummer||'').replace(/[^0-9]/g,'').replace(/^0+/,'');
-    rows.push([fmtD(inv.datum),inv.nummer||'',lfd,
+    var zart=inv.zahlungsart==='kassa'?'Kassa':'Bank';
+    rows.push([fmtD(inv.datum),inv.nummer||'',lfd,zart,
       isAR?br.toFixed(2).replace('.',','):'',
       isAR?va.toFixed(2).replace('.',','):'',
       isAR?'':br.toFixed(2).replace('.',','),
@@ -3673,7 +3674,7 @@ function buildRows(invs) {
   var saldo=tEB-tAB;
   var salStr=(saldo>=0?'+ ':'− ')+Math.abs(saldo).toFixed(2).replace('.',',');
   rows.push([]);
-  rows.push(['GESAMT','','',tEB.toFixed(2).replace('.',','),tEV.toFixed(2).replace('.',','),tAB.toFixed(2).replace('.',','),tAV.toFixed(2).replace('.',','),salStr]);
+  rows.push(['GESAMT','','','',tEB.toFixed(2).replace('.',','),tEV.toFixed(2).replace('.',','),tAB.toFixed(2).replace('.',','),tAV.toFixed(2).replace('.',','),salStr]);
   return rows;
 }
 function toCSV(rows){
@@ -3682,7 +3683,7 @@ function toCSV(rows){
 function toPDF(rows,title){
   if(!window.jspdf){alert('PDF nicht verfuegbar');return;}
   var doc=new window.jspdf.jsPDF({unit:'mm',format:'a4'});
-  var ML=10,y=16,cw=[22,32,16,26,18,26,18,16];
+  var ML=10,y=16,cw=[22,32,16,18,26,18,26,18,16];
   doc.setFont('helvetica','bold');doc.setFontSize(12);doc.setTextColor(30,30,30);doc.text(title,ML,y);y+=5;
   doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(140,140,140);
   doc.text('Erstellt: '+fmtD(new Date().toISOString().split('T')[0]),ML,y);y+=7;
