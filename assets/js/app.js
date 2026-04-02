@@ -144,9 +144,14 @@ function previewNum(typ) {
 // HELPERS
 // ================================================================
 var MONTHS = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+var FIN_M = new Date().getMonth(), FIN_Y = new Date().getFullYear();
 
 function fmt(n) {
   return new Intl.NumberFormat('de-AT', {style:'currency', currency:'EUR'}).format(n || 0);
+}
+
+function fmtAmt(n) {
+  return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n || 0);
 }
 
 function fmtD(s) {
@@ -227,16 +232,20 @@ function SP(id) {
   if (id === 'lieferanten') { renderLief(); var el=document.getElementById('s-lieferanten'); if(el) el.oninput=function(){ renderLief(); }; }
   if (id === 'zahlungen')  renderZ();
   if (id === 'statistik')  renderStatistik();
-  if (id === 'finanzen')   renderFin();
+  if (id === 'finanzen') {
+    renderFin();
+    var fpl=document.getElementById('fin-prev'); if(fpl) fpl.onclick=function(){ FIN_M--; if(FIN_M<0){FIN_M=11;FIN_Y--;} renderFin(); };
+    var fnl=document.getElementById('fin-next'); if(fnl) fnl.onclick=function(){ FIN_M++; if(FIN_M>11){FIN_M=0;FIN_Y++;} renderFin(); };
+  }
   if (id === 'bankbuch') {
-    renderBuchKassa('bank');
+    initBuchMonat('bank');
     var bb=document.getElementById('btn-bankbuch-pdf'); if(bb) bb.onclick=function(){ exportBuchKassaPDF('bank'); };
     var bx=document.getElementById('btn-bankbuch-excel'); if(bx) bx.onclick=function(){ exportBuchKassaExcel('bank'); };
     var bfb=document.getElementById('btn-filter-bankbuch'); if(bfb) bfb.onclick=function(){ openFilterModal('bankbuch','buch'); };
     var sb=document.getElementById('s-bankbuch'); if(sb) sb.oninput=function(){ renderBuchKassa('bank'); };
   }
   if (id === 'kassabuch') {
-    renderBuchKassa('kassa');
+    initBuchMonat('kassa');
     var kb=document.getElementById('btn-kassabuch-pdf'); if(kb) kb.onclick=function(){ exportBuchKassaPDF('kassa'); };
     var kx=document.getElementById('btn-kassabuch-excel'); if(kx) kx.onclick=function(){ exportBuchKassaExcel('kassa'); };
     var bfk=document.getElementById('btn-filter-kassabuch'); if(bfk) bfk.onclick=function(){ openFilterModal('kassabuch','buch'); };
@@ -282,7 +291,6 @@ document.getElementById('btn-reset-form').addEventListener('click',    function(
 document.getElementById('btn-save-inv').addEventListener('click',      function(){ saveInvoice(); });
 document.getElementById('btn-add-item').addEventListener('click',      function(){ addItem(); });
 document.getElementById('btn-scan-k').addEventListener('click',        function(){ openScanner(); });
-document.getElementById('btn-scan-f').addEventListener('click',        function(){ openScanner(); });
 document.getElementById('btn-new-kunde').addEventListener('click',     function(){ openKundeModal(); });
 document.getElementById('btn-new-fz').addEventListener('click',        function(){ openFzModal(null); });
 document.getElementById('btn-new-lief').addEventListener('click',      function(){ openLiefModal(); });
@@ -352,9 +360,7 @@ document.getElementById('f-courier').addEventListener('click',   function(){ set
 document.getElementById('typ').addEventListener('change', function(){ updateFT(); });
 // partner change handled in wireFormButtons()
 
-// Export selects
-document.getElementById('ex-m').addEventListener('change', function(){ updateExP(); });
-document.getElementById('ex-y').addEventListener('change', function(){ updateExP(); });
+// Export selects are wired in initEx()
 
 function setActiveChip(typ, activeId) {
   var prefix = 'chip-' + typ + '-';
@@ -933,7 +939,7 @@ function renderDash() {
     }
   });
   document.getElementById('d-metrics').innerHTML =
-    '<div class="metric green"><div class="lbl">Umsatz</div><div class="val">' + fmt(tI-tE) + '</div></div>' +
+    '<div class="metric '+(tI-tE>=0?'green':'red')+'"><div class="lbl">Umsatz</div><div class="val">' + fmt(tI-tE) + '</div></div>' +
     '<div class="metric green"><div class="lbl">Einnahmen</div><div class="val">' + fmt(tI) + '</div><div class="sub">Monat: ' + fmt(mI) + '</div></div>' +
     '<div class="metric red"><div class="lbl">Ausgaben</div><div class="val">' + fmt(tE) + '</div><div class="sub">Monat: ' + fmt(mE) + '</div></div>' +
     '<div class="metric amber"><div class="lbl">USt.-Schuld</div><div class="val">' + fmt(vC-vP) + '</div></div>';
@@ -1128,7 +1134,7 @@ function initForm() {
   var erF = document.getElementById('er-faellig'); if(erF) erF.value = erDue;
   var erPct = document.getElementById('er-ust-pct'); if(erPct) erPct.value = '20';
   updateFT();
-  itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0}];
+  itemsData = [{titel:'Sprenglerarb.: ',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0}];
   renderItems();
   // Wire up toggle buttons (re-wire after SP)
   wireFormButtons();
@@ -1536,7 +1542,11 @@ function openInlineKundeModal() {
 
 function calcMat() { renderSum(); }
 
-function addItem(type) { itemsData.push({titel:'',desc:'',menge:1,preis:0,ust:20,type:type||'stunden',djevad_h:0,helmut_h:0,fz_marke:'',fz_kz:''}); renderItems(); }
+function addItem(type) {
+  var defaultTitel = (document.getElementById('typ') && document.getElementById('typ').value === 'ausgang') ? 'Sprenglerarb.: ' : '';
+  itemsData.push({titel:defaultTitel,desc:'',menge:1,preis:0,ust:20,type:type||'stunden',djevad_h:0,helmut_h:0,fz_marke:'',fz_kz:''});
+  renderItems();
+}
 
 function removeItem(i) {
   if (itemsData.length === 1) return;
@@ -1976,18 +1986,18 @@ function genPDFData(inv) {
     partnerLines.unshift('Privatkunde/Barzahler');
   }
   if (partnerLines.length === 0 && inv.privatkunde) partnerLines = ['Privatkunde/Barzahler'];
-  var yAddr = 57;
+  var yAddr = 64;
   partnerLines.forEach(function(l) {
     doc.text(l, xL, yAddr);
     yAddr += 5;
   });
 
-  // ── DATUM 8,2cm rechtsbündig ─────────────────────────────────────
-  doc.text('Graz, ' + fmtD(inv.datum), xR, 82, {align:'right'});
+  // ── DATUM 5,7cm rechtsbündig ─────────────────────────────────────
+  doc.text('Graz, ' + fmtD(inv.datum), xR, 57, {align:'right'});
 
-  // ── LEISTUNGSDATUM 8,9cm rechtsbündig ────────────────────────────
+  // ── LEISTUNGSDATUM 9,5cm rechtsbündig ────────────────────────────
   if (inv.leistungsdatum) {
-    doc.text('Leistungsdatum: ' + fmtD(inv.leistungsdatum), xR, 89, {align:'right'});
+    doc.text('Leistungsdatum: ' + fmtD(inv.leistungsdatum), xR, 95, {align:'right'});
   }
 
   // ── RECHNUNG NR.: fett, Größe 12, linksbündig ───────────────────
@@ -2009,152 +2019,156 @@ function genPDFData(inv) {
   (inv.items||[]).forEach(function(it){ if(it.ust>0&&ustRates.indexOf(it.ust)===-1) ustRates.push(it.ust); });
   var ustPct = ustRates.length > 0 ? ustRates.join('/') : '20';
 
-  var xCol2 = 148, xCol3 = 166;
-  var rowH = 6, hdrH = 8, gapH = 4;
+  // ── Spalten-Layout (4 Spalten) ───────────────────────────────────
+  var colFzEnd = xL + 50;  // 75mm – Ende Fahrzeug-Spalte
+  var colAnz   = 155;       // Anzahl-Spalte (zentriert)
+  var rowH = 6, hdrH = 8;
 
-  function grayLine() { doc.setDrawColor(0xD9,0xD9,0xD9); doc.setLineWidth(0.3); }
-  function blackLine() { doc.setDrawColor(30,30,30); doc.setLineWidth(0.3); }
+  function blackLine() { doc.setDrawColor(30,30,30); doc.setLineWidth(0.225); }
 
-  // Effektives Fahrzeug pro Position (Item-Ebene, sonst Invoice-Ebene)
   function getEffCar(it) {
     var m = (it.fz_marke||'').trim(), k = (it.fz_kz||'').trim();
     if (!m && !k) { m = (inv.fz_marke||'').trim(); k = (inv.fz_kz||'').trim(); }
     return {marke:m, kz:k, key:m+'|||'+k};
   }
-  function buildFzStr(car) {
-    return car.marke + (car.kz ? (car.marke?', ':'') + 'amtl. KZ.: ' + car.kz : '');
+
+  // Fahrzeug-Gruppen aufbauen
+  var carGroups = [];
+  var seenCarKeys = [];
+  (inv.items||[]).forEach(function(it) {
+    var car = getEffCar(it);
+    var idx = seenCarKeys.indexOf(car.key);
+    if (idx === -1) {
+      seenCarKeys.push(car.key);
+      carGroups.push({car:car, items:[]});
+      idx = carGroups.length - 1;
+    }
+    carGroups[idx].items.push(it);
+  });
+
+  function buildSubRows(group) {
+    var rows = [];
+    group.items.forEach(function(it) {
+      if (it.titel && it.titel.trim()) rows.push({type:'titel', it:it});
+      rows.push({type:'stunden', it:it});
+      if (it.extraLabel && it.extraLabel.trim() && it.extraBetrag) rows.push({type:'extra', it:it});
+    });
+    // KZ liegt immer auf Zeile 2 (Index 1) – Arbeitsstunden darf dort nicht stehen
+    if (group.car.kz && rows.length > 0 && rows[0].type === 'titel') {
+      rows.splice(1, 0, {type:'pad'});
+    }
+    // Mindest-Höhe: 2 Zeilen wenn Marke + KZ vorhanden (kein Titel-Fall)
+    if (group.car.marke && group.car.kz && rows.length < 2) rows.push({type:'pad'});
+    return rows;
   }
 
-  // Eindeutige Fahrzeuge ermitteln
-  var uniqueCarKeys = [];
-  (inv.items||[]).forEach(function(it) {
-    var k = getEffCar(it).key;
-    if (uniqueCarKeys.indexOf(k) === -1) uniqueCarKeys.push(k);
+  // ── € Ausrichtung: breiteste Zahl vorausberechnen ────────────────
+  doc.setFont('times','normal'); doc.setFontSize(10);
+  var allAmounts = [];
+  carGroups.forEach(function(g) {
+    buildSubRows(g).forEach(function(row) {
+      if (row.type === 'stunden') allAmounts.push(row.it.menge * row.it.preis * (1 + row.it.ust/100));
+      else if (row.type === 'extra') allAmounts.push(row.it.extraBetrag * (1 + (row.it.extraUst!=null?row.it.extraUst:20)/100));
+    });
   });
-  var multiCar = uniqueCarKeys.length > 1;
+  if (hasMat) allAmounts.push(matAmt);
+  allAmounts.push(nt, va, totalH);
+  var maxNumW = 0;
+  allAmounts.forEach(function(n) { var w = doc.getTextWidth(numFmt(n)); if (w > maxNumW) maxNumW = w; });
+  var xEuro = xR - maxNumW - 6;  // € immer an dieser Position
 
-  // ── Tabelle zeichnen ─────────────────────────────────────────────
-  function drawTable(yT, contentRows) {
-    var yHdrBottom   = yT + hdrH;
-    var yItemsBottom = yHdrBottom + contentRows.length * rowH;
-    var yGapBottom   = yItemsBottom + gapH;
-    var yNettoTop    = yGapBottom,   yNettoBottom  = yNettoTop  + rowH;
-    var yMwstTop     = yNettoBottom, yMwstBottom   = yMwstTop   + rowH;
-    var yGesamtTop   = yMwstBottom,  yGesamtBottom = yGesamtTop + rowH;
+  var tY = 113;
 
-    // Außenrahmen + obere Linie
-    grayLine();
-    doc.line(xL, yT, xL, yGesamtBottom);
-    doc.line(xR, yT, xR, yGesamtBottom);
-    doc.line(xL, yT, xR, yT);
-    doc.line(xL, yHdrBottom, xR, yHdrBottom);
-    // Spaltenteiler (volle Höhe)
-    doc.line(xCol2, yT, xCol2, yGesamtBottom);
-    doc.line(xCol3, yT, xCol3, yGesamtBottom);
-    // Zeilentrenner Items
-    for (var ri = 0; ri < contentRows.length; ri++) {
-      doc.line(xL, yHdrBottom + (ri+1)*rowH, xR, yHdrBottom + (ri+1)*rowH);
-    }
-    doc.line(xL, yGapBottom, xR, yGapBottom);
-    // Netto: grau links + schwarz Betrag-Spalte
-    grayLine(); doc.line(xL, yNettoBottom, xCol3, yNettoBottom);
-    blackLine(); doc.line(xCol3, yNettoBottom, xR, yNettoBottom);
-    // MwSt: grau
-    grayLine(); doc.line(xL, yMwstBottom, xR, yMwstBottom);
-    // Gesamt: grau links + schwarz doppelt Betrag-Spalte
-    grayLine(); doc.line(xL, yGesamtBottom, xCol3, yGesamtBottom);
-    blackLine();
-    doc.line(xCol3, yGesamtBottom,     xR, yGesamtBottom);
-    doc.line(xCol3, yGesamtBottom + 1, xR, yGesamtBottom + 1);
+  // ── Grauer Hintergrund nur für Header-Zeile ───────────────────────
+  doc.setFillColor(245, 245, 242);
+  doc.rect(xL, tY, xR - xL, hdrH, 'F');
 
-    // Kopfzeile Text (erste Spalte immer leer)
+  // ── Schwarze Linie unter Header ──────────────────────────────────
+  blackLine();
+  doc.line(xL, tY + hdrH, xR, tY + hdrH);
+
+  // ── Header-Text (vertikal zentriert) ────────────────────────────
+  var hdrTextY = tY + hdrH / 2 + 1.5;  // Baseline für visuell zentrierten 10pt-Text
+  doc.setFont('times','normal'); doc.setFontSize(10);
+  doc.text('Fahrzeug',     xL + 2,      hdrTextY);
+  doc.text('Beschreibung', colFzEnd + 2, hdrTextY);
+  doc.text('Anzahl',       colAnz,       hdrTextY, {align:'center'});
+  doc.text('Betrag (€)',   xR - 2,       hdrTextY, {align:'right'});
+
+  // ── Content-Zeilen ───────────────────────────────────────────────
+  var yCur = tY + hdrH;
+
+  carGroups.forEach(function(group) {
+    var car = group.car;
+    var subRows = buildSubRows(group);
+
     doc.setFont('times','normal'); doc.setFontSize(10);
-    doc.text('Anzahl', xCol2 + (xCol3-xCol2)/2, yT + hdrH - 2, {align:'center'});
-    doc.text('Betrag', xR - 2,                  yT + hdrH - 2, {align:'right'});
+    if (car.marke) doc.text(car.marke, xL + 2, yCur + rowH - 2);
+    if (car.kz)    doc.text(car.kz,    xL + 2, yCur + 2*rowH - 2);
 
-    // Content-Zeilen
-    for (var ri2 = 0; ri2 < contentRows.length; ri2++) {
-      var row = contentRows[ri2];
-      var rowY = yHdrBottom + ri2*rowH + rowH - 2;
+    for (var ri = 0; ri < subRows.length; ri++) {
+      var row = subRows[ri];
+      var rowY = yCur + ri * rowH + rowH - 2;
       doc.setFont('times','normal'); doc.setFontSize(10);
-      if (row.type === 'carhead') {
-        doc.setFont('times','bold');
-        doc.text(buildFzStr(row.car), xL + 2, rowY);
-        doc.setFont('times','normal');
-      } else if (row.type === 'titel') {
-        doc.text((row.it.titel||'').trim(), xL + 2, rowY);
+      if (row.type === 'titel') {
+        doc.text((row.it.titel||'').trim(), colFzEnd + 2, rowY);
       } else if (row.type === 'stunden') {
         var menge = parseFloat(row.it.menge)||1;
-        doc.text(menge===1?'Arbeitsstunde':'Arbeitsstunden', xL + 2, rowY);
-        doc.text(String(row.it.menge), xCol2+(xCol3-xCol2)/2, rowY, {align:'center'});
+        doc.text(menge===1?'Arbeitsstunde':'Arbeitsstunden', colFzEnd + 2, rowY);
+        doc.text(String(row.it.menge), colAnz, rowY, {align:'center'});
         var lt = row.it.menge * row.it.preis * (1 + row.it.ust/100);
-        doc.text('€  '+numFmt(lt), xR - 2, rowY, {align:'right'});
+        doc.text('€', xEuro, rowY);
+        doc.text(numFmt(lt), xR - 2, rowY, {align:'right'});
       } else if (row.type === 'extra') {
         var et = row.it.extraBetrag * (1 + (row.it.extraUst!=null?row.it.extraUst:20)/100);
-        doc.text(row.it.extraLabel.trim(), xL + 2, rowY);
-        doc.text('€  '+numFmt(et), xR - 2, rowY, {align:'right'});
-      } else if (row.type === 'mat') {
-        doc.text(mklbl, xL + 2, rowY);
-        doc.text('€  '+numFmt(matAmt), xR - 2, rowY, {align:'right'});
+        doc.text((row.it.extraLabel||'').trim(), colFzEnd + 2, rowY);
+        doc.text('€', xEuro, rowY);
+        doc.text(numFmt(et), xR - 2, rowY, {align:'right'});
       }
     }
+    yCur += subRows.length * rowH;
+  });
 
-    // Summenzeilen
+  // ── Materialkosten-Zeile ─────────────────────────────────────────
+  if (hasMat) {
     doc.setFont('times','normal'); doc.setFontSize(10);
-    doc.text('Netto',              xL+2, yNettoTop  + rowH - 2);
-    doc.text('€  '+numFmt(nt),    xR-2, yNettoTop  + rowH - 2, {align:'right'});
-    doc.text('MwSt. '+ustPct+'%', xL+2, yMwstTop   + rowH - 2);
-    doc.text('€  '+numFmt(va),    xR-2, yMwstTop   + rowH - 2, {align:'right'});
-    doc.setFont('times','bold');
-    doc.text('Gesamtbetrag',       xL+2, yGesamtTop + rowH - 2);
-    doc.text('€  '+numFmt(totalH), xR-2, yGesamtTop + rowH - 2, {align:'right'});
-    doc.setFont('times','normal');
-
-    return yGesamtBottom;
+    doc.text(mklbl, colFzEnd + 2, yCur + rowH - 2);
+    doc.text('€', xEuro, yCur + rowH - 2);
+    doc.text(numFmt(matAmt), xR - 2, yCur + rowH - 2, {align:'right'});
+    yCur += rowH;
   }
 
-  // ── Zeilen aufbauen + Tabelle ausgeben ───────────────────────────
-  var contentRows = [];
-  var yT, yGesamtBottom;
+  // ── Summenzeilen (kein Rahmen, nur Linien bei Netto + Gesamt) ────
+  var ySumStart = yCur + 4;
+  var yNettoY   = ySumStart + rowH - 2;
+  var yMwstY    = ySumStart + 2*rowH - 2;
+  var yGesamtY  = ySumStart + 3*rowH - 2;
+  var yGesamtBottom = ySumStart + 3*rowH;
 
-  if (!multiCar) {
-    // Einzelfahrzeug: Modell + Beschreibung außerhalb der Tabelle
-    var mainCar = (inv.items||[]).length > 0
-      ? getEffCar(inv.items[0])
-      : {marke:(inv.fz_marke||'').trim(), kz:(inv.fz_kz||'').trim()};
-    var mainCarStr = buildFzStr(mainCar);
-    doc.setFont('times','normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
-    if (mainCarStr) doc.text(mainCarStr, xL, 115);
+  doc.setFont('times','normal'); doc.setFontSize(10);
+  doc.text('Netto',              xL + 2, yNettoY);
+  doc.text('€', xEuro, yNettoY);
+  doc.text(numFmt(nt),    xR - 2, yNettoY, {align:'right'});
+  // Linie unter Netto: volle Breite (Netto bis Betrag)
+  blackLine();
+  doc.line(xL, yNettoY + 1, xR, yNettoY + 1);
 
-    var yTitles = 121;
-    (inv.items||[]).forEach(function(it) {
-      if (it.titel && it.titel.trim()) { doc.text(it.titel.trim(), xL, yTitles); yTitles += 5; }
-    });
-    yT = Math.max(134, yTitles + 7);
+  doc.text('MwSt. '+ustPct+'%', xL + 2, yMwstY);
+  doc.text('€', xEuro, yMwstY);
+  doc.text(numFmt(va),    xR - 2, yMwstY, {align:'right'});
+  // Linie unter MwSt-Betrag
+  blackLine();
+  doc.line(xEuro - 1, yMwstY + 1, xR, yMwstY + 1);
 
-    (inv.items||[]).forEach(function(it) {
-      contentRows.push({type:'stunden', it:it});
-      if (it.extraLabel && it.extraLabel.trim() && it.extraBetrag) contentRows.push({type:'extra', it:it});
-    });
-    if (hasMat) contentRows.push({type:'mat'});
-
-  } else {
-    // Mehrere Fahrzeuge: Fahrzeug-Header + Beschreibung in der Tabelle
-    yT = 115;
-    uniqueCarKeys.forEach(function(carKey) {
-      var parts = carKey.split('|||');
-      contentRows.push({type:'carhead', car:{marke:parts[0], kz:parts[1]}});
-      (inv.items||[]).forEach(function(it) {
-        if (getEffCar(it).key !== carKey) return;
-        if (it.titel && it.titel.trim()) contentRows.push({type:'titel', it:it});
-        contentRows.push({type:'stunden', it:it});
-        if (it.extraLabel && it.extraLabel.trim() && it.extraBetrag) contentRows.push({type:'extra', it:it});
-      });
-    });
-    if (hasMat) contentRows.push({type:'mat'});
-  }
-
-  yGesamtBottom = drawTable(yT, contentRows);
+  doc.setFont('times','bold');
+  doc.text('Gesamtbetrag',  xL + 2, yGesamtY);
+  doc.text('€', xEuro, yGesamtY);
+  doc.text(numFmt(totalH), xR - 2, yGesamtY, {align:'right'});
+  doc.setFont('times','normal');
+  // Doppelte Linie unter Gesamtbetrag
+  blackLine();
+  doc.line(xEuro - 1, yGesamtY + 1, xR, yGesamtY + 1);
+  doc.line(xEuro - 1, yGesamtY + 2, xR, yGesamtY + 2);
 
   // ── BEZAHLT IN BAR / BANKOMAT (alle Kassa-Zahlungen) ────────────
   if (inv.zahlungsart === 'kassa') {
@@ -2174,12 +2188,19 @@ function genPDFData(inv) {
 
   // ── Dateiname ─────────────────────────────────────────────────────
   var fnNr = inv.nummer || '';
-  var fnMatch = fnNr.match(/(\d+)$/);
-  var fnNum = fnMatch ? String(parseInt(fnMatch[1])) : fnNr;
+  var fnKunde = '';
+  if (!inv.privatkunde && inv.partner_name) {
+    fnKunde = inv.partner_name.trim().replace(/\s+/g,'_').replace(/[^a-zA-Z0-9äöüÄÖÜß_\-]/g,'');
+  }
   var firstKz = ((inv.items&&inv.items[0]&&(inv.items[0].fz_kz||'').trim()) || (inv.fz_kz||''));
   var fnKz = firstKz.replace(/[^a-zA-Z0-9]/g,'');
-  var filename = 'Rechnung_' + fnNum + (fnKz ? '_' + fnKz : '') + '.pdf';
-  var arPath = localStorage.getItem('bp_path_ar');
+  var filename = 'RechnungNR.' + fnNr;
+  if (fnKunde) filename += '_' + fnKunde;
+  if (fnKz) filename += '_' + fnKz;
+  filename += '.pdf';
+  var arPath = inv.zahlungsart === 'kassa'
+    ? (localStorage.getItem('bp_path_ar_kassa') || localStorage.getItem('bp_path_ar'))
+    : (localStorage.getItem('bp_path_ar_bank')  || localStorage.getItem('bp_path_ar'));
   savePDFToFolder(doc, filename, arPath, function(){ doc.save(filename); });
 }
 
@@ -2584,13 +2605,14 @@ function openFilterModal(typ, isStatusAR) {
   }
 
   var hasMin = !!document.getElementById('f-'+typ+'-min');
+  var showDates = (typ !== 'export');
 
   document.getElementById('modal-body').innerHTML =
     '<h3>&#9776; Filter</h3>' +
-    '<div class="fr c2">' +
+    (showDates ? '<div class="fr c2">' +
       '<div class="fg"><label>Datum von</label><input type="date" id="fm-von" value="'+von+'"></div>' +
       '<div class="fg"><label>Datum bis</label><input type="date" id="fm-bis" value="'+bis+'"></div>' +
-    '</div>' +
+    '</div>' : '') +
     (hasMin ? '<div class="fr c2">' +
       '<div class="fg"><label>Betrag min (€)</label><input type="number" id="fm-min" value="'+minV+'" min="0" step="0.01" placeholder="0"></div>' +
       '<div class="fg"><label>Betrag max (€)</label><input type="number" id="fm-max" value="'+maxV+'" min="0" step="0.01" placeholder="∞"></div>' +
@@ -2608,8 +2630,8 @@ function openFilterModal(typ, isStatusAR) {
   }, 0);
 
   document.getElementById('fm-apply').addEventListener('click', function(){
-    var fVon = document.getElementById('fm-von').value;
-    var fBis = document.getElementById('fm-bis').value;
+    var fVon = showDates && document.getElementById('fm-von') ? document.getElementById('fm-von').value : '';
+    var fBis = showDates && document.getElementById('fm-bis') ? document.getElementById('fm-bis').value : '';
     var fMin = hasMin && document.getElementById('fm-min') ? document.getElementById('fm-min').value : '';
     var fMax = hasMin && document.getElementById('fm-max') ? document.getElementById('fm-max').value : '';
     var fSt  = document.getElementById('fm-status').value;
@@ -2628,6 +2650,7 @@ function openFilterModal(typ, isStatusAR) {
 
     closeModal();
     if (typ==='ausgang' || typ==='eingang') renderTable(typ);
+    else if (typ==='export') renderExport();
     else renderBuchKassa(typ==='bankbuch'?'bank':'kassa');
   });
 
@@ -2744,7 +2767,8 @@ function editInv(id) {
 // FINANZEN
 // ================================================================
 function renderFin() {
-  var d = getDB(), now = new Date(), m = now.getMonth(), y = now.getFullYear();
+  var d = getDB(), m = FIN_M, y = FIN_Y;
+  var lbl = document.getElementById('fin-month-label'); if(lbl) lbl.textContent = MONTHS[m] + ' ' + y;
   var tI=0,tE=0,vC=0,vP=0,mVC=0,mVP=0;
   d.invoices.forEach(function(inv){
     var b=brutto(inv), v=vatAmt(inv);
@@ -3025,10 +3049,12 @@ function deleteTodo(id) {
 // EXPORT
 // ================================================================
 function initPathSettings() {
-  var arEl = document.getElementById('path-ar');
-  var erEl = document.getElementById('path-er');
-  var kvEl = document.getElementById('path-kv');
-  if (arEl) arEl.value = localStorage.getItem('bp_path_ar') || '';
+  var arBankEl  = document.getElementById('path-ar-bank');
+  var arKassaEl = document.getElementById('path-ar-kassa');
+  var erEl      = document.getElementById('path-er');
+  var kvEl      = document.getElementById('path-kv');
+  if (arBankEl)  arBankEl.value  = localStorage.getItem('bp_path_ar_bank')  || localStorage.getItem('bp_path_ar') || '';
+  if (arKassaEl) arKassaEl.value = localStorage.getItem('bp_path_ar_kassa') || localStorage.getItem('bp_path_ar') || '';
   if (erEl) erEl.value = localStorage.getItem('bp_path_er') || '';
   if (kvEl) kvEl.value = localStorage.getItem('bp_path_kv') || '';
 
@@ -3041,33 +3067,117 @@ function initPathSettings() {
     if (info) { info.textContent = '✓ Gespeichert: ' + v; setTimeout(function(){ info.textContent = ''; }, 2500); }
   }
 
-  var btnARSave = document.getElementById('btn-path-ar-save');
-  var btnERSave = document.getElementById('btn-path-er-save');
-  var btnKVSave = document.getElementById('btn-path-kv-save');
-  if (btnARSave) btnARSave.onclick = function(){ savePath('path-ar', 'bp_path_ar', 'path-ar-info'); };
+  var btnARBankSave  = document.getElementById('btn-path-ar-bank-save');
+  var btnARKassaSave = document.getElementById('btn-path-ar-kassa-save');
+  var btnERSave      = document.getElementById('btn-path-er-save');
+  var btnKVSave      = document.getElementById('btn-path-kv-save');
+  if (btnARBankSave)  btnARBankSave.onclick  = function(){ savePath('path-ar-bank',  'bp_path_ar_bank',  'path-ar-bank-info'); };
+  if (btnARKassaSave) btnARKassaSave.onclick = function(){ savePath('path-ar-kassa', 'bp_path_ar_kassa', 'path-ar-kassa-info'); };
   if (btnERSave) btnERSave.onclick = function(){ savePath('path-er', 'bp_path_er', 'path-er-info'); };
   if (btnKVSave) btnKVSave.onclick = function(){ savePath('path-kv', 'bp_path_kv', 'path-kv-info'); };
 }
 
 function initEx() {
-  var sm=document.getElementById('ex-m'), sy=document.getElementById('ex-y');
-  sm.innerHTML = MONTHS.map(function(m,i){ return '<option value="'+i+'">'+m+'</option>'; }).join('');
-  var now = new Date(); sm.value = now.getMonth(); sy.innerHTML = '';
-  for (var y=now.getFullYear()-2; y<=now.getFullYear(); y++) sy.innerHTML += '<option value="'+y+'">'+y+'</option>';
-  sy.value = now.getFullYear(); updateExP();
+  var now = new Date(), curM = now.getMonth(), curY = now.getFullYear();
+  var lastDay = new Date(curY, curM+1, 0).getDate();
+  initExDateSel('ex-von', 1, curM, curY);
+  initExDateSel('ex-bis', lastDay, curM, curY);
+  ['ex-von-d','ex-von-m','ex-von-y','ex-bis-d','ex-bis-m','ex-bis-y'].forEach(function(id){
+    var el=document.getElementById(id); if(!el) return;
+    el.addEventListener('change', function(){
+      if(id==='ex-von-m'||id==='ex-von-y') updateExDaysFor('ex-von');
+      if(id==='ex-bis-m'||id==='ex-bis-y') updateExDaysFor('ex-bis');
+      renderExport();
+    });
+  });
+  var se=document.getElementById('s-export'); if(se) se.oninput=function(){ renderExport(); };
+  var bfe=document.getElementById('btn-filter-export'); if(bfe) bfe.onclick=function(){ openFilterModal('export','buch'); };
+  renderExport();
+}
+
+function initExDateSel(prefix, day, m, y) {
+  var sd=document.getElementById(prefix+'-d'), sm=document.getElementById(prefix+'-m'), sy=document.getElementById(prefix+'-y');
+  if(!sd||!sm||!sy) return;
+  sm.innerHTML=MONTHS.map(function(mn,i){return '<option value="'+i+'">'+mn+'</option>';}).join('');
+  sm.value=m;
+  sy.innerHTML='';
+  var now=new Date();
+  for(var yr=now.getFullYear()-2;yr<=now.getFullYear();yr++) sy.innerHTML+='<option value="'+yr+'">'+yr+'</option>';
+  sy.value=y;
+  updateExDaysFor(prefix, day);
+}
+
+function updateExDaysFor(prefix, selectedDay) {
+  var sm=document.getElementById(prefix+'-m'), sy=document.getElementById(prefix+'-y'), sd=document.getElementById(prefix+'-d');
+  if(!sm||!sy||!sd) return;
+  var lm=parseInt(sm.value), ly=parseInt(sy.value), lastDay=new Date(ly,lm+1,0).getDate();
+  var prev=selectedDay!=null?selectedDay:(parseInt(sd.value)||1);
+  var opts=''; for(var d=1;d<=lastDay;d++) opts+='<option value="'+d+'">'+d+'.</option>';
+  sd.innerHTML=opts; sd.value=prev<=lastDay?String(prev):String(lastDay);
+}
+
+function getExVonStr() {
+  var d=document.getElementById('ex-von-d'), m=document.getElementById('ex-von-m'), y=document.getElementById('ex-von-y');
+  if(!d||!m||!y) return '';
+  return y.value+'-'+String(parseInt(m.value)+1).padStart(2,'0')+'-'+String(parseInt(d.value)).padStart(2,'0');
+}
+
+function getExBisStr() {
+  var d=document.getElementById('ex-bis-d'), m=document.getElementById('ex-bis-m'), y=document.getElementById('ex-bis-y');
+  if(!d||!m||!y) return '';
+  return y.value+'-'+String(parseInt(m.value)+1).padStart(2,'0')+'-'+String(parseInt(d.value)).padStart(2,'0');
 }
 
 function getExD() {
-  var m=parseInt(document.getElementById('ex-m').value), y=parseInt(document.getElementById('ex-y').value);
-  return getDB().invoices.filter(function(inv){ var dt=new Date(inv.datum); return dt.getMonth()===m && dt.getFullYear()===y; });
+  var vonStr=getExVonStr(), bisStr=getExBisStr();
+  return getDB().invoices.filter(function(inv){return inv.datum>=vonStr&&inv.datum<=bisStr;});
 }
 
-function updateExP() {
-  var invs=getExD(), m=parseInt(document.getElementById('ex-m').value), y=parseInt(document.getElementById('ex-y').value);
+function getExFiltered() {
+  var vonStr=getExVonStr(), bisStr=getExBisStr();
+  var s=(document.getElementById('s-export')||{value:''}).value.toLowerCase();
+  var st=(document.getElementById('f-export-status')||{value:''}).value;
+  return getDB().invoices.filter(function(i){
+    if(!i.datum||i.datum<vonStr||i.datum>bisStr) return false;
+    if(s&&((i.nummer||'')+(i.partner_name||'')).toLowerCase().indexOf(s)===-1) return false;
+    if(st&&i.status!==st) return false;
+    return true;
+  }).sort(function(a,b){return a.datum>b.datum?1:-1;});
+}
+
+function renderExport() {
+  var vonStr=getExVonStr(), bisStr=getExBisStr();
+  var label=fmtD(vonStr)+' – '+fmtD(bisStr);
+  var invs=getExFiltered();
   var inc=invs.filter(function(i){return i.typ==='ausgang';}).reduce(function(s,i){return s+brutto(i);},0);
   var exp=invs.filter(function(i){return i.typ==='eingang';}).reduce(function(s,i){return s+brutto(i);},0);
-  document.getElementById('ex-prev').innerHTML = '<div class="alert info"><strong>' + MONTHS[m] + ' ' + y + '</strong> — ' + invs.length + ' Rechnung(en), Einnahmen: ' + fmt(inc) + ', Ausgaben: ' + fmt(exp) + '</div>';
+  var metricsEl=document.getElementById('export-metrics');
+  if(metricsEl) metricsEl.innerHTML=
+    '<div class="metric green"><div class="lbl">Einnahmen</div><div class="val">'+fmt(inc)+'</div></div>'+
+    '<div class="metric red"><div class="lbl">Ausgaben</div><div class="val">'+fmt(exp)+'</div></div>'+
+    '<div class="metric"><div class="lbl">Saldo</div><div class="val">'+fmt(inc-exp)+'</div></div>'+
+    '<div class="metric"><div class="lbl">Buchungen</div><div class="val">'+invs.length+'</div></div>';
+  var prevEl=document.getElementById('ex-prev');
+  if(prevEl) prevEl.innerHTML='<div class="alert info"><strong>'+label+'</strong> — '+invs.length+' Rechnung(en), Einnahmen: '+fmt(inc)+', Ausgaben: '+fmt(exp)+'</div>';
+  var el=document.getElementById('tbl-export');
+  if(!el) return;
+  if(!invs.length){el.innerHTML='<div class="empty">Keine Buchungen</div>';return;}
+  var rows=invs.map(function(inv){
+    var isAR=inv.typ==='ausgang';
+    return '<tr>'+
+      '<td>'+fmtD(inv.datum)+'</td>'+
+      '<td class="mono">'+inv.nummer+'</td>'+
+      '<td>'+(inv.partner_name||'—')+'</td>'+
+      '<td><span class="badge '+(isAR?'green':'red')+'">'+(isAR?'Einnahme':'Ausgabe')+'</span></td>'+
+      '<td><span class="badge '+(inv.zahlungsart==='kassa'?'amber':'blue')+'">'+(inv.zahlungsart==='kassa'?'Kassa':'Bank')+'</span></td>'+
+      '<td style="text-align:right;font-family:sans-serif">'+fmt(brutto(inv))+'</td>'+
+      '<td>'+sBadge(inv.status)+'</td>'+
+    '</tr>';
+  }).join('');
+  el.innerHTML='<table><thead><tr><th>Datum</th><th>Nr.</th><th>Partner</th><th>Typ</th><th>Zahlungsart</th><th style="text-align:right">Betrag</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>';
 }
+
+function updateExP() { renderExport(); }
 
 function exportCSV() {
   var invs = getExD(); if (!invs.length) { alert('Keine Daten'); return; }
@@ -3620,6 +3730,34 @@ function startParticles(type, c1, c2) {
 // ================================================================
 // DOWNLOAD FUNCTIONS (Bankbuch / Kassabuch / Export)
 // ================================================================
+function initBuchMonat(art) {
+  var sm=document.getElementById('buch-'+art+'-m'), sy=document.getElementById('buch-'+art+'-y');
+  if(!sm||!sy) return;
+  var now=new Date();
+  sm.innerHTML='<option value="">Alle Monate</option>'+MONTHS.map(function(mn,i){return '<option value="'+i+'">'+mn+'</option>';}).join('');
+  sm.value=now.getMonth();
+  sy.innerHTML='';
+  for(var y=now.getFullYear()-2;y<=now.getFullYear();y++) sy.innerHTML+='<option value="'+y+'">'+y+'</option>';
+  sy.value=now.getFullYear();
+  sm.onchange=function(){updateBuchMonat(art);};
+  sy.onchange=function(){updateBuchMonat(art);};
+  updateBuchMonat(art);
+}
+function updateBuchMonat(art) {
+  var sm=document.getElementById('buch-'+art+'-m'), sy=document.getElementById('buch-'+art+'-y');
+  if(!sm||!sy) return;
+  var buchId=art==='bank'?'bankbuch':'kassabuch';
+  var vonEl=document.getElementById('f-'+buchId+'-von'), bisEl=document.getElementById('f-'+buchId+'-bis');
+  if(sm.value==='') {
+    if(vonEl) vonEl.value=''; if(bisEl) bisEl.value='';
+  } else {
+    var m=parseInt(sm.value), y=parseInt(sy.value);
+    var lastDay=new Date(y,m+1,0).getDate();
+    if(vonEl) vonEl.value=y+'-'+String(m+1).padStart(2,'0')+'-01';
+    if(bisEl) bisEl.value=y+'-'+String(m+1).padStart(2,'0')+'-'+String(lastDay).padStart(2,'0');
+  }
+  renderBuchKassa(art);
+}
 function getBuchInvs(art) {
   var d=getDB(), pageId=art==='bank'?'bankbuch':'kassabuch';
   var s=(document.getElementById('s-'+pageId)||{value:''}).value.toLowerCase();
@@ -3634,16 +3772,17 @@ function getBuchInvs(art) {
   return invs.sort(function(a,b){return a.datum>b.datum?1:-1;});
 }
 function buildRows(invs) {
-  var rows=[['RE Datum','RE Nr.','Lfd. Nr.','Einnahmen','USt.','Ausgabe','USt.','Saldo']];
+  var rows=[['RE Datum','RE Nr.','Lfd. Nr.','Zahlungsart','Einnahmen','USt.','Ausgabe','USt.','Saldo']];
   invs.forEach(function(inv){
     var nt=netto(inv),va=vatAmt(inv),br=Math.round((nt+va+(inv.materialkosten||0))*100)/100;
     var isAR=inv.typ==='ausgang';
     var lfd=(inv.nummer||'').replace(/[^0-9]/g,'').replace(/^0+/,'');
-    rows.push([fmtD(inv.datum),inv.nummer||'',lfd,
-      isAR?br.toFixed(2).replace('.',','):'',
-      isAR?va.toFixed(2).replace('.',','):'',
-      isAR?'':br.toFixed(2).replace('.',','),
-      isAR?'':va.toFixed(2).replace('.',','),
+    var zart=inv.zahlungsart==='kassa'?'Kassa':'Bank';
+    rows.push([fmtD(inv.datum),inv.nummer||'',lfd,zart,
+      isAR?fmtAmt(br):'',
+      isAR?fmtAmt(va):'',
+      isAR?'':fmtAmt(br),
+      isAR?'':fmtAmt(va),
       '']);
   });
   var tEB=0,tEV=0,tAB=0,tAV=0;
@@ -3652,9 +3791,9 @@ function buildRows(invs) {
     if(i.typ==='ausgang'){tEB+=br;tEV+=va;}else{tAB+=br;tAV+=va;}
   });
   var saldo=tEB-tAB;
-  var salStr=(saldo>=0?'+ ':'− ')+Math.abs(saldo).toFixed(2).replace('.',',');
+  var salStr=(saldo>=0?'+ ':'− ')+fmtAmt(Math.abs(saldo));
   rows.push([]);
-  rows.push(['GESAMT','','',tEB.toFixed(2).replace('.',','),tEV.toFixed(2).replace('.',','),tAB.toFixed(2).replace('.',','),tAV.toFixed(2).replace('.',','),salStr]);
+  rows.push(['GESAMT','','','',fmtAmt(tEB),fmtAmt(tEV),fmtAmt(tAB),fmtAmt(tAV),salStr]);
   return rows;
 }
 function toCSV(rows){
@@ -3663,7 +3802,7 @@ function toCSV(rows){
 function toPDF(rows,title){
   if(!window.jspdf){alert('PDF nicht verfuegbar');return;}
   var doc=new window.jspdf.jsPDF({unit:'mm',format:'a4'});
-  var ML=10,y=16,cw=[22,32,16,26,18,26,18,16];
+  var ML=10,y=16,cw=[22,32,16,18,26,18,26,18,16];
   doc.setFont('helvetica','bold');doc.setFontSize(12);doc.setTextColor(30,30,30);doc.text(title,ML,y);y+=5;
   doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(140,140,140);
   doc.text('Erstellt: '+fmtD(new Date().toISOString().split('T')[0]),ML,y);y+=7;
@@ -3693,18 +3832,17 @@ function dlBuch(art,fmt){
   else toPDF(rows,title);
 }
 function dlExport(fmt){
-  var d=getDB();
-  var m=parseInt(document.getElementById('ex-m').value);
-  var yr=parseInt(document.getElementById('ex-y').value);
-  var invs=d.invoices.filter(function(i){if(!i.datum)return false;var dt=new Date(i.datum);return dt.getMonth()===m&&dt.getFullYear()===yr;}).sort(function(a,b){return a.datum>b.datum?1:-1;});
-  var title='Export_'+String(m).padStart(2,'0')+'_'+yr;
+  var invs=getExFiltered();
+  var vonStr=getExVonStr(), bisStr=getExBisStr();
+  var title='Export_'+vonStr+'_'+bisStr;
   var rows=buildRows(invs);
   if(fmt==='excel'){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([toCSV(rows)],{type:'text/csv;charset=utf-8;'}));a.download=title+'.csv';a.click();}
   else toPDF(rows,title);
 }
 function dlExportYear(fmt){
   var d=getDB();
-  var yr=parseInt(document.getElementById('ex-y').value);
+  var yEl=document.getElementById('ex-von-y');
+  var yr=yEl?parseInt(yEl.value):new Date().getFullYear();
   var invs=d.invoices.filter(function(i){if(!i.datum)return false;var dt=new Date(i.datum);return dt.getFullYear()===yr;}).sort(function(a,b){return a.datum>b.datum?1:-1;});
   var title='Export_'+yr;
   var rows=buildRows(invs);
@@ -3959,11 +4097,24 @@ function genKVPDF(kv) {
   var xL = 25;
   var xR = 190;
 
-  // Font (Malgun Gothic falls verfügbar)
-  var headerFont = 'helvetica';
+  // ── Georgia Font laden (Fallback: times) ──────────────────────────
+  var georgiaFont = 'times';
+  if (_georgiaFontB64) {
+    try {
+      doc.addFileToVFS('georgia.ttf', _georgiaFontB64);
+      doc.addFont('georgia.ttf', 'Georgia', 'normal');
+      georgiaFont = 'Georgia';
+    } catch(e) {}
+  }
+  if (_georgiaBoldFontB64) {
+    try {
+      doc.addFileToVFS('georgiab.ttf', _georgiaBoldFontB64);
+      doc.addFont('georgiab.ttf', 'Georgia', 'bold');
+    } catch(e) {}
+  }
 
   function setF(sz, bold) {
-    doc.setFont(headerFont, 'normal');
+    doc.setFont('times', 'normal');
     doc.setFontSize(sz || 11);
     doc.setTextColor(30, 30, 30);
   }
@@ -3972,25 +4123,17 @@ function genKVPDF(kv) {
     return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
   }
 
+  // ── KOPFZEILE (Georgia, zentriert) ───────────────────────────────
   doc.setTextColor(30, 30, 30);
-  if (_malgunFontB64) {
-    try {
-      doc.addFileToVFS('malgunsl.ttf', _malgunFontB64);
-      doc.addFont('malgunsl.ttf', 'MalgunGothicSL', 'normal');
-      headerFont = 'MalgunGothicSL';
-    } catch(e) { headerFont = 'helvetica'; }
-  }
-
-  // KOPFZEILE (identisch mit Rechnung)
-  doc.setFont(headerFont, 'normal');
-  doc.setTextColor(30, 30, 30);
-  doc.setFontSize(28);
+  doc.setFont(georgiaFont, 'bold');
+  doc.setFontSize(24);
   doc.text('KAROSSERIEFACHWERKSTÄTTE', 105, 25, {align:'center'});
-  doc.setFontSize(20);
-  doc.text('KURT LINDITSCH GMBH', 105, 35, {align:'center'});
-  doc.setFontSize(10);
-  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 43, {align:'center'});
-  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 49, {align:'center'});
+  doc.setFontSize(22);
+  doc.text('KURT LINDITSCH GMBH', 105, 34, {align:'center'});
+  doc.setFont(georgiaFont, 'normal');
+  doc.setFontSize(9);
+  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 41, {align:'center'});
+  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 46, {align:'center'});
 
   // TITEL — fett, oben (vor Datum)
   doc.setFont(ff, 'bold');
@@ -4107,7 +4250,7 @@ function genKVPDF(kv) {
   doc.text('Änderungen vorbehalten.', xL, 261);
 
   // FUßZEILE (ohne "Zahlbar sofort..." — nur Bankdaten + UID)
-  doc.setFont(headerFont, 'normal');
+  doc.setFont(georgiaFont, 'normal');
   doc.setFontSize(8);
   doc.setTextColor(30, 30, 30);
   doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 277, {align:'center'});
