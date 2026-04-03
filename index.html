@@ -727,6 +727,19 @@
     </div>
 
     <div class="card">
+      <h3>Standard Zahlungsziel (Rechnungen)</h3>
+      <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin-bottom:1rem">
+        Standard-Fälligkeitsdatum für neue Rechnungen (AR und ER): Wie viele Tage nach dem Rechnungsdatum?
+      </p>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="number" id="zahlungsziel-tage" min="0" max="365" value="14" style="width:80px;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+        <span style="font-family:sans-serif;font-size:13px;color:var(--t2)">Tage</span>
+        <button class="btn primary" id="btn-zahlungsziel-save">Speichern</button>
+      </div>
+      <div style="font-size:11px;color:var(--accent);margin-top:4px" id="zahlungsziel-info"></div>
+    </div>
+
+    <div class="card">
       <h3>To-Do Vorlauf</h3>
       <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin-bottom:1rem">
         Wie viele Tage im Voraus sollen To-Dos auf dem Dashboard angezeigt werden?

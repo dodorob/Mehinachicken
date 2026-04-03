@@ -633,6 +633,16 @@ function initEinstellungen() {
     if (info) { info.textContent = '✓ Gespeichert: ' + v + ' Tage'; setTimeout(function(){ info.textContent = ''; }, 2000); }
   };
 
+  var zzEl = document.getElementById('zahlungsziel-tage');
+  if (zzEl) zzEl.value = localStorage.getItem('bp_zahlungsziel') || '14';
+  var zzBtn = document.getElementById('btn-zahlungsziel-save');
+  if (zzBtn) zzBtn.onclick = function(){
+    var v = parseInt((document.getElementById('zahlungsziel-tage')||{value:'14'}).value) || 14;
+    localStorage.setItem('bp_zahlungsziel', String(v));
+    var info = document.getElementById('zahlungsziel-info');
+    if (info) { info.textContent = '✓ Gespeichert: ' + v + ' Tage'; setTimeout(function(){ info.textContent = ''; }, 2000); }
+  };
+
   var btnSave = document.getElementById('btn-save-fixkosten');
   if(btnSave) btnSave.onclick = function(){
     var rows = document.querySelectorAll('.fk-row');
@@ -749,6 +759,7 @@ function renderFixkostenList() {
 // STATISTIK
 // ================================================================
 function renderStatistik() {
+  var MONTHS = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
   var d = getDB();
   var curM = STAT_M, curY = STAT_Y;
   var lbl = document.getElementById('stat-month-label'); if(lbl) lbl.textContent = MONTHS[curM] + ' ' + curY;
@@ -768,8 +779,6 @@ function renderStatistik() {
   var gewinnVerlust  = umsatz - ausgaben;
   var isGewinn       = gewinnVerlust >= 0;
   var marge = umsatz > 0 ? Math.round(gewinnVerlust / umsatz * 1000) / 10 : 0;
-
-  var MONTHS = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
   // ── Metrics ──────────────────────────────────────────────────
   document.getElementById('stat-metrics').innerHTML =
@@ -1028,14 +1037,14 @@ function renderDash() {
           : '<span style="color:#f59e0b;font-weight:600">in '+tage+' Tag(en)</span>';
         var wdh = {keine:'–',taeglich:'Täglich',woechentlich:'Wöchentlich',monatlich:'Monatlich',jaehrlich:'Jährlich'};
         return '<tr>'+
-          '<td>'+esc(t.titel)+'</td>'+
-          '<td>'+fmtD(t.faellig)+'</td>'+
-          '<td>'+tageStr+'</td>'+
-          '<td style="font-size:11px;color:var(--t3)">'+(wdh[t.wiederholung]||'–')+'</td>'+
-          '<td><button class="btn primary" style="font-size:11px;padding:3px 10px" onclick="erledigeTodo(\''+t.id+'\')">Erledigt</button></td>'+
+          '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(t.titel)+'</td>'+
+          '<td style="white-space:nowrap">'+fmtD(t.faellig)+'</td>'+
+          '<td style="white-space:nowrap">'+tageStr+'</td>'+
+          '<td style="font-size:11px;color:var(--t3);white-space:nowrap">'+(wdh[t.wiederholung]||'–')+'</td>'+
+          '<td style="white-space:nowrap"><button class="btn primary" style="font-size:11px;padding:3px 10px" onclick="erledigeTodo(\''+t.id+'\')">Erledigt</button></td>'+
         '</tr>';
       }).join('');
-      todosEl.innerHTML = '<table><thead><tr><th>Titel</th><th>Fällig</th><th>Fälligkeit</th><th>Wiederholung</th><th></th></tr></thead><tbody>'+trows+'</tbody></table>';
+      todosEl.innerHTML = '<table style="table-layout:fixed;width:100%"><thead><tr><th style="width:35%">Titel</th><th style="width:15%">Fällig</th><th style="width:20%">Fälligkeit</th><th style="width:15%">Wiederholung</th><th style="width:15%"></th></tr></thead><tbody>'+trows+'</tbody></table>';
     }
   }
 }
@@ -1116,8 +1125,9 @@ var itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0}
 function initForm() {
   editId = null;
   document.getElementById('form-title').textContent = 'Neue Rechnung';
+  var zahlungsziel = parseInt(localStorage.getItem('bp_zahlungsziel') || '14');
   var now = new Date().toISOString().split('T')[0];
-  var due = new Date(Date.now() + 14*86400000).toISOString().split('T')[0];
+  var due = new Date(Date.now() + zahlungsziel*86400000).toISOString().split('T')[0];
   document.getElementById('datum').value = now;
   document.getElementById('leistungsdatum').value = now;
   if (document.getElementById('fz-marke-inv')) document.getElementById('fz-marke-inv').value = '';
@@ -1142,7 +1152,7 @@ function initForm() {
   setTyp('ausgang');
   // Init ER dates
   var erNow = new Date().toISOString().split('T')[0];
-  var erDue = new Date(Date.now()+14*86400000).toISOString().split('T')[0];
+  var erDue = new Date(Date.now()+zahlungsziel*86400000).toISOString().split('T')[0];
   var erD = document.getElementById('er-datum'); if(erD) erD.value = erNow;
   var erF = document.getElementById('er-faellig'); if(erF) erF.value = erDue;
   var erPct = document.getElementById('er-ust-pct'); if(erPct) erPct.value = '20';
@@ -1299,6 +1309,20 @@ function wireERForm() {
   // New Lieferant inline
   var btnNewL = document.getElementById('btn-new-lief-inline');
   if (btnNewL) btnNewL.onclick = function(){ openLiefModal(); };
+  // Auto-update Fälligkeitsdatum when Rechnungsdatum changes
+  var erDatumEl = document.getElementById('er-datum');
+  if (erDatumEl && !erDatumEl._faelligWired) {
+    erDatumEl._faelligWired = true;
+    erDatumEl.addEventListener('change', function() {
+      var zahlungsziel = parseInt(localStorage.getItem('bp_zahlungsziel') || '14');
+      var nd = new Date(this.value);
+      if (!isNaN(nd)) {
+        nd.setDate(nd.getDate() + zahlungsziel);
+        var erFEl = document.getElementById('er-faellig');
+        if (erFEl) erFEl.value = nd.toISOString().split('T')[0];
+      }
+    });
+  }
 }
 
 function handleERFile(file) {
@@ -1409,8 +1433,9 @@ function saveER() {
 }
 
 function resetERForm() {
+  var zahlungsziel = parseInt(localStorage.getItem('bp_zahlungsziel') || '14');
   var now = new Date().toISOString().split('T')[0];
-  var due = new Date(Date.now()+14*86400000).toISOString().split('T')[0];
+  var due = new Date(Date.now()+zahlungsziel*86400000).toISOString().split('T')[0];
   ['er-datum','er-faellig'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=id==='er-datum'?now:due; });
   ['er-netto','er-ust-amt','er-brutto','er-notizen','er-lief-name','er-liefnr'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; });
   var ep = document.getElementById('er-ust-pct'); if(ep) ep.value='20';
@@ -2522,8 +2547,19 @@ function saveLief() {
   var name = document.getElementById('l-name').value.trim();
   if (!name) { alert('Name eingeben'); return; }
   var d = getDB();
-  d.lieferanten.push({id:uid(), name:name, adresse:document.getElementById('l-adr').value, uid:document.getElementById('l-uid').value, email:document.getElementById('l-email').value});
+  var newL = {id:uid(), name:name, adresse:document.getElementById('l-adr').value, uid:document.getElementById('l-uid').value, email:document.getElementById('l-email').value};
+  d.lieferanten.push(newL);
   saveDB(d); closeModal(); renderLief();
+  // Refresh ER partner dropdown if the ER form is open
+  var erPartner = document.getElementById('er-partner');
+  if (erPartner) {
+    var d2 = getDB();
+    erPartner.innerHTML = '<option value="">-- Bitte wählen --</option>' +
+      d2.lieferanten.map(function(l){ return '<option value="'+l.id+'">'+esc(l.name)+'</option>'; }).join('');
+    erPartner.value = newL.id;
+    var lnEl = document.getElementById('er-lief-name');
+    if (lnEl) lnEl.value = newL.name;
+  }
 }
 
 function delLief(id) {
