@@ -163,6 +163,62 @@ function openPDF(doc, filename) {
   window.open(url, '_blank');
 }
 
+// ── Mitarbeiter date-row helpers ──────────────────────────────────
+function collectDateRows() {
+  itemsData.forEach(function(it, i) {
+    var sis = '[data-i="' + i + '"]';
+    var ad = [];
+    document.querySelectorAll('.item-arbeit-row' + sis).forEach(function(row) {
+      ad.push({
+        datum:     (row.querySelector('.item-arbeit-datum') || {value:''}).value,
+        djevad_h:  parseFloat((row.querySelector('.item-arbeit-dz')   || {value:0}).value) || 0,
+        helmut_h:  parseFloat((row.querySelector('.item-arbeit-helm') || {value:0}).value) || 0
+      });
+    });
+    it.arbeitsdaten = ad;
+    if (ad.length) {
+      it.djevad_h = ad.reduce(function(s,r){ return s+r.djevad_h; }, 0);
+      it.helmut_h = ad.reduce(function(s,r){ return s+r.helmut_h; }, 0);
+    }
+    var fd = [];
+    document.querySelectorAll('.item-fahrzeit-row' + sis).forEach(function(row) {
+      fd.push({
+        datum:    (row.querySelector('.item-fahrzeit-datum') || {value:''}).value,
+        djevad_h: parseFloat((row.querySelector('.item-fahrzeit-dz')   || {value:0}).value) || 0,
+        helmut_h: parseFloat((row.querySelector('.item-fahrzeit-helm') || {value:0}).value) || 0
+      });
+    });
+    it.fahrzeitdaten = fd;
+  });
+}
+
+function addArbeitsdatum(i) {
+  collectDateRows();
+  if (!itemsData[i].arbeitsdaten) itemsData[i].arbeitsdaten = [];
+  itemsData[i].arbeitsdaten.push({datum: new Date().toISOString().split('T')[0], djevad_h:0, helmut_h:0});
+  renderItems();
+}
+function removeArbeitsdatum(i, j) {
+  collectDateRows();
+  if (itemsData[i].arbeitsdaten) itemsData[i].arbeitsdaten.splice(j, 1);
+  if ((itemsData[i].arbeitsdaten||[]).length) {
+    itemsData[i].djevad_h = itemsData[i].arbeitsdaten.reduce(function(s,r){ return s+r.djevad_h; }, 0);
+    itemsData[i].helmut_h = itemsData[i].arbeitsdaten.reduce(function(s,r){ return s+r.helmut_h; }, 0);
+  }
+  renderItems();
+}
+function addFahrzeitdatum(i) {
+  collectDateRows();
+  if (!itemsData[i].fahrzeitdaten) itemsData[i].fahrzeitdaten = [];
+  itemsData[i].fahrzeitdaten.push({datum: new Date().toISOString().split('T')[0], djevad_h:0, helmut_h:0});
+  renderItems();
+}
+function removeFahrzeitdatum(i, j) {
+  collectDateRows();
+  if (itemsData[i].fahrzeitdaten) itemsData[i].fahrzeitdaten.splice(j, 1);
+  renderItems();
+}
+
 function fmtD(s) {
   if (!s) return '';
   try {
@@ -1685,20 +1741,68 @@ function renderItems() {
         '<td></td>' +
         '<td style="text-align:right;font-family:sans-serif;font-size:12px;color:#333;white-space:nowrap;padding:0 8px 4px;vertical-align:bottom">' + (it.extraBetrag ? fmt(it.extraBetrag*(1+(it.extraUst!=null?it.extraUst:20)/100)) : '') + '</td>' +
       '</tr>' +
-      '<tr style="' + bg + ';border-bottom:2px solid #e0e0d8">' +
-        '<td colspan="7" style="padding:0 8px 8px">' +
+      '<tr style="' + bg + '">' +
+        '<td colspan="7" style="padding:0 8px 4px">' +
           '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#f5f5f2;border-radius:6px;padding:5px 10px;border:1px solid #e5e5e0">' +
-            '<span style="font-family:sans-serif;font-size:10px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px">Intern – Mitarbeiter:</span>' +
+            '<span style="font-family:sans-serif;font-size:10px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px">Intern – Mitarbeiter (Gesamt):</span>' +
             '<label style="display:flex;align-items:center;gap:5px;font-family:sans-serif;font-size:12px;color:#555">' +
               '<span style="font-weight:500">Dž</span>' +
-              '<input type="number" class="item-djevad-h" data-i="' + i + '" value="' + (it.djevad_h||0) + '" min="0" step="0.5" style="width:60px;padding:3px 6px;border:1px solid #ddd;border-radius:5px;font-size:12px">' +
+              '<input type="number" class="item-djevad-h" data-i="' + i + '" value="' + (it.djevad_h||0) + '" min="0" step="0.5" style="width:60px;padding:3px 6px;border:1px solid #ddd;border-radius:5px;font-size:12px' + ((it.arbeitsdaten||[]).length ? ';background:#f0f7ff;color:#2c5aa0' : '') + '">' +
               '<span style="color:#888">h</span>' +
             '</label>' +
             '<label style="display:flex;align-items:center;gap:5px;font-family:sans-serif;font-size:12px;color:#555">' +
               '<span style="font-weight:500">Helmut</span>' +
-              '<input type="number" class="item-helmut-h" data-i="' + i + '" value="' + (it.helmut_h||0) + '" min="0" step="0.5" style="width:60px;padding:3px 6px;border:1px solid #ddd;border-radius:5px;font-size:12px">' +
+              '<input type="number" class="item-helmut-h" data-i="' + i + '" value="' + (it.helmut_h||0) + '" min="0" step="0.5" style="width:60px;padding:3px 6px;border:1px solid #ddd;border-radius:5px;font-size:12px' + ((it.arbeitsdaten||[]).length ? ';background:#f0f7ff;color:#2c5aa0' : '') + '">' +
               '<span style="color:#888">h</span>' +
             '</label>' +
+          '</div>' +
+        '</td>' +
+      '</tr>' +
+      // Arbeitsdaten section
+      '<tr style="' + bg + '">' +
+        '<td colspan="7" style="padding:0 8px 4px">' +
+          '<div style="background:#eef4ff;border-radius:6px;border:1px solid #c8d9f8;padding:5px 8px">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">' +
+              '<span style="font-size:10px;font-weight:600;color:#2c5aa0;text-transform:uppercase;letter-spacing:.5px">Arbeitsdaten</span>' +
+              '<button type="button" onclick="addArbeitsdatum(' + i + ')" style="font-size:11px;padding:1px 8px;border-radius:4px;border:1px solid #2c5aa0;background:#fff;color:#2c5aa0;cursor:pointer;font-family:sans-serif">+ Datum</button>' +
+            '</div>' +
+            (it.arbeitsdaten||[]).map(function(r, j) {
+              return '<div class="item-arbeit-row" data-i="' + i + '" style="display:flex;align-items:center;gap:4px;margin-bottom:3px;flex-wrap:wrap">' +
+                '<input type="date" class="item-arbeit-datum" data-i="' + i + '" data-j="' + j + '" value="' + (r.datum||'') + '" style="flex:1;min-width:90px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+                '<span style="font-size:11px;color:#555;white-space:nowrap">Dž</span>' +
+                '<input type="number" class="item-arbeit-dz" data-i="' + i + '" data-j="' + j + '" value="' + (r.djevad_h||0) + '" min="0" step="0.5" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+                '<span style="font-size:11px;color:#888">h</span>' +
+                '<span style="font-size:11px;color:#555;white-space:nowrap">Helm.</span>' +
+                '<input type="number" class="item-arbeit-helm" data-i="' + i + '" data-j="' + j + '" value="' + (r.helmut_h||0) + '" min="0" step="0.5" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+                '<span style="font-size:11px;color:#888">h</span>' +
+                '<button type="button" onclick="removeArbeitsdatum(' + i + ',' + j + ')" style="padding:1px 6px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;font-size:12px;color:#888;line-height:1.4">×</button>' +
+              '</div>';
+            }).join('') +
+            (!(it.arbeitsdaten||[]).length ? '<div style="font-size:11px;color:#aaa;font-style:italic">Noch kein Arbeitsdatum eingetragen</div>' : '') +
+          '</div>' +
+        '</td>' +
+      '</tr>' +
+      // Fahrzeitdaten section
+      '<tr style="' + bg + ';border-bottom:2px solid #e0e0d8">' +
+        '<td colspan="7" style="padding:0 8px 8px">' +
+          '<div style="background:#fdf8ee;border-radius:6px;border:1px solid #f0d98a;padding:5px 8px">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">' +
+              '<span style="font-size:10px;font-weight:600;color:#7a5a00;text-transform:uppercase;letter-spacing:.5px">Fahrzeitdaten</span>' +
+              '<button type="button" onclick="addFahrzeitdatum(' + i + ')" style="font-size:11px;padding:1px 8px;border-radius:4px;border:1px solid #7a5a00;background:#fff;color:#7a5a00;cursor:pointer;font-family:sans-serif">+ Datum</button>' +
+            '</div>' +
+            (it.fahrzeitdaten||[]).map(function(r, j) {
+              return '<div class="item-fahrzeit-row" data-i="' + i + '" style="display:flex;align-items:center;gap:4px;margin-bottom:3px;flex-wrap:wrap">' +
+                '<input type="date" class="item-fahrzeit-datum" data-i="' + i + '" data-j="' + j + '" value="' + (r.datum||'') + '" style="flex:1;min-width:90px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+                '<span style="font-size:11px;color:#555;white-space:nowrap">Dž</span>' +
+                '<input type="number" class="item-fahrzeit-dz" data-i="' + i + '" data-j="' + j + '" value="' + (r.djevad_h||0) + '" min="0" step="0.5" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+                '<span style="font-size:11px;color:#888">h</span>' +
+                '<span style="font-size:11px;color:#555;white-space:nowrap">Helm.</span>' +
+                '<input type="number" class="item-fahrzeit-helm" data-i="' + i + '" data-j="' + j + '" value="' + (r.helmut_h||0) + '" min="0" step="0.5" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+                '<span style="font-size:11px;color:#888">h</span>' +
+                '<button type="button" onclick="removeFahrzeitdatum(' + i + ',' + j + ')" style="padding:1px 6px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;font-size:12px;color:#888;line-height:1.4">×</button>' +
+              '</div>';
+            }).join('') +
+            (!(it.fahrzeitdaten||[]).length ? '<div style="font-size:11px;color:#aaa;font-style:italic">Noch keine Fahrzeit eingetragen</div>' : '') +
           '</div>' +
         '</td>' +
       '</tr>'
@@ -1760,6 +1864,22 @@ function renderItems() {
   });
   document.querySelectorAll('.item-helmut-h').forEach(function(el){
     el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'helmut_h', this.value); });
+  });
+  // Date row listeners – collect & sync totals on change (no full re-render)
+  function syncDateInputs() {
+    collectDateRows();
+    document.querySelectorAll('.item-djevad-h').forEach(function(inp) {
+      var ii = parseInt(inp.dataset.i);
+      if ((itemsData[ii].arbeitsdaten||[]).length) inp.value = itemsData[ii].djevad_h || 0;
+    });
+    document.querySelectorAll('.item-helmut-h').forEach(function(inp) {
+      var ii = parseInt(inp.dataset.i);
+      if ((itemsData[ii].arbeitsdaten||[]).length) inp.value = itemsData[ii].helmut_h || 0;
+    });
+  }
+  document.querySelectorAll('.item-arbeit-datum,.item-arbeit-dz,.item-arbeit-helm,.item-fahrzeit-datum,.item-fahrzeit-dz,.item-fahrzeit-helm').forEach(function(el) {
+    el.addEventListener('change', syncDateInputs);
+    el.addEventListener('input', syncDateInputs);
   });
   document.querySelectorAll('.item-fz-marke').forEach(function(el){
     el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'fz_marke', this.value); });
@@ -1838,6 +1958,7 @@ function renderSum() {
 }
 
 function saveInvoice() {
+  collectDateRows();  // sync arbeitsdaten/fahrzeitdaten into itemsData before saving
   var typ  = document.getElementById('typ').value;
   var pi   = document.getElementById('pinfo').value;
   var sel  = document.getElementById('partner');
@@ -1927,6 +2048,7 @@ function saveInvoice() {
     if (it.titel && it.titel.trim()) addToBeschHist(it.titel);
   });
   genPDFData(inv);
+  if (inv.typ === 'ausgang') genArbeitsauftragPDF(inv);
   document.getElementById('f-alerts').innerHTML = '<div class="alert success">&#10003; Gespeichert & PDF erstellt!</div>';
   refreshNumbers();
   setTimeout(function(){ SP(typ==='ausgang' ? 'ausgang' : 'eingang'); }, 1500);
@@ -2245,73 +2367,112 @@ function genPDFData(inv) {
 function renderMitarbeiter(offset) {
   offset = offset || 0;
   var d = getDB();
-  var base = new Date();
-  var targetDate = new Date(base.getFullYear(), base.getMonth() + offset, 1);
+  var targetDate = new Date(new Date().getFullYear(), new Date().getMonth() + offset, 1);
   var curM = targetDate.getMonth(), curY = targetDate.getFullYear();
 
   var MONTHS_MA = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
   var label = document.getElementById('ma-month-label');
   if (label) label.textContent = MONTHS_MA[curM] + ' ' + curY;
-
-  // Store offset for nav buttons
   window._maOffset = offset;
 
-  // Collect hours per employee from AR invoices this month
-  var stats = { djevad: {stunden:0, jobs:[]}, helmut: {stunden:0, jobs:[]} };
+  var stats = { djevad: {stunden:0, fahrzeit:0, jobs:[]}, helmut: {stunden:0, fahrzeit:0, jobs:[]} };
 
   d.invoices.forEach(function(inv) {
     if (inv.typ !== 'ausgang') return;
     var dt = new Date(inv.datum);
     if (dt.getMonth() !== curM || dt.getFullYear() !== curY) return;
 
-    var kz = inv.fz_kz || inv.fz_marke || '—';
-    var datum = fmtD(inv.datum);
+    // Car info: prefer first item with fz_kz, fall back to invoice level
+    var effKZ    = inv.fz_kz   || (inv.items||[]).filter(function(it){return it.fz_kz;}).map(function(it){return it.fz_kz;})[0]   || '—';
+    var effMarke = inv.fz_marke|| (inv.items||[]).filter(function(it){return it.fz_marke;}).map(function(it){return it.fz_marke;})[0] || '';
+    var kundeName = inv.privatkunde ? 'Privatkunde' : (inv.partner_name || '—');
 
-    // Per-item employee hours (new system)
-    var djevadH = (inv.items||[]).reduce(function(s,it){ return s + (parseFloat(it.djevad_h)||0); }, 0);
-    var helmutH = (inv.items||[]).reduce(function(s,it){ return s + (parseFloat(it.helmut_h)||0); }, 0);
+    // Collect per-item arbeitsdaten & fahrzeitdaten for each employee
+    var djevadArbeit = [], helmutArbeit = [], djevadFahrzeit = [], helmutFahrzeit = [];
+    (inv.items||[]).forEach(function(it) {
+      (it.arbeitsdaten||[]).forEach(function(r) {
+        if (r.djevad_h > 0) djevadArbeit.push({datum:r.datum, h:r.djevad_h});
+        if (r.helmut_h > 0) helmutArbeit.push({datum:r.datum, h:r.helmut_h});
+      });
+      (it.fahrzeitdaten||[]).forEach(function(r) {
+        if (r.djevad_h > 0) djevadFahrzeit.push({datum:r.datum, h:r.djevad_h});
+        if (r.helmut_h > 0) helmutFahrzeit.push({datum:r.datum, h:r.helmut_h});
+      });
+    });
 
-    // Fallback for old invoices without per-item hours: use total hours via invoice flags
-    var totalH = (inv.items||[]).reduce(function(s,it){ return s + (parseFloat(it.menge)||0); }, 0);
-
+    // Fallback: if no date rows, use totals from item-level hours or invoice flags
+    var djevadH = (inv.items||[]).reduce(function(s,it){ return s+(parseFloat(it.djevad_h)||0); }, 0);
+    var helmutH = (inv.items||[]).reduce(function(s,it){ return s+(parseFloat(it.helmut_h)||0); }, 0);
+    var totalH  = (inv.items||[]).reduce(function(s,it){ return s+(parseFloat(it.menge)||0); }, 0);
     var effDjevad = djevadH > 0 ? djevadH : (inv.flag_djevad ? totalH : 0);
     var effHelmut = helmutH > 0 ? helmutH : (inv.flag_helmut ? totalH : 0);
 
-    if (effDjevad > 0) {
-      stats.djevad.stunden += effDjevad;
-      stats.djevad.jobs.push({datum:datum, kz:kz, stunden:effDjevad, nr:inv.nummer});
+    if (effDjevad > 0 || djevadArbeit.length) {
+      var fzH = djevadFahrzeit.reduce(function(s,r){return s+r.h;}, 0);
+      stats.djevad.stunden  += effDjevad;
+      stats.djevad.fahrzeit += fzH;
+      stats.djevad.jobs.push({inv:inv, kunde:kundeName, marke:effMarke, kz:effKZ,
+        stunden:effDjevad, arbeit:djevadArbeit, fahrzeit:djevadFahrzeit, fzH:fzH,
+        leistungsdatum: inv.leistungsdatum || inv.datum});
     }
-    if (effHelmut > 0) {
-      stats.helmut.stunden += effHelmut;
-      stats.helmut.jobs.push({datum:datum, kz:kz, stunden:effHelmut, nr:inv.nummer});
+    if (effHelmut > 0 || helmutArbeit.length) {
+      var fzH2 = helmutFahrzeit.reduce(function(s,r){return s+r.h;}, 0);
+      stats.helmut.stunden  += effHelmut;
+      stats.helmut.fahrzeit += fzH2;
+      stats.helmut.jobs.push({inv:inv, kunde:kundeName, marke:effMarke, kz:effKZ,
+        stunden:effHelmut, arbeit:helmutArbeit, fahrzeit:helmutFahrzeit, fzH:fzH2,
+        leistungsdatum: inv.leistungsdatum || inv.datum});
     }
   });
 
-  // Metrics
   document.getElementById('ma-metrics').innerHTML =
     '<div class="metric"><div class="lbl">Monat</div><div class="val" style="font-size:15px">' + MONTHS_MA[curM] + ' ' + curY + '</div></div>' +
     '<div class="metric green"><div class="lbl">Dževad — Stunden</div><div class="val">' + stats.djevad.stunden.toFixed(1) + ' h</div></div>' +
     '<div class="metric green"><div class="lbl">Helmut — Stunden</div><div class="val">' + stats.helmut.stunden.toFixed(1) + ' h</div></div>' +
     '<div class="metric"><div class="lbl">Gesamt Stunden</div><div class="val">' + (stats.djevad.stunden + stats.helmut.stunden).toFixed(1) + ' h</div></div>';
 
-  // Detail tables
-  function buildDetail(jobs) {
+  function buildDetail(jobs, emp) {
     if (!jobs.length) return '<div class="empty">Keine Einträge</div>';
+    var lfd = 0;
     var rows = jobs.map(function(j) {
-      return '<tr><td>' + j.datum + '</td><td class="mono">' + esc(j.kz) + '</td>' +
-             '<td style="text-align:right">' + j.stunden.toFixed(1) + ' h</td>' +
-             '<td class="mono" style="font-size:11px;color:var(--t3)">' + esc(j.nr) + '</td></tr>';
+      lfd++;
+      var arbeitStr = j.arbeit.length
+        ? j.arbeit.map(function(a){ return fmtD(a.datum) + ' (' + a.h.toFixed(1) + 'h)'; }).join(', ')
+        : (j.stunden > 0 ? j.stunden.toFixed(1) + ' h' : '—');
+      var fzStr = j.fahrzeit.length
+        ? j.fahrzeit.map(function(a){ return fmtD(a.datum) + ' (' + a.h.toFixed(1) + 'h)'; }).join(', ')
+        : (j.fzH > 0 ? j.fzH.toFixed(1) + ' h' : '—');
+      return '<tr>' +
+        '<td style="font-size:11px;color:var(--t3)">' + lfd + '</td>' +
+        '<td>' + fmtD(j.leistungsdatum) + '</td>' +
+        '<td>' + esc(j.kunde) + '</td>' +
+        '<td style="font-size:12px">' + esc(j.marke) + '</td>' +
+        '<td class="mono">' + esc(j.kz) + '</td>' +
+        '<td style="font-size:11px">' + arbeitStr + '</td>' +
+        '<td style="font-size:11px">' + fzStr + '</td>' +
+        '<td style="white-space:nowrap">' +
+          '<button class="btn" style="padding:3px 8px;font-size:11px" onclick="genArbeitsauftragPDF(getDB().invoices.find(function(x){return x.id===\'' + j.inv.id + '\'}))">Auftrag</button>' +
+        '</td>' +
+      '</tr>';
     }).join('');
     var total = jobs.reduce(function(s,j){ return s+j.stunden; }, 0);
-    return '<table><thead><tr><th>Datum</th><th>Kennzeichen</th><th style="text-align:right">Stunden</th><th>Rech.Nr.</th></tr></thead>' +
-           '<tbody>' + rows + '</tbody>' +
-           '<tfoot><tr><td colspan="2" style="font-weight:500;padding:8px 10px">Gesamt</td><td style="text-align:right;font-weight:500;padding:8px 10px">' + total.toFixed(1) + ' h</td><td></td></tr></tfoot></table>';
+    var totalFZ = jobs.reduce(function(s,j){ return s+j.fzH; }, 0);
+    return '<div style="display:flex;justify-content:flex-end;margin-bottom:8px">' +
+      '<button class="btn primary" style="font-size:12px;padding:5px 14px" onclick="genMitarbeiterMonatsPDF(\'' + emp + '\',' + curM + ',' + curY + ')">&#8595; PDF Monatsaufstellung</button>' +
+      '</div>' +
+      '<div style="overflow-x:auto"><table style="min-width:700px"><thead><tr>' +
+      '<th style="width:30px">Lfd.</th><th>Leistungsdatum</th><th>Kunde</th><th>Modell</th><th>KZ</th>' +
+      '<th>Arbeitsdatum / Stunden</th><th>Fahrzeit</th><th></th>' +
+      '</tr></thead><tbody>' + rows + '</tbody>' +
+      '<tfoot><tr><td colspan="5" style="font-weight:500;padding:8px 10px">Gesamt</td>' +
+      '<td style="font-weight:500;padding:8px 10px">' + total.toFixed(1) + ' h</td>' +
+      '<td style="font-weight:500;padding:8px 10px">' + totalFZ.toFixed(1) + ' h</td><td></td></tr></tfoot>' +
+      '</table></div>';
   }
 
-  document.getElementById('ma-djevad-detail').innerHTML = buildDetail(stats.djevad.jobs);
-  document.getElementById('ma-helmut-detail').innerHTML = buildDetail(stats.helmut.jobs);
+  document.getElementById('ma-djevad-detail').innerHTML = buildDetail(stats.djevad.jobs, 'djevad');
+  document.getElementById('ma-helmut-detail').innerHTML = buildDetail(stats.helmut.jobs, 'helmut');
 
-  // Wire nav buttons
   var btnPrev = document.getElementById('ma-prev');
   var btnNext = document.getElementById('ma-next');
   if (btnPrev) btnPrev.onclick = function(){ renderMitarbeiter((window._maOffset||0) - 1); };
@@ -2319,8 +2480,187 @@ function renderMitarbeiter(offset) {
     var next = (window._maOffset||0) + 1;
     if (next <= 0) renderMitarbeiter(next);
   };
-  // Disable next if at current month
   if (btnNext) btnNext.disabled = offset >= 0;
+  // Store stats for PDF generation
+  window._maStats = stats;
+  window._maCurM = curM;
+  window._maCurY = curY;
+}
+
+// ── PDF 1: Monatsaufstellung pro Mitarbeiter ──────────────────────
+function genMitarbeiterMonatsPDF(emp, curM, curY) {
+  var MONTHS_LONG = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+  var empName = emp === 'djevad' ? 'Dževad' : 'Helmut';
+  var stats = window._maStats;
+  if (!stats) return alert('Bitte zuerst die Mitarbeiter-Seite laden.');
+  var jobs = stats[emp].jobs;
+
+  var doc = new window.jspdf.jsPDF({unit:'mm', format:'a4', orientation:'portrait'});
+  var mL = 15, mR = 15, pw = 210 - mL - mR, y = 20;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(14);
+  doc.text('Monatsaufstellung – ' + empName, mL, y); y += 7;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  doc.text(MONTHS_LONG[curM] + ' ' + curY, mL, y); y += 10;
+
+  // Table header
+  var cols = [8, 22, 38, 28, 22, 30, 22, 10]; // widths
+  var headers = ['Lfd.', 'Leistungsdatum', 'Kunde', 'Modell', 'KZ', 'Arbeitsdat./Std.', 'Fahrzeit', ''];
+  doc.setFillColor(240, 240, 236); doc.rect(mL, y-4, pw, 7, 'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(8);
+  var x = mL;
+  headers.forEach(function(h, hi) { doc.text(h, x+1, y); x += cols[hi]; });
+  y += 5;
+  doc.setDrawColor(200,200,196); doc.line(mL, y-1, mL+pw, y-1);
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(8);
+  var lfd = 0;
+  jobs.forEach(function(j) {
+    lfd++;
+    var arbeitStr = j.arbeit.length
+      ? j.arbeit.map(function(a){ return fmtD(a.datum)+'('+a.h.toFixed(1)+'h)'; }).join(', ')
+      : (j.stunden > 0 ? j.stunden.toFixed(1)+' h' : '—');
+    var fzStr = j.fahrzeit.length
+      ? j.fahrzeit.map(function(a){ return fmtD(a.datum)+'('+a.h.toFixed(1)+'h)'; }).join(', ')
+      : (j.fzH > 0 ? j.fzH.toFixed(1)+' h' : '—');
+
+    var cells = [String(lfd), fmtD(j.leistungsdatum), j.kunde, j.marke, j.kz, arbeitStr, fzStr, ''];
+    var maxH = 5;
+    var wraps = cells.map(function(c, ci) {
+      var lines = doc.splitTextToSize(String(c||''), cols[ci]-2);
+      if (lines.length * 4.5 > maxH) maxH = lines.length * 4.5;
+      return lines;
+    });
+    if (y + maxH > 275) {
+      doc.addPage(); y = 20;
+      // Reprint header
+      doc.setFillColor(240,240,236); doc.rect(mL, y-4, pw, 7, 'F');
+      doc.setFont('helvetica','bold'); doc.setFontSize(8);
+      var hx = mL;
+      headers.forEach(function(h,hi){ doc.text(h, hx+1, y); hx+=cols[hi]; });
+      y += 5; doc.line(mL, y-1, mL+pw, y-1);
+      doc.setFont('helvetica','normal');
+    }
+    if (lfd % 2 === 0) { doc.setFillColor(250,250,248); doc.rect(mL, y-3.5, pw, maxH+1, 'F'); }
+    var cx = mL;
+    wraps.forEach(function(lines, ci) { doc.text(lines, cx+1, y); cx += cols[ci]; });
+    y += maxH + 1;
+    doc.setDrawColor(225,225,220); doc.line(mL, y-0.5, mL+pw, y-0.5);
+  });
+
+  // Totals
+  y += 3;
+  doc.setFont('helvetica','bold'); doc.setFontSize(9);
+  doc.text('Gesamt Arbeitszeit: ' + stats[emp].stunden.toFixed(1) + ' h', mL, y); y += 5;
+  doc.text('Gesamt Fahrzeit: '    + stats[emp].fahrzeit.toFixed(1) + ' h', mL, y);
+
+  openPDF(doc, 'Monatsaufstellung_' + empName + '_' + MONTHS_LONG[curM] + '_' + curY + '.pdf');
+}
+
+// ── PDF 2: Arbeitsauftrag (A5) ────────────────────────────────────
+function genArbeitsauftragPDF(inv) {
+  if (!inv) return;
+  var doc = new window.jspdf.jsPDF({unit:'mm', format:'a5', orientation:'portrait'});
+  var mL = 10, mR = 10, pw = 148 - mL - mR, y = 12;
+
+  // Header
+  doc.setFont('helvetica','bold'); doc.setFontSize(13);
+  doc.text('Arbeitsauftrag', mL, y); y += 7;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.text('KURT LINDITSCH GMBH', mL, y); y += 5;
+  doc.setDrawColor(180,180,175); doc.line(mL, y, mL+pw, y); y += 5;
+
+  // Info block
+  var auto = [inv.fz_marke, inv.fz_kz].filter(Boolean).join(' | ') || '—';
+  doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.text('Leistungsdatum:', mL, y);
+  doc.setFont('helvetica','normal'); doc.text(fmtD(inv.leistungsdatum || inv.datum), mL+32, y); y += 5;
+  doc.setFont('helvetica','bold'); doc.text('Fahrzeug:', mL, y);
+  doc.setFont('helvetica','normal'); doc.text(auto, mL+32, y); y += 5;
+  doc.setFont('helvetica','bold'); doc.text('Kunde:', mL, y);
+  doc.setFont('helvetica','normal'); doc.text(inv.privatkunde ? 'Privatkunde' : (inv.partner_name||'—'), mL+32, y); y += 5;
+  doc.setFont('helvetica','bold'); doc.text('Rechnungsnr:', mL, y);
+  doc.setFont('helvetica','normal'); doc.text(inv.nummer||'—', mL+32, y); y += 3;
+
+  // Fertig circle (right side)
+  var cx = mL + pw - 8, cy = 20;
+  doc.setDrawColor(60,60,60); doc.setLineWidth(0.6);
+  doc.circle(cx, cy, 6);
+  doc.setFont('helvetica','bold'); doc.setFontSize(9);
+  doc.text('F', cx - 1.5, cy + 3);
+  doc.setFont('helvetica','normal'); doc.setFontSize(7);
+  doc.text('Fertig', cx - 4, cy + 8);
+
+  doc.setLineWidth(0.3);
+  doc.setDrawColor(180,180,175); doc.line(mL, y, mL+pw, y); y += 5;
+
+  // Description
+  doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.text('Arbeiten:', mL, y); y += 4;
+  doc.setFont('helvetica','normal');
+  (inv.items||[]).forEach(function(it) {
+    if (it.titel) {
+      var lines = doc.splitTextToSize('• ' + it.titel + (it.desc ? ' – ' + it.desc : ''), pw);
+      doc.text(lines, mL, y); y += lines.length * 4 + 1;
+    }
+  });
+  y += 2; doc.setDrawColor(180,180,175); doc.line(mL, y, mL+pw, y); y += 5;
+
+  // Employee table
+  doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.text('Mitarbeiter', mL, y); y += 4;
+  var thdr = ['Mitarbeiter','Arbeitsdatum','Std.','Fahrtdatum','Fahrzeit'];
+  var tcols = [25, 35, 12, 32, 12];
+  doc.setFillColor(235,235,230); doc.rect(mL, y-3.5, pw, 5.5, 'F');
+  var tx = mL;
+  doc.setFontSize(7);
+  thdr.forEach(function(h,hi){ doc.text(h, tx+1, y); tx+=tcols[hi]; });
+  y += 4; doc.setDrawColor(200,200,196); doc.line(mL, y-1, mL+pw, y-1);
+
+  doc.setFont('helvetica','normal');
+  var empList = [
+    {name:'Dževad', key:'djevad_h'},
+    {name:'Helmut', key:'helmut_h'}
+  ];
+  empList.forEach(function(emp) {
+    // Collect date rows for this employee
+    var arbeitRows = [], fahrzeitRows = [];
+    (inv.items||[]).forEach(function(it) {
+      (it.arbeitsdaten||[]).forEach(function(r) {
+        if ((r[emp.key]||0) > 0) arbeitRows.push({datum:r.datum, h:r[emp.key]});
+      });
+      (it.fahrzeitdaten||[]).forEach(function(r) {
+        if ((r[emp.key]||0) > 0) fahrzeitRows.push({datum:r.datum, h:r[emp.key]});
+      });
+    });
+    // Fallback: no date rows, use total
+    var totalH = (inv.items||[]).reduce(function(s,it){ return s+(parseFloat(it[emp.key])||0); }, 0);
+    if (!arbeitRows.length && totalH > 0) arbeitRows.push({datum: inv.leistungsdatum||inv.datum, h:totalH});
+    if (!arbeitRows.length && !fahrzeitRows.length) return;
+
+    var rows = Math.max(arbeitRows.length, fahrzeitRows.length, 1);
+    for (var ri = 0; ri < rows; ri++) {
+      var ar = arbeitRows[ri]||{datum:'',h:0};
+      var fr = fahrzeitRows[ri]||{datum:'',h:0};
+      if (y > 195) { doc.addPage(); y = 12; }
+      var row = [
+        ri === 0 ? emp.name : '',
+        ar.datum ? fmtD(ar.datum) : '',
+        ar.h > 0 ? ar.h.toFixed(1) : '',
+        fr.datum ? fmtD(fr.datum) : '',
+        fr.h > 0 ? fr.h.toFixed(1) : ''
+      ];
+      var rx = mL;
+      doc.setFontSize(7);
+      row.forEach(function(v, vi){ doc.text(String(v), rx+1, y); rx+=tcols[vi]; });
+      y += 4.5;
+      doc.setDrawColor(225,225,220); doc.line(mL, y-1, mL+pw, y-1);
+    }
+  });
+
+  // Footer
+  y += 4; doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(160,160,155);
+  doc.text('Erstellt: ' + fmtD(new Date().toISOString().split('T')[0]), mL, y);
+  doc.setTextColor(0,0,0);
+
+  openPDF(doc, 'Arbeitsauftrag_' + (inv.nummer||'neu') + '.pdf');
 }
 
 
