@@ -93,6 +93,9 @@ function savePDFToFolder(doc, filename, folderPath, fallback) {
         n.textContent = '\u2713 PDF gespeichert: ' + result.path;
         document.body.appendChild(n);
         setTimeout(function(){ n.remove(); }, 3500);
+        if(window.electronAPI && window.electronAPI.openPdfFile) {
+          window.electronAPI.openPdfFile(result.path);
+        }
       } else {
         fallback();
       }
@@ -145,6 +148,7 @@ function previewNum(typ) {
 // ================================================================
 var MONTHS = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 var FIN_M = new Date().getMonth(), FIN_Y = new Date().getFullYear();
+var STAT_M = new Date().getMonth(), STAT_Y = new Date().getFullYear();
 
 function fmt(n) {
   return new Intl.NumberFormat('de-AT', {style:'currency', currency:'EUR'}).format(n || 0);
@@ -152,6 +156,11 @@ function fmt(n) {
 
 function fmtAmt(n) {
   return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n || 0);
+}
+
+function openPDF(doc, filename) {
+  var url = doc.output('bloburl');
+  window.open(url, '_blank');
 }
 
 function fmtD(s) {
@@ -231,7 +240,11 @@ function SP(id) {
   if (id === 'mitarbeiter') renderMitarbeiter();
   if (id === 'lieferanten') { renderLief(); var el=document.getElementById('s-lieferanten'); if(el) el.oninput=function(){ renderLief(); }; }
   if (id === 'zahlungen')  renderZ();
-  if (id === 'statistik')  renderStatistik();
+  if (id === 'statistik') {
+    renderStatistik();
+    var spl=document.getElementById('stat-prev'); if(spl) spl.onclick=function(){ STAT_M--; if(STAT_M<0){STAT_M=11;STAT_Y--;} renderStatistik(); };
+    var snl=document.getElementById('stat-next'); if(snl) snl.onclick=function(){ STAT_M++; if(STAT_M>11){STAT_M=0;STAT_Y++;} renderStatistik(); };
+  }
   if (id === 'finanzen') {
     renderFin();
     var fpl=document.getElementById('fin-prev'); if(fpl) fpl.onclick=function(){ FIN_M--; if(FIN_M<0){FIN_M=11;FIN_Y--;} renderFin(); };
@@ -737,8 +750,8 @@ function renderFixkostenList() {
 // ================================================================
 function renderStatistik() {
   var d = getDB();
-  var now = new Date();
-  var curM = now.getMonth(), curY = now.getFullYear();
+  var curM = STAT_M, curY = STAT_Y;
+  var lbl = document.getElementById('stat-month-label'); if(lbl) lbl.textContent = MONTHS[curM] + ' ' + curY;
 
   function invForMonth(m, y) {
     return d.invoices.filter(function(i){ var dt=new Date(i.datum); return dt.getMonth()===m && dt.getFullYear()===y; });
@@ -2201,7 +2214,7 @@ function genPDFData(inv) {
   var arPath = inv.zahlungsart === 'kassa'
     ? (localStorage.getItem('bp_path_ar_kassa') || localStorage.getItem('bp_path_ar'))
     : (localStorage.getItem('bp_path_ar_bank')  || localStorage.getItem('bp_path_ar'));
-  savePDFToFolder(doc, filename, arPath, function(){ doc.save(filename); });
+  savePDFToFolder(doc, filename, arPath, function(){ openPDF(doc, filename); });
 }
 
 // ================================================================
@@ -3080,52 +3093,55 @@ function initPathSettings() {
 function initEx() {
   var now = new Date(), curM = now.getMonth(), curY = now.getFullYear();
   var lastDay = new Date(curY, curM+1, 0).getDate();
-  initExDateSel('ex-von', 1, curM, curY);
-  initExDateSel('ex-bis', lastDay, curM, curY);
-  ['ex-von-d','ex-von-m','ex-von-y','ex-bis-d','ex-bis-m','ex-bis-y'].forEach(function(id){
-    var el=document.getElementById(id); if(!el) return;
-    el.addEventListener('change', function(){
-      if(id==='ex-von-m'||id==='ex-von-y') updateExDaysFor('ex-von');
-      if(id==='ex-bis-m'||id==='ex-bis-y') updateExDaysFor('ex-bis');
-      renderExport();
-    });
-  });
-  var se=document.getElementById('s-export'); if(se) se.oninput=function(){ renderExport(); };
-  var bfe=document.getElementById('btn-filter-export'); if(bfe) bfe.onclick=function(){ openFilterModal('export','buch'); };
+  var vonDate = document.getElementById('ex-von-date');
+  var bisDate = document.getElementById('ex-bis-date');
+  if(vonDate && !vonDate.value) vonDate.value = curY+'-'+String(curM+1).padStart(2,'0')+'-01';
+  if(bisDate && !bisDate.value) bisDate.value = curY+'-'+String(curM+1).padStart(2,'0')+'-'+String(lastDay).padStart(2,'0');
+
+  var sm = document.getElementById('ex-m-quick'), sy = document.getElementById('ex-y-quick');
+  if(sm && !sm.innerHTML) {
+    sm.innerHTML = MONTHS.map(function(mn,i){return '<option value="'+i+'">'+mn+'</option>';}).join('');
+    sm.value = curM;
+  }
+  if(sy && !sy.innerHTML) {
+    for(var y=curY-2;y<=curY;y++) sy.innerHTML+='<option value="'+y+'">'+y+'</option>';
+    sy.value = curY;
+  }
+
+  if(sm) sm.onchange = function(){ applyMonthQuickSelect(); };
+  if(sy) sy.onchange = function(){ applyMonthQuickSelect(); };
+  if(vonDate) vonDate.onchange = function(){ renderExport(); };
+  if(bisDate) bisDate.onchange = function(){ renderExport(); };
+
+  var stSel = document.getElementById('f-export-status-sel');
+  if(stSel) stSel.onchange = function(){ renderExport(); };
+
+  var se = document.getElementById('s-export');
+  if(se) se.oninput = function(){ renderExport(); };
+
   renderExport();
 }
 
-function initExDateSel(prefix, day, m, y) {
-  var sd=document.getElementById(prefix+'-d'), sm=document.getElementById(prefix+'-m'), sy=document.getElementById(prefix+'-y');
-  if(!sd||!sm||!sy) return;
-  sm.innerHTML=MONTHS.map(function(mn,i){return '<option value="'+i+'">'+mn+'</option>';}).join('');
-  sm.value=m;
-  sy.innerHTML='';
-  var now=new Date();
-  for(var yr=now.getFullYear()-2;yr<=now.getFullYear();yr++) sy.innerHTML+='<option value="'+yr+'">'+yr+'</option>';
-  sy.value=y;
-  updateExDaysFor(prefix, day);
-}
-
-function updateExDaysFor(prefix, selectedDay) {
-  var sm=document.getElementById(prefix+'-m'), sy=document.getElementById(prefix+'-y'), sd=document.getElementById(prefix+'-d');
-  if(!sm||!sy||!sd) return;
-  var lm=parseInt(sm.value), ly=parseInt(sy.value), lastDay=new Date(ly,lm+1,0).getDate();
-  var prev=selectedDay!=null?selectedDay:(parseInt(sd.value)||1);
-  var opts=''; for(var d=1;d<=lastDay;d++) opts+='<option value="'+d+'">'+d+'.</option>';
-  sd.innerHTML=opts; sd.value=prev<=lastDay?String(prev):String(lastDay);
+function applyMonthQuickSelect() {
+  var sm = document.getElementById('ex-m-quick'), sy = document.getElementById('ex-y-quick');
+  if(!sm || !sy) return;
+  var m = parseInt(sm.value), y = parseInt(sy.value);
+  var lastDay = new Date(y, m+1, 0).getDate();
+  var vonDate = document.getElementById('ex-von-date');
+  var bisDate = document.getElementById('ex-bis-date');
+  if(vonDate) vonDate.value = y+'-'+String(m+1).padStart(2,'0')+'-01';
+  if(bisDate) bisDate.value = y+'-'+String(m+1).padStart(2,'0')+'-'+String(lastDay).padStart(2,'0');
+  renderExport();
 }
 
 function getExVonStr() {
-  var d=document.getElementById('ex-von-d'), m=document.getElementById('ex-von-m'), y=document.getElementById('ex-von-y');
-  if(!d||!m||!y) return '';
-  return y.value+'-'+String(parseInt(m.value)+1).padStart(2,'0')+'-'+String(parseInt(d.value)).padStart(2,'0');
+  var el = document.getElementById('ex-von-date');
+  return el ? el.value : '';
 }
 
 function getExBisStr() {
-  var d=document.getElementById('ex-bis-d'), m=document.getElementById('ex-bis-m'), y=document.getElementById('ex-bis-y');
-  if(!d||!m||!y) return '';
-  return y.value+'-'+String(parseInt(m.value)+1).padStart(2,'0')+'-'+String(parseInt(d.value)).padStart(2,'0');
+  var el = document.getElementById('ex-bis-date');
+  return el ? el.value : '';
 }
 
 function getExD() {
@@ -3136,7 +3152,7 @@ function getExD() {
 function getExFiltered() {
   var vonStr=getExVonStr(), bisStr=getExBisStr();
   var s=(document.getElementById('s-export')||{value:''}).value.toLowerCase();
-  var st=(document.getElementById('f-export-status')||{value:''}).value;
+  var st=(document.getElementById('f-export-status-sel')||{value:''}).value;
   return getDB().invoices.filter(function(i){
     if(!i.datum||i.datum<vonStr||i.datum>bisStr) return false;
     if(s&&((i.nummer||'')+(i.partner_name||'')).toLowerCase().indexOf(s)===-1) return false;
@@ -3823,7 +3839,7 @@ function toPDF(rows,title){
     if(isTot)doc.setFont('helvetica','normal');
     y+=7;
   });
-  doc.save(title+'.pdf');
+  openPDF(doc, title+'.pdf');
 }
 function dlBuch(art,fmt){
   var title=art==='bank'?'Bankbuch':'Kassabuch';
@@ -3841,7 +3857,7 @@ function dlExport(fmt){
 }
 function dlExportYear(fmt){
   var d=getDB();
-  var yEl=document.getElementById('ex-von-y');
+  var yEl=document.getElementById('ex-y-quick');
   var yr=yEl?parseInt(yEl.value):new Date().getFullYear();
   var invs=d.invoices.filter(function(i){if(!i.datum)return false;var dt=new Date(i.datum);return dt.getFullYear()===yr;}).sort(function(a,b){return a.datum>b.datum?1:-1;});
   var title='Export_'+yr;
@@ -4259,7 +4275,7 @@ function genKVPDF(kv) {
   var kvName = (kv.partner_name || '').replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
   var kvFilename = 'Kostenvoranschlag' + (kvName ? '_' + kvName : '') + (kv.datum ? '_' + kv.datum : '') + '.pdf';
   var kvPath = localStorage.getItem('bp_path_kv');
-  savePDFToFolder(doc, kvFilename, kvPath, function(){ doc.save(kvFilename); });
+  savePDFToFolder(doc, kvFilename, kvPath, function(){ openPDF(doc, kvFilename); });
 }
 
 // ================================================================

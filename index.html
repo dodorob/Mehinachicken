@@ -383,7 +383,7 @@
 </div>
 
 <div class="page" id="page-statistik">
-  <div class="topbar"><h2><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128202; Statistik</h2></div>
+  <div class="topbar"><h2><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128202;</span> Statistik</h2><div class="tba" style="display:flex;align-items:center;gap:8px"><button class="btn" id="stat-prev">&#8249;</button><span id="stat-month-label" style="font-size:13px;font-weight:500;min-width:110px;text-align:center"></span><button class="btn" id="stat-next">&#8250;</button></div></div>
   <div class="content">
     <div id="stat-metrics" class="grid4" style="margin-bottom:1.5rem"></div>
     <div class="grid2" style="margin-bottom:1.5rem">
@@ -452,21 +452,25 @@
   <div class="topbar"><h2>Monatsexport</h2><div class="tba"><button class="btn" onclick="dlExport('excel')">&#8595; Excel</button> <button class="btn" onclick="dlExport('pdf')">&#8595; PDF</button></div></div>
   <div class="content">
     <div id="export-metrics" class="grid4" style="margin-bottom:1.5rem"></div>
-    <div style="padding:.75rem 1.5rem;display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:var(--card);border-bottom:1px solid var(--border)">
+    <div style="padding:.75rem 1.5rem;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--card);border-bottom:1px solid var(--border)">
       <span style="font-size:13px;font-weight:500;color:var(--t2)">Von:</span>
-      <select id="ex-von-d" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
-      <select id="ex-von-m" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
-      <select id="ex-von-y" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
-      <span style="font-size:13px;font-weight:500;color:var(--t2);margin-left:8px">Bis:</span>
-      <select id="ex-bis-d" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
-      <select id="ex-bis-m" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
-      <select id="ex-bis-y" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+      <input type="date" id="ex-von-date" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+      <span style="font-size:13px;color:var(--t2)">–</span>
+      <input type="date" id="ex-bis-date" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+      <span style="font-size:13px;font-weight:500;color:var(--t2);margin-left:8px">Monat:</span>
+      <select id="ex-m-quick" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+      <select id="ex-y-quick" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
     </div>
-    <div style="padding:.75rem 1.5rem;display:flex;gap:8px;align-items:center;background:var(--card);border-bottom:1px solid var(--border);margin-bottom:0">
-      <button class="btn" id="btn-filter-export" style="display:flex;align-items:center;gap:6px;font-size:13px">&#9776; Filter <span id="f-export-badge" style="display:none;background:var(--accent);color:#fff;border-radius:20px;padding:1px 7px;font-size:11px"></span></button>
+    <div style="padding:.75rem 1.5rem;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--card);border-bottom:1px solid var(--border);margin-bottom:0">
+      <span style="font-size:13px;font-weight:500;color:var(--t2)">Status:</span>
+      <select id="f-export-status-sel" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+        <option value="">Alle</option>
+        <option value="offen">Offen</option>
+        <option value="bezahlt">Bezahlt</option>
+        <option value="überfällig">Überfällig</option>
+      </select>
       <input type="text" id="s-export" placeholder="Schnellsuche..." style="flex:1;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px">
     </div>
-    <input type="hidden" id="f-export-status">
     <div id="ex-prev" style="padding:.5rem 1.5rem"></div>
     <div class="card" style="padding:0"><div id="tbl-export"></div></div>
     <div style="padding:1rem 1.5rem;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
