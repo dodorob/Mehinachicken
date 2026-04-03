@@ -633,13 +633,13 @@ function initEinstellungen() {
     if (info) { info.textContent = '✓ Gespeichert: ' + v + ' Tage'; setTimeout(function(){ info.textContent = ''; }, 2000); }
   };
 
-  var zzEl = document.getElementById('zahlungsziel-tage');
-  if (zzEl) zzEl.value = localStorage.getItem('bp_zahlungsziel') || '14';
-  var zzBtn = document.getElementById('btn-zahlungsziel-save');
-  if (zzBtn) zzBtn.onclick = function(){
-    var v = parseInt((document.getElementById('zahlungsziel-tage')||{value:'14'}).value) || 14;
-    localStorage.setItem('bp_zahlungsziel', String(v));
-    var info = document.getElementById('zahlungsziel-info');
+  var rvEl = document.getElementById('rech-vorlauf');
+  if (rvEl) rvEl.value = localStorage.getItem('bp_rech_vorlauf') || '3';
+  var rvBtn = document.getElementById('btn-rech-vorlauf-save');
+  if (rvBtn) rvBtn.onclick = function(){
+    var v = parseInt((document.getElementById('rech-vorlauf')||{value:'3'}).value) || 3;
+    localStorage.setItem('bp_rech_vorlauf', String(v));
+    var info = document.getElementById('rech-vorlauf-info');
     if (info) { info.textContent = '✓ Gespeichert: ' + v + ' Tage'; setTimeout(function(){ info.textContent = ''; }, 2000); }
   };
 
@@ -993,11 +993,12 @@ function renderDash() {
   c2._c = new Chart(c2, {type:'doughnut', data:{labels:['USt. eingenommen','USt. bezahlt'], datasets:[{data:[vC,vP], backgroundColor:['#1D9E75','#F09595']}]}, options:{plugins:{legend:{labels:{font:{size:11}}}}}});
 
   var rec = document.getElementById('d-recent');
-  var in3 = new Date(now.getTime() + 3*86400000);
+  var rechVorlauf = parseInt(localStorage.getItem('bp_rech_vorlauf') || '3');
+  var in3 = new Date(now.getTime() + rechVorlauf*86400000);
   var due3 = d.invoices.filter(function(i){
     return i.status === 'offen' && i.faellig && new Date(i.faellig) <= in3;
   }).sort(function(a,b){ return new Date(a.faellig)-new Date(b.faellig); });
-  if (!due3.length) { rec.innerHTML = '<div class="empty">Keine Rechnungen in den nächsten 3 Tagen fällig ✓</div>'; }
+  if (!due3.length) { rec.innerHTML = '<div class="empty">Keine Rechnungen in den nächsten ' + rechVorlauf + ' Tagen fällig ✓</div>'; }
   else {
     var rows = due3.map(function(inv){
       var fd = new Date(inv.faellig);
@@ -1037,7 +1038,7 @@ function renderDash() {
           : '<span style="color:#f59e0b;font-weight:600">in '+tage+' Tag(en)</span>';
         var wdh = {keine:'–',taeglich:'Täglich',woechentlich:'Wöchentlich',monatlich:'Monatlich',jaehrlich:'Jährlich'};
         return '<tr>'+
-          '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(t.titel)+'</td>'+
+          '<td style="word-break:break-word">'+esc(t.titel)+'</td>'+
           '<td style="white-space:nowrap">'+fmtD(t.faellig)+'</td>'+
           '<td style="white-space:nowrap">'+tageStr+'</td>'+
           '<td style="font-size:11px;color:var(--t3);white-space:nowrap">'+(wdh[t.wiederholung]||'–')+'</td>'+
@@ -1125,14 +1126,12 @@ var itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0}
 function initForm() {
   editId = null;
   document.getElementById('form-title').textContent = 'Neue Rechnung';
-  var zahlungsziel = parseInt(localStorage.getItem('bp_zahlungsziel') || '14');
   var now = new Date().toISOString().split('T')[0];
-  var due = new Date(Date.now() + zahlungsziel*86400000).toISOString().split('T')[0];
   document.getElementById('datum').value = now;
   document.getElementById('leistungsdatum').value = now;
   if (document.getElementById('fz-marke-inv')) document.getElementById('fz-marke-inv').value = '';
   if (document.getElementById('fz-kz-inv')) document.getElementById('fz-kz-inv').value = '';
-  document.getElementById('faellig').value = due;
+  document.getElementById('faellig').value = now;
   document.getElementById('status').value = 'offen';
   document.getElementById('notizen').value = '';
   document.getElementById('pinfo').value = '';
@@ -1151,9 +1150,8 @@ function initForm() {
   // Set AR as default
   setTyp('ausgang');
   // Init ER dates
-  var erNow = new Date().toISOString().split('T')[0];
-  var erDue = new Date(Date.now()+zahlungsziel*86400000).toISOString().split('T')[0];
-  var erD = document.getElementById('er-datum'); if(erD) erD.value = erNow;
+  var erDue = new Date(Date.now()+14*86400000).toISOString().split('T')[0];
+  var erD = document.getElementById('er-datum'); if(erD) erD.value = now;
   var erF = document.getElementById('er-faellig'); if(erF) erF.value = erDue;
   var erPct = document.getElementById('er-ust-pct'); if(erPct) erPct.value = '20';
   updateFT();
@@ -1433,9 +1431,8 @@ function saveER() {
 }
 
 function resetERForm() {
-  var zahlungsziel = parseInt(localStorage.getItem('bp_zahlungsziel') || '14');
   var now = new Date().toISOString().split('T')[0];
-  var due = new Date(Date.now()+zahlungsziel*86400000).toISOString().split('T')[0];
+  var due = new Date(Date.now()+14*86400000).toISOString().split('T')[0];
   ['er-datum','er-faellig'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=id==='er-datum'?now:due; });
   ['er-netto','er-ust-amt','er-brutto','er-notizen','er-lief-name','er-liefnr'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; });
   var ep = document.getElementById('er-ust-pct'); if(ep) ep.value='20';
