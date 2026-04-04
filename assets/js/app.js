@@ -2382,6 +2382,8 @@ function renderMaAllJobs(s) {
   var jobs = _maFilterJobs(window._maAllJobs || [], s);
   if (!jobs.length) { el.innerHTML = '<div class="empty">Keine Aufträge gefunden</div>'; return; }
   var rows = jobs.map(function(j, idx) {
+    var dzDisp  = j.dzTotal  > 0 ? j.dzTotal.toFixed(1)  + ' h' : '—';
+    var helDisp = j.helTotal > 0 ? j.helTotal.toFixed(1) + ' h' : '—';
     return '<tr>' +
       '<td style="white-space:nowrap">' + _auftragBtn(j.inv.id) + '</td>' +
       '<td style="font-size:11px;color:var(--t3)">' + (idx+1) + '</td>' +
@@ -2389,11 +2391,13 @@ function renderMaAllJobs(s) {
       '<td>' + esc(j.kunde) + '</td>' +
       '<td style="font-size:12px">' + esc(j.marke) + '</td>' +
       '<td class="mono">' + esc(j.kz) + '</td>' +
-      '<td style="font-size:11px">' + (j.dzStr || '—') + '</td>' +
-      '<td style="font-size:11px">' + (j.helStr || '—') + '</td>' +
+      '<td style="font-size:11px">' + dzDisp + '</td>' +
+      '<td style="font-size:11px">' + helDisp + '</td>' +
     '</tr>';
   }).join('');
-  el.innerHTML = '<div style="overflow-x:auto"><table style="min-width:650px"><thead><tr>' +
+  el.innerHTML =
+    '<div style="overflow-x:auto;max-height:360px;overflow-y:auto">' +
+    '<table style="min-width:650px"><thead><tr style="position:sticky;top:0;background:var(--bg2,#fff);z-index:1">' +
     '<th>Auftrag</th><th style="width:30px">Lfd.</th><th>Leistungsdatum</th><th>Kunde</th><th>Modell</th><th>KZ</th><th>Dž-Std.</th><th>Helmut-Std.</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
@@ -2424,8 +2428,9 @@ function renderMaEmpDetail(emp, s, curM, curY) {
     '</tr>';
   }).join('');
   el.innerHTML =
-    '<div style="display:flex;justify-content:flex-end;margin-bottom:8px">' +
-    '<button class="btn primary" style="font-size:12px;padding:5px 14px" onclick="genMitarbeiterMonatsPDF(\'' + emp + '\',' + curM + ',' + curY + ')">&#8595; PDF Monatsaufstellung</button>' +
+    '<div style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:8px">' +
+    '<button class="btn" style="font-size:12px;padding:5px 14px" onclick="genMitarbeiterMonatsExcel(\'' + emp + '\',' + curM + ',' + curY + ')">&#8595; Excel</button>' +
+    '<button class="btn primary" style="font-size:12px;padding:5px 14px" onclick="genMitarbeiterMonatsPDF(\'' + emp + '\',' + curM + ',' + curY + ')">&#8595; PDF</button>' +
     '</div>' +
     '<div style="overflow-x:auto"><table style="min-width:650px"><thead><tr>' +
     '<th>Auftrag</th><th style="width:30px">Lfd.</th><th>Leistungsdatum</th><th>Kunde</th><th>Modell</th><th>KZ</th>' +
@@ -2479,11 +2484,7 @@ function renderMitarbeiter(offset) {
     var effDz  = djevadH > 0 ? djevadH : (inv.flag_djevad ? totalH : 0);
     var effHel = helmutH > 0 ? helmutH : (inv.flag_helmut ? totalH : 0);
 
-    // Summary strings for all-jobs table
-    var dzStr  = dzArbeit.length  ? dzArbeit.map(function(a){return fmtD(a.datum)+'('+a.h.toFixed(1)+'h)';}).join(', ')  : (effDz>0  ? effDz.toFixed(1)+' h'  : '');
-    var helStr = helArbeit.length ? helArbeit.map(function(a){return fmtD(a.datum)+'('+a.h.toFixed(1)+'h)';}).join(', ') : (effHel>0 ? effHel.toFixed(1)+' h' : '');
-
-    allJobs.push({inv:inv, kunde:kundeName, marke:effMarke, kz:effKZ, leistungsdatum:leistungsdatum, dzStr:dzStr, helStr:helStr});
+    allJobs.push({inv:inv, kunde:kundeName, marke:effMarke, kz:effKZ, leistungsdatum:leistungsdatum, dzTotal:effDz, helTotal:effHel});
 
     var fzH  = dzFahr.reduce(function(s,r){return s+r.h;}, 0);
     var fzH2 = helFahr.reduce(function(s,r){return s+r.h;}, 0);
@@ -2537,6 +2538,11 @@ function renderMitarbeiter(offset) {
     if (next <= 0) renderMitarbeiter(next);
   };
   if (btnNext) btnNext.disabled = offset >= 0;
+
+  var btnAllPDF = document.getElementById('btn-all-jobs-pdf');
+  if (btnAllPDF) btnAllPDF.onclick = function(){ genAllJobsPDF(curM, curY); };
+  var btnAllXLS = document.getElementById('btn-all-jobs-excel');
+  if (btnAllXLS) btnAllXLS.onclick = function(){ genAllJobsExcel(curM, curY); };
 }
 
 // ── PDF 1: Monatsaufstellung pro Mitarbeiter ──────────────────────
@@ -2555,9 +2561,10 @@ function genMitarbeiterMonatsPDF(emp, curM, curY) {
   doc.setFont('helvetica','normal'); doc.setFontSize(10);
   doc.text(MONTHS_LONG[curM] + ' ' + curY, mL, y); y += 10;
 
-  // Table header
-  var cols = [8, 22, 38, 28, 22, 30, 22, 10]; // widths
-  var headers = ['Lfd.', 'Leistungsdatum', 'Kunde', 'Modell', 'KZ', 'Arbeitsdat./Std.', 'Fahrzeit', ''];
+  // Table header — cols must sum to pw (180mm)
+  // Lfd(8) + Datum(22) + Kunde(44) + Modell(26) + KZ(20) + Arb.Std(30) + Fahrzeit(30) = 180
+  var cols = [8, 22, 44, 26, 20, 30, 30];
+  var headers = ['Lfd.', 'Leistungsdatum', 'Kunde', 'Modell', 'KZ', 'Arb.Datum / Std.', 'Fahrzeitdat. / Std.'];
   doc.setFillColor(240, 240, 236); doc.rect(mL, y-4, pw, 7, 'F');
   doc.setFont('helvetica','bold'); doc.setFontSize(8);
   var x = mL;
@@ -2570,13 +2577,13 @@ function genMitarbeiterMonatsPDF(emp, curM, curY) {
   jobs.forEach(function(j) {
     lfd++;
     var arbeitStr = j.arbeit.length
-      ? j.arbeit.map(function(a){ return fmtD(a.datum)+'('+a.h.toFixed(1)+'h)'; }).join(', ')
+      ? j.arbeit.map(function(a){ return fmtD(a.datum)+' ('+a.h.toFixed(1)+'h)'; }).join('\n')
       : (j.stunden > 0 ? j.stunden.toFixed(1)+' h' : '—');
     var fzStr = j.fahrzeit.length
-      ? j.fahrzeit.map(function(a){ return fmtD(a.datum)+'('+a.h.toFixed(1)+'h)'; }).join(', ')
+      ? j.fahrzeit.map(function(a){ return fmtD(a.datum)+' ('+a.h.toFixed(1)+'h)'; }).join('\n')
       : (j.fzH > 0 ? j.fzH.toFixed(1)+' h' : '—');
 
-    var cells = [String(lfd), fmtD(j.leistungsdatum), j.kunde, j.marke, j.kz, arbeitStr, fzStr, ''];
+    var cells = [String(lfd), fmtD(j.leistungsdatum), j.kunde, j.marke, j.kz, arbeitStr, fzStr];
     var maxH = 5;
     var wraps = cells.map(function(c, ci) {
       var lines = doc.splitTextToSize(String(c||''), cols[ci]-2);
@@ -2585,12 +2592,11 @@ function genMitarbeiterMonatsPDF(emp, curM, curY) {
     });
     if (y + maxH > 275) {
       doc.addPage(); y = 20;
-      // Reprint header
       doc.setFillColor(240,240,236); doc.rect(mL, y-4, pw, 7, 'F');
       doc.setFont('helvetica','bold'); doc.setFontSize(8);
       var hx = mL;
       headers.forEach(function(h,hi){ doc.text(h, hx+1, y); hx+=cols[hi]; });
-      y += 5; doc.line(mL, y-1, mL+pw, y-1);
+      y += 5; doc.setDrawColor(200,200,196); doc.line(mL, y-1, mL+pw, y-1);
       doc.setFont('helvetica','normal');
     }
     if (lfd % 2 === 0) { doc.setFillColor(250,250,248); doc.rect(mL, y-3.5, pw, maxH+1, 'F'); }
@@ -2607,6 +2613,106 @@ function genMitarbeiterMonatsPDF(emp, curM, curY) {
   doc.text('Gesamt Fahrzeit: '    + stats[emp].fahrzeit.toFixed(1) + ' h', mL, y);
 
   openPDF(doc, 'Monatsaufstellung_' + empName + '_' + MONTHS_LONG[curM] + '_' + curY + '.pdf');
+}
+
+function genMitarbeiterMonatsExcel(emp, curM, curY) {
+  var MONTHS_LONG = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+  var empName = emp === 'djevad' ? 'Dževad' : 'Helmut';
+  var stats = window._maStats;
+  if (!stats) return alert('Bitte zuerst die Mitarbeiter-Seite laden.');
+  var jobs = stats[emp].jobs;
+  var rows = [['Lfd.', 'Leistungsdatum', 'Kunde', 'Modell', 'KZ', 'Arb.Datum / Std.', 'Fahrzeitdat. / Std.']];
+  jobs.forEach(function(j, idx) {
+    var arbeitStr = j.arbeit.length
+      ? j.arbeit.map(function(a){ return fmtD(a.datum)+' ('+a.h.toFixed(1)+'h)'; }).join('; ')
+      : (j.stunden > 0 ? j.stunden.toFixed(1)+' h' : '—');
+    var fzStr = j.fahrzeit.length
+      ? j.fahrzeit.map(function(a){ return fmtD(a.datum)+' ('+a.h.toFixed(1)+'h)'; }).join('; ')
+      : (j.fzH > 0 ? j.fzH.toFixed(1)+' h' : '—');
+    rows.push([idx+1, fmtD(j.leistungsdatum), j.kunde, j.marke, j.kz, arbeitStr, fzStr]);
+  });
+  rows.push(['', '', '', '', '', 'Gesamt: '+stats[emp].stunden.toFixed(1)+' h', 'Gesamt: '+stats[emp].fahrzeit.toFixed(1)+' h']);
+  var csv = toCSV(rows);
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8;'}));
+  a.download = 'Monatsaufstellung_' + empName + '_' + MONTHS_LONG[curM] + '_' + curY + '.csv';
+  a.click();
+}
+
+function genAllJobsPDF(curM, curY) {
+  var MONTHS_LONG = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+  var jobs = window._maAllJobs;
+  if (!jobs) return alert('Bitte zuerst die Mitarbeiter-Seite laden.');
+  var doc = new window.jspdf.jsPDF({unit:'mm', format:'a4', orientation:'portrait'});
+  var mL = 15, mR = 15, pw = 210 - mL - mR, y = 20;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(14);
+  doc.text('Alle Aufträge – ' + MONTHS_LONG[curM] + ' ' + curY, mL, y); y += 12;
+
+  // Lfd(8) + Datum(22) + Kunde(44) + Modell(26) + KZ(20) + Dz-Std(30) + Hel-Std(30) = 180
+  var cols = [8, 22, 44, 26, 20, 30, 30];
+  var headers = ['Lfd.', 'Leistungsdatum', 'Kunde', 'Modell', 'KZ', 'Dž-Std.', 'Helmut-Std.'];
+  doc.setFillColor(240, 240, 236); doc.rect(mL, y-4, pw, 7, 'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(8);
+  var x = mL;
+  headers.forEach(function(h, hi) { doc.text(h, x+1, y); x += cols[hi]; });
+  y += 5;
+  doc.setDrawColor(200,200,196); doc.line(mL, y-1, mL+pw, y-1);
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(8);
+  jobs.forEach(function(j, idx) {
+    var dzDisp  = j.dzTotal  > 0 ? j.dzTotal.toFixed(1)  + ' h' : '—';
+    var helDisp = j.helTotal > 0 ? j.helTotal.toFixed(1) + ' h' : '—';
+    var cells = [String(idx+1), fmtD(j.leistungsdatum), j.kunde, j.marke, j.kz, dzDisp, helDisp];
+    var maxH = 5;
+    var wraps = cells.map(function(c, ci) {
+      var lines = doc.splitTextToSize(String(c||''), cols[ci]-2);
+      if (lines.length * 4.5 > maxH) maxH = lines.length * 4.5;
+      return lines;
+    });
+    if (y + maxH > 275) {
+      doc.addPage(); y = 20;
+      doc.setFillColor(240,240,236); doc.rect(mL, y-4, pw, 7, 'F');
+      doc.setFont('helvetica','bold'); doc.setFontSize(8);
+      var hx = mL;
+      headers.forEach(function(h,hi){ doc.text(h, hx+1, y); hx+=cols[hi]; });
+      y += 5; doc.setDrawColor(200,200,196); doc.line(mL, y-1, mL+pw, y-1);
+      doc.setFont('helvetica','normal');
+    }
+    if ((idx+1) % 2 === 0) { doc.setFillColor(250,250,248); doc.rect(mL, y-3.5, pw, maxH+1, 'F'); }
+    var cx = mL;
+    wraps.forEach(function(lines, ci) { doc.text(lines, cx+1, y); cx += cols[ci]; });
+    y += maxH + 1;
+    doc.setDrawColor(225,225,220); doc.line(mL, y-0.5, mL+pw, y-0.5);
+  });
+
+  y += 4;
+  var totalDz  = jobs.reduce(function(s,j){ return s+j.dzTotal;  }, 0);
+  var totalHel = jobs.reduce(function(s,j){ return s+j.helTotal; }, 0);
+  doc.setFont('helvetica','bold'); doc.setFontSize(9);
+  doc.text('Gesamt Dž: ' + totalDz.toFixed(1) + ' h    Gesamt Helmut: ' + totalHel.toFixed(1) + ' h', mL, y);
+
+  openPDF(doc, 'Alle_Auftraege_' + MONTHS_LONG[curM] + '_' + curY + '.pdf');
+}
+
+function genAllJobsExcel(curM, curY) {
+  var MONTHS_LONG = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+  var jobs = window._maAllJobs;
+  if (!jobs) return alert('Bitte zuerst die Mitarbeiter-Seite laden.');
+  var rows = [['Lfd.', 'Leistungsdatum', 'Kunde', 'Modell', 'KZ', 'Dž-Std.', 'Helmut-Std.']];
+  jobs.forEach(function(j, idx) {
+    rows.push([idx+1, fmtD(j.leistungsdatum), j.kunde, j.marke, j.kz,
+      j.dzTotal  > 0 ? j.dzTotal.toFixed(1)  : '',
+      j.helTotal > 0 ? j.helTotal.toFixed(1) : '']);
+  });
+  var totalDz  = jobs.reduce(function(s,j){ return s+j.dzTotal;  }, 0);
+  var totalHel = jobs.reduce(function(s,j){ return s+j.helTotal; }, 0);
+  rows.push(['', '', '', '', '', totalDz.toFixed(1), totalHel.toFixed(1)]);
+  var csv = toCSV(rows);
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8;'}));
+  a.download = 'Alle_Auftraege_' + MONTHS_LONG[curM] + '_' + curY + '.csv';
+  a.click();
 }
 
 // ── PDF 2: Arbeitsauftrag (A5) ────────────────────────────────────
@@ -2744,12 +2850,16 @@ function genArbeitsauftragPDF(inv) {
     if (ri < arbeitRows.length) {
       var row = arbeitRows[ri];
       var textY = ry + rowH * 0.65;
-      // Dz section: hours | date
-      if (row.dz > 0) doc.text(fmtHoursF(row.dz), tL + 1, textY);
-      doc.text(fmtShortDate(row.datum), tL + subW + 1, textY);
-      // Hel section: hours | date
-      if (row.hel > 0) doc.text(fmtHoursF(row.hel), tL + secW + 1, textY);
-      doc.text(fmtShortDate(row.datum), tL + secW + subW + 1, textY);
+      // Dz section: hours | date — only if Dz worked that day
+      if (row.dz > 0) {
+        doc.text(fmtHoursF(row.dz), tL + 1, textY);
+        doc.text(fmtShortDate(row.datum), tL + subW + 1, textY);
+      }
+      // Hel section: hours | date — only if Hel worked that day
+      if (row.hel > 0) {
+        doc.text(fmtHoursF(row.hel), tL + secW + 1, textY);
+        doc.text(fmtShortDate(row.datum), tL + secW + subW + 1, textY);
+      }
     }
 
     // Row lines

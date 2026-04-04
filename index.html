@@ -360,7 +360,13 @@
 
     <!-- Alle Aufträge -->
     <div class="card" style="margin-bottom:1.5rem">
-      <h3 style="margin-bottom:10px">Alle Aufträge</h3>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <h3 style="margin:0">Alle Aufträge</h3>
+        <div style="display:flex;gap:6px">
+          <button class="btn" style="font-size:12px;padding:5px 12px" id="btn-all-jobs-excel">&#8595; Excel</button>
+          <button class="btn primary" style="font-size:12px;padding:5px 12px" id="btn-all-jobs-pdf">&#8595; PDF</button>
+        </div>
+      </div>
       <div class="sbar" style="margin-bottom:0.75rem"><input type="text" id="ma-s-all" placeholder="Suchen (Kunde, KZ, Modell, Nr.)..." style="flex:1"></div>
       <div id="ma-all-jobs"></div>
     </div>
