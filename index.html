@@ -162,14 +162,6 @@
           <div class="fg"><label for="faellig" style="cursor:pointer">Fällig</label><input type="date" id="faellig"></div>
           <div class="fg"><label>Status</label><select id="status"><option value="offen">Offen</option><option value="bezahlt">Bezahlt</option><option value="überfällig">Überfällig</option></select></div>
         </div>
-        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-          <label style="display:flex;align-items:center;gap:8px;font-family:sans-serif;font-size:13px;cursor:pointer;padding:8px 14px;background:#f5f5f2;border-radius:8px;border:1px solid #e5e5e0">
-            <input type="checkbox" id="inv-djevad" style="width:15px;height:15px;cursor:pointer"><span>Dževad</span>
-          </label>
-          <label style="display:flex;align-items:center;gap:8px;font-family:sans-serif;font-size:13px;cursor:pointer;padding:8px 14px;background:#f5f5f2;border-radius:8px;border:1px solid #e5e5e0">
-            <input type="checkbox" id="inv-helmut" style="width:15px;height:15px;cursor:pointer"><span>Helmut</span>
-          </label>
-        </div>
       </div>
 
       <!-- Positionen -->
@@ -365,13 +357,30 @@
       <button class="btn" id="ma-next" style="font-size:16px;padding:6px 14px">&#8594;</button>
     </div>
     <div id="ma-metrics" class="grid4" style="margin-bottom:1.5rem"></div>
-    <div class="grid2">
-      <div class="card"><h3>Dževad — Aufstellung</h3><div id="ma-djevad-detail"></div></div>
-      <div class="card"><h3>Helmut — Aufstellung</h3><div id="ma-helmut-detail"></div></div>
+
+    <!-- Alle Aufträge -->
+    <div class="card" style="margin-bottom:1.5rem">
+      <h3 style="margin-bottom:10px">Alle Aufträge</h3>
+      <div class="sbar" style="margin-bottom:0.75rem"><input type="text" id="ma-s-all" placeholder="Suchen (Kunde, KZ, Modell, Nr.)..." style="flex:1"></div>
+      <div id="ma-all-jobs"></div>
     </div>
-    <div class="card" style="margin-top:1rem">
-      <h3>Arbeitsauftrag ansehen</h3>
-      <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin-bottom:0.5rem">Klicken Sie in der Aufstellung auf "Auftrag" um den Arbeitsauftrag (A5) zu öffnen.</p>
+
+    <!-- Mitarbeiter-Aufstellungen -->
+    <div class="grid2">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <h3 style="margin:0">Dževad — Aufstellung</h3>
+        </div>
+        <div class="sbar" style="margin-bottom:0.75rem"><input type="text" id="ma-s-djevad" placeholder="Suchen..." style="flex:1"></div>
+        <div id="ma-djevad-detail"></div>
+      </div>
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <h3 style="margin:0">Helmut — Aufstellung</h3>
+        </div>
+        <div class="sbar" style="margin-bottom:0.75rem"><input type="text" id="ma-s-helmut" placeholder="Suchen..." style="flex:1"></div>
+        <div id="ma-helmut-detail"></div>
+      </div>
     </div>
   </div>
 </div>
