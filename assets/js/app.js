@@ -2545,6 +2545,67 @@ function renderMitarbeiter(offset) {
   if (btnAllXLS) btnAllXLS.onclick = function(){ genAllJobsExcel(curM, curY); };
 }
 
+// ── Shared PDF table helper ───────────────────────────────────────
+// Draws a table with a full grid (horizontal + vertical lines).
+// Returns final y after the last row.
+function _pdfTable(doc, opts) {
+  // opts: { mL, pw, y, pageH, cols, headers, rows, fontSize, headerH, minRowH }
+  var mL = opts.mL, pw = opts.pw, pageH = opts.pageH || 277;
+  var cols = opts.cols, headers = opts.headers;
+  var fs = opts.fontSize || 8, headerH = opts.headerH || 7, minRowH = opts.minRowH || 5;
+  var y = opts.y;
+
+  function drawHeader(yy) {
+    doc.setFillColor(230, 230, 225);
+    doc.rect(mL, yy, pw, headerH, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(fs);
+    doc.setDrawColor(160,160,155); doc.setLineWidth(0.3);
+    // outer border
+    doc.rect(mL, yy, pw, headerH, 'S');
+    // vertical dividers + text
+    var cx = mL;
+    headers.forEach(function(h, i) {
+      if (i > 0) { doc.line(cx, yy, cx, yy + headerH); }
+      var lines = doc.splitTextToSize(h, cols[i] - 2);
+      doc.text(lines[0], cx + 1.5, yy + headerH * 0.65);
+      cx += cols[i];
+    });
+    return yy + headerH;
+  }
+
+  function drawRow(yy, cells, rowH, shade) {
+    if (shade) { doc.setFillColor(248,248,245); doc.rect(mL, yy, pw, rowH, 'F'); }
+    doc.setDrawColor(190,190,185); doc.setLineWidth(0.2);
+    doc.rect(mL, yy, pw, rowH, 'S');
+    doc.setFont('helvetica','normal'); doc.setFontSize(fs);
+    var cx = mL;
+    cells.forEach(function(lines, i) {
+      if (i > 0) { doc.setDrawColor(190,190,185); doc.setLineWidth(0.2); doc.line(cx, yy, cx, yy + rowH); }
+      doc.text(lines, cx + 1.5, yy + 3.5);
+      cx += cols[i];
+    });
+    return yy + rowH;
+  }
+
+  y = drawHeader(y);
+
+  opts.rows.forEach(function(rowData, ri) {
+    var cells = rowData.map(function(c, ci) {
+      return doc.splitTextToSize(String(c == null ? '—' : c), cols[ci] - 2);
+    });
+    var lineH = fs * 0.45;
+    var rowH = Math.max(minRowH, Math.max.apply(null, cells.map(function(l){ return l.length * lineH + 2; })));
+    if (y + rowH > pageH) {
+      doc.addPage();
+      y = opts.topY || 20;
+      y = drawHeader(y);
+    }
+    y = drawRow(y, cells, rowH, ri % 2 === 1);
+  });
+
+  return y;
+}
+
 // ── PDF 1: Monatsaufstellung pro Mitarbeiter ──────────────────────
 function genMitarbeiterMonatsPDF(emp, curM, curY) {
   var MONTHS_LONG = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
@@ -2553,61 +2614,32 @@ function genMitarbeiterMonatsPDF(emp, curM, curY) {
   if (!stats) return alert('Bitte zuerst die Mitarbeiter-Seite laden.');
   var jobs = stats[emp].jobs;
 
-  var doc = new window.jspdf.jsPDF({unit:'mm', format:'a4', orientation:'portrait'});
-  var mL = 15, mR = 15, pw = 210 - mL - mR, y = 20;
+  // Landscape A4: 297mm wide, margins 15+15 → pw = 267mm
+  var doc = new window.jspdf.jsPDF({unit:'mm', format:'a4', orientation:'landscape'});
+  var mL = 15, pw = 267, y = 20;
 
   doc.setFont('helvetica','bold'); doc.setFontSize(14);
   doc.text('Monatsaufstellung – ' + empName, mL, y); y += 7;
-  doc.setFont('helvetica','normal'); doc.setFontSize(10);
-  doc.text(MONTHS_LONG[curM] + ' ' + curY, mL, y); y += 10;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.text(MONTHS_LONG[curM] + ' ' + curY, mL, y); y += 8;
 
-  // Table header — cols must sum to pw (180mm)
-  // Lfd(8) + Datum(22) + Kunde(44) + Modell(26) + KZ(20) + Arb.Std(30) + Fahrzeit(30) = 180
-  var cols = [8, 22, 44, 26, 20, 30, 30];
-  var headers = ['Lfd.', 'Leistungsdatum', 'Kunde', 'Modell', 'KZ', 'Arb.Datum / Std.', 'Fahrzeitdat. / Std.'];
-  doc.setFillColor(240, 240, 236); doc.rect(mL, y-4, pw, 7, 'F');
-  doc.setFont('helvetica','bold'); doc.setFontSize(8);
-  var x = mL;
-  headers.forEach(function(h, hi) { doc.text(h, x+1, y); x += cols[hi]; });
-  y += 5;
-  doc.setDrawColor(200,200,196); doc.line(mL, y-1, mL+pw, y-1);
+  // Cols sum to 267: Nr(8)+Datum(26)+Kunde(60)+Modell(42)+KZ(26)+Arb(65)+FZ(40)=267
+  var cols    = [8, 26, 60, 42, 26, 65, 40];
+  var headers = ['Nr.', 'Datum', 'Kunde', 'Modell', 'KZ', 'Arbeitsdatum / Std.', 'Fahrzeit'];
 
-  doc.setFont('helvetica','normal'); doc.setFontSize(8);
-  var lfd = 0;
-  jobs.forEach(function(j) {
-    lfd++;
+  var tableRows = jobs.map(function(j, idx) {
     var arbeitStr = j.arbeit.length
-      ? j.arbeit.map(function(a){ return fmtD(a.datum)+' ('+a.h.toFixed(1)+'h)'; }).join('\n')
+      ? j.arbeit.map(function(a){ return fmtD(a.datum)+' ('+a.h.toFixed(1)+' h)'; }).join('\n')
       : (j.stunden > 0 ? j.stunden.toFixed(1)+' h' : '—');
     var fzStr = j.fahrzeit.length
-      ? j.fahrzeit.map(function(a){ return fmtD(a.datum)+' ('+a.h.toFixed(1)+'h)'; }).join('\n')
+      ? j.fahrzeit.map(function(a){ return fmtD(a.datum)+' ('+a.h.toFixed(1)+' h)'; }).join('\n')
       : (j.fzH > 0 ? j.fzH.toFixed(1)+' h' : '—');
-
-    var cells = [String(lfd), fmtD(j.leistungsdatum), j.kunde, j.marke, j.kz, arbeitStr, fzStr];
-    var maxH = 5;
-    var wraps = cells.map(function(c, ci) {
-      var lines = doc.splitTextToSize(String(c||''), cols[ci]-2);
-      if (lines.length * 4.5 > maxH) maxH = lines.length * 4.5;
-      return lines;
-    });
-    if (y + maxH > 275) {
-      doc.addPage(); y = 20;
-      doc.setFillColor(240,240,236); doc.rect(mL, y-4, pw, 7, 'F');
-      doc.setFont('helvetica','bold'); doc.setFontSize(8);
-      var hx = mL;
-      headers.forEach(function(h,hi){ doc.text(h, hx+1, y); hx+=cols[hi]; });
-      y += 5; doc.setDrawColor(200,200,196); doc.line(mL, y-1, mL+pw, y-1);
-      doc.setFont('helvetica','normal');
-    }
-    if (lfd % 2 === 0) { doc.setFillColor(250,250,248); doc.rect(mL, y-3.5, pw, maxH+1, 'F'); }
-    var cx = mL;
-    wraps.forEach(function(lines, ci) { doc.text(lines, cx+1, y); cx += cols[ci]; });
-    y += maxH + 1;
-    doc.setDrawColor(225,225,220); doc.line(mL, y-0.5, mL+pw, y-0.5);
+    return [idx+1, fmtD(j.leistungsdatum), j.kunde||'—', j.marke||'—', j.kz||'—', arbeitStr, fzStr];
   });
 
-  // Totals
-  y += 3;
+  y = _pdfTable(doc, {mL:mL, pw:pw, y:y, topY:20, pageH:190, cols:cols, headers:headers, rows:tableRows, fontSize:8, headerH:7, minRowH:6});
+
+  y += 5;
   doc.setFont('helvetica','bold'); doc.setFontSize(9);
   doc.text('Gesamt Arbeitszeit: ' + stats[emp].stunden.toFixed(1) + ' h', mL, y); y += 5;
   doc.text('Gesamt Fahrzeit: '    + stats[emp].fahrzeit.toFixed(1) + ' h', mL, y);
@@ -2643,50 +2675,29 @@ function genAllJobsPDF(curM, curY) {
   var MONTHS_LONG = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
   var jobs = window._maAllJobs;
   if (!jobs) return alert('Bitte zuerst die Mitarbeiter-Seite laden.');
+
+  // Portrait A4: pw = 180mm
+  // Nr(8)+Datum(24)+Kunde(44)+Modell(30)+KZ(24)+Dz(25)+Hel(25)=180
   var doc = new window.jspdf.jsPDF({unit:'mm', format:'a4', orientation:'portrait'});
-  var mL = 15, mR = 15, pw = 210 - mL - mR, y = 20;
+  var mL = 15, pw = 180, y = 20;
 
   doc.setFont('helvetica','bold'); doc.setFontSize(14);
-  doc.text('Alle Aufträge – ' + MONTHS_LONG[curM] + ' ' + curY, mL, y); y += 12;
+  doc.text('Alle Aufträge – ' + MONTHS_LONG[curM] + ' ' + curY, mL, y); y += 7;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.text('Erstellt: ' + fmtD(new Date().toISOString().split('T')[0]), mL, y); y += 8;
 
-  // Lfd(8) + Datum(22) + Kunde(44) + Modell(26) + KZ(20) + Dz-Std(30) + Hel-Std(30) = 180
-  var cols = [8, 22, 44, 26, 20, 30, 30];
-  var headers = ['Lfd.', 'Leistungsdatum', 'Kunde', 'Modell', 'KZ', 'Dž-Std.', 'Helmut-Std.'];
-  doc.setFillColor(240, 240, 236); doc.rect(mL, y-4, pw, 7, 'F');
-  doc.setFont('helvetica','bold'); doc.setFontSize(8);
-  var x = mL;
-  headers.forEach(function(h, hi) { doc.text(h, x+1, y); x += cols[hi]; });
-  y += 5;
-  doc.setDrawColor(200,200,196); doc.line(mL, y-1, mL+pw, y-1);
+  var cols    = [8, 24, 44, 30, 24, 25, 25];
+  var headers = ['Nr.', 'Datum', 'Kunde', 'Modell', 'KZ', 'Dž-Std.', 'Hel-Std.'];
 
-  doc.setFont('helvetica','normal'); doc.setFontSize(8);
-  jobs.forEach(function(j, idx) {
-    var dzDisp  = j.dzTotal  > 0 ? j.dzTotal.toFixed(1)  + ' h' : '—';
-    var helDisp = j.helTotal > 0 ? j.helTotal.toFixed(1) + ' h' : '—';
-    var cells = [String(idx+1), fmtD(j.leistungsdatum), j.kunde, j.marke, j.kz, dzDisp, helDisp];
-    var maxH = 5;
-    var wraps = cells.map(function(c, ci) {
-      var lines = doc.splitTextToSize(String(c||''), cols[ci]-2);
-      if (lines.length * 4.5 > maxH) maxH = lines.length * 4.5;
-      return lines;
-    });
-    if (y + maxH > 275) {
-      doc.addPage(); y = 20;
-      doc.setFillColor(240,240,236); doc.rect(mL, y-4, pw, 7, 'F');
-      doc.setFont('helvetica','bold'); doc.setFontSize(8);
-      var hx = mL;
-      headers.forEach(function(h,hi){ doc.text(h, hx+1, y); hx+=cols[hi]; });
-      y += 5; doc.setDrawColor(200,200,196); doc.line(mL, y-1, mL+pw, y-1);
-      doc.setFont('helvetica','normal');
-    }
-    if ((idx+1) % 2 === 0) { doc.setFillColor(250,250,248); doc.rect(mL, y-3.5, pw, maxH+1, 'F'); }
-    var cx = mL;
-    wraps.forEach(function(lines, ci) { doc.text(lines, cx+1, y); cx += cols[ci]; });
-    y += maxH + 1;
-    doc.setDrawColor(225,225,220); doc.line(mL, y-0.5, mL+pw, y-0.5);
+  var tableRows = jobs.map(function(j, idx) {
+    return [idx+1, fmtD(j.leistungsdatum), j.kunde||'—', j.marke||'—', j.kz||'—',
+      j.dzTotal  > 0 ? j.dzTotal.toFixed(1)  + ' h' : '—',
+      j.helTotal > 0 ? j.helTotal.toFixed(1) + ' h' : '—'];
   });
 
-  y += 4;
+  y = _pdfTable(doc, {mL:mL, pw:pw, y:y, topY:20, pageH:277, cols:cols, headers:headers, rows:tableRows, fontSize:8, headerH:7, minRowH:6});
+
+  y += 5;
   var totalDz  = jobs.reduce(function(s,j){ return s+j.dzTotal;  }, 0);
   var totalHel = jobs.reduce(function(s,j){ return s+j.helTotal; }, 0);
   doc.setFont('helvetica','bold'); doc.setFontSize(9);
