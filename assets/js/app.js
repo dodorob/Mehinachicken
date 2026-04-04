@@ -2583,16 +2583,11 @@ function genArbeitsauftragPDF(inv) {
   var doc = new window.jspdf.jsPDF({unit:'mm', format:'a5', orientation:'portrait'});
   var mL = 10, pw = 128, y = 12;
 
-  // "weiß" top right
-  doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(130,130,130);
-  doc.text('weiß', 138, 10, {align:'right'});
-  doc.setTextColor(0,0,0);
-
   // ARBEITSAUFTRAG centered
   doc.setFont('helvetica','bold'); doc.setFontSize(13);
   doc.text('ARBEITSAUFTRAG', mL + pw/2, y, {align:'center'}); y += 8;
 
-  // Datum + Auto on same line with underlines
+  // Datum + Auto on same line
   doc.setFont('helvetica','normal'); doc.setFontSize(9);
   doc.text('Datum:', mL, y);
   doc.setFont('helvetica','bold');
@@ -2624,61 +2619,61 @@ function genArbeitsauftragPDF(inv) {
   doc.line(mL, y, mL + pw, y); y += 2;
 
   // ── Table ────────────────────────────────────────────────────────
-  // 4 sections × 2 sub-cols = 8 cols of 16mm each
+  // 4 sections × 2 sub-cols: Dz(h|date), Hel(h|date), empty, empty
   var tL = mL, tW = pw;
   var nSec = 4, secW = tW / nSec, subW = secW / 2;
   var empLabels = ['Dz', 'Hel', '', ''];
-  var tTop = y;
   var headerH = 6;
 
-  // Header row background
+  // Header row
   doc.setFillColor(225, 225, 220);
   doc.rect(tL, y, tW, headerH, 'F');
   doc.setFont('helvetica','bold'); doc.setFontSize(9);
   doc.setDrawColor(130,130,130); doc.setLineWidth(0.4);
-
   for (var s = 0; s < nSec; s++) {
     var sx = tL + s * secW;
-    // Section outer left border
     doc.line(sx, y, sx, y + headerH);
-    if (empLabels[s]) {
-      doc.text(empLabels[s], sx + secW/2, y + 4, {align:'center'});
-    }
+    if (empLabels[s]) doc.text(empLabels[s], sx + secW/2, y + 4, {align:'center'});
   }
-  doc.line(tL + tW, y, tL + tW, y + headerH); // right edge
-  doc.line(tL, y, tL + tW, y);                 // top
-  doc.line(tL, y + headerH, tL + tW, y + headerH); // bottom
+  doc.line(tL + tW, y, tL + tW, y + headerH);
+  doc.line(tL, y, tL + tW, y);
+  doc.line(tL, y + headerH, tL + tW, y + headerH);
   y += headerH;
 
-  // Collect arbeitsdaten per employee
-  var dzAD = [], helAD = [];
+  // ── Collect arbeitsdaten: one row per date, both employees ────────
+  // Merge entries by date across all items
+  var dateMap = {}, dateOrder = [];
   (inv.items||[]).forEach(function(it) {
     (it.arbeitsdaten||[]).forEach(function(r) {
-      if ((r.djevad_h||0) > 0) dzAD.push({datum:r.datum, h:r.djevad_h});
-      if ((r.helmut_h||0) > 0) helAD.push({datum:r.datum, h:r.helmut_h});
+      if (!r.datum) return;
+      if (!dateMap[r.datum]) { dateMap[r.datum] = {dz:0, hel:0}; dateOrder.push(r.datum); }
+      dateMap[r.datum].dz  += parseFloat(r.djevad_h) || 0;
+      dateMap[r.datum].hel += parseFloat(r.helmut_h) || 0;
     });
   });
-  // Fallback
-  var dzTot  = (inv.items||[]).reduce(function(s,it){ return s+(parseFloat(it.djevad_h)||0); }, 0);
-  var helTot = (inv.items||[]).reduce(function(s,it){ return s+(parseFloat(it.helmut_h)||0); }, 0);
-  if (!dzAD.length  && dzTot  > 0) dzAD.push({datum:inv.leistungsdatum||inv.datum, h:dzTot});
-  if (!helAD.length && helTot > 0) helAD.push({datum:inv.leistungsdatum||inv.datum, h:helTot});
+  var arbeitRows = dateOrder.map(function(d){ return {datum:d, dz:dateMap[d].dz, hel:dateMap[d].hel}; });
 
-  // Calculate available height for table rows
-  var notizH = 12;   // space at bottom for Notiz
-  var availH = 200 - y - notizH; // A5 height 210 - margins
-  var dataRows = Math.max(dzAD.length, helAD.length);
-  var minRows  = 18;
-  var totalRows = Math.max(dataRows + 2, minRows);
+  // Fallback: no arbeitsdaten → use Leistungsdatum + total item hours
+  if (!arbeitRows.length) {
+    var dzTot  = (inv.items||[]).reduce(function(s,it){ return s+(parseFloat(it.djevad_h)||0); }, 0);
+    var helTot = (inv.items||[]).reduce(function(s,it){ return s+(parseFloat(it.helmut_h)||0); }, 0);
+    if (dzTot > 0 || helTot > 0)
+      arbeitRows.push({datum: inv.leistungsdatum||inv.datum, dz:dzTot, hel:helTot});
+  }
+
+  // Table rows: fill page
+  var notizH = 12;
+  var availH = 200 - y - notizH;
+  var minRows = 18;
+  var totalRows = Math.max(arbeitRows.length + 2, minRows);
   var rowH = Math.min(6.5, availH / totalRows);
 
-  // F circle position: bottom-left quadrant of table
+  // F circle: bottom-left area
   var fRow = Math.floor(totalRows * 0.65);
   var fCx  = tL + secW * 0.35;
   var fCy  = y + fRow * rowH + rowH / 2;
   var fR   = Math.min(secW * 0.28, rowH * 1.5);
 
-  // Draw all rows
   doc.setFont('helvetica','normal'); doc.setFontSize(8);
   for (var ri = 0; ri < totalRows; ri++) {
     var ry = y + ri * rowH;
@@ -2693,26 +2688,21 @@ function genArbeitsauftragPDF(inv) {
       doc.setLineWidth(0.25); doc.setDrawColor(150,150,150);
     }
 
-    // Data: Dz section (cols 0+1)
-    if (ri < dzAD.length) {
-      var dz = dzAD[ri];
-      doc.setFont('helvetica','normal'); doc.setFontSize(8);
-      doc.text(fmtHoursF(dz.h), tL + 1, ry + rowH * 0.65);
-      doc.text(fmtShortDate(dz.datum), tL + subW + 1, ry + rowH * 0.65);
-    }
-    // Data: Hel section (cols 2+3)
-    if (ri < helAD.length) {
-      var hel = helAD[ri];
-      doc.setFont('helvetica','normal'); doc.setFontSize(8);
-      doc.text(fmtHoursF(hel.h), tL + secW + 1, ry + rowH * 0.65);
-      doc.text(fmtShortDate(hel.datum), tL + secW + subW + 1, ry + rowH * 0.65);
+    // Data: one row per date entry
+    if (ri < arbeitRows.length) {
+      var row = arbeitRows[ri];
+      var textY = ry + rowH * 0.65;
+      // Dz section: hours | date
+      if (row.dz > 0) doc.text(fmtHoursF(row.dz), tL + 1, textY);
+      doc.text(fmtShortDate(row.datum), tL + subW + 1, textY);
+      // Hel section: hours | date
+      if (row.hel > 0) doc.text(fmtHoursF(row.hel), tL + secW + 1, textY);
+      doc.text(fmtShortDate(row.datum), tL + secW + subW + 1, textY);
     }
 
-    // Row top line
+    // Row lines
     doc.setLineWidth(0.2); doc.setDrawColor(170,170,165);
     doc.line(tL, ry, tL + tW, ry);
-
-    // Vertical borders for each section and sub-col
     for (var ss = 0; ss < nSec; ss++) {
       var ssx = tL + ss * secW;
       doc.setLineWidth(0.35); doc.setDrawColor(130,130,130);
@@ -2721,9 +2711,8 @@ function genArbeitsauftragPDF(inv) {
       doc.line(ssx + subW, ry, ssx + subW, ry + rowH);
     }
     doc.setLineWidth(0.35); doc.setDrawColor(130,130,130);
-    doc.line(tL + tW, ry, tL + tW, ry + rowH); // right edge
+    doc.line(tL + tW, ry, tL + tW, ry + rowH);
   }
-  // Bottom border
   var tBottom = y + totalRows * rowH;
   doc.setLineWidth(0.4); doc.setDrawColor(130,130,130);
   doc.line(tL, tBottom, tL + tW, tBottom);
