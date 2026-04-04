@@ -2558,107 +2558,187 @@ function genMitarbeiterMonatsPDF(emp, curM, curY) {
 }
 
 // ── PDF 2: Arbeitsauftrag (A5) ────────────────────────────────────
+function fmtShortDate(s) {
+  if (!s) return '';
+  try { var d = new Date(s); return d.getDate() + '.' + (d.getMonth()+1) + '.'; } catch(e) { return s; }
+}
+
+function fmtHoursF(h) {
+  h = parseFloat(h) || 0;
+  if (!h) return '';
+  var whole = Math.floor(h);
+  var frac = Math.round((h - whole) * 100) / 100;
+  var fracStr = frac > 0.01 && frac < 0.13 ? '1/8'
+    : frac >= 0.13 && frac < 0.38 ? '1/4'
+    : frac >= 0.38 && frac < 0.63 ? '1/2'
+    : frac >= 0.63 && frac < 0.88 ? '3/4'
+    : frac >= 0.88 ? '' : '';
+  if (fracStr && frac >= 0.88) whole++;
+  if (whole === 0) return fracStr || h.toString();
+  return fracStr ? whole + ' ' + fracStr : String(whole);
+}
+
 function genArbeitsauftragPDF(inv) {
   if (!inv) return;
   var doc = new window.jspdf.jsPDF({unit:'mm', format:'a5', orientation:'portrait'});
-  var mL = 10, mR = 10, pw = 148 - mL - mR, y = 12;
+  var mL = 10, pw = 128, y = 12;
 
-  // Header
-  doc.setFont('helvetica','bold'); doc.setFontSize(13);
-  doc.text('Arbeitsauftrag', mL, y); y += 7;
-  doc.setFont('helvetica','normal'); doc.setFontSize(9);
-  doc.text('KURT LINDITSCH GMBH', mL, y); y += 5;
-  doc.setDrawColor(180,180,175); doc.line(mL, y, mL+pw, y); y += 5;
-
-  // Info block
-  var auto = [inv.fz_marke, inv.fz_kz].filter(Boolean).join(' | ') || '—';
-  doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.text('Leistungsdatum:', mL, y);
-  doc.setFont('helvetica','normal'); doc.text(fmtD(inv.leistungsdatum || inv.datum), mL+32, y); y += 5;
-  doc.setFont('helvetica','bold'); doc.text('Fahrzeug:', mL, y);
-  doc.setFont('helvetica','normal'); doc.text(auto, mL+32, y); y += 5;
-  doc.setFont('helvetica','bold'); doc.text('Kunde:', mL, y);
-  doc.setFont('helvetica','normal'); doc.text(inv.privatkunde ? 'Privatkunde' : (inv.partner_name||'—'), mL+32, y); y += 5;
-  doc.setFont('helvetica','bold'); doc.text('Rechnungsnr:', mL, y);
-  doc.setFont('helvetica','normal'); doc.text(inv.nummer||'—', mL+32, y); y += 3;
-
-  // Fertig circle (right side)
-  var cx = mL + pw - 8, cy = 20;
-  doc.setDrawColor(60,60,60); doc.setLineWidth(0.6);
-  doc.circle(cx, cy, 6);
-  doc.setFont('helvetica','bold'); doc.setFontSize(9);
-  doc.text('F', cx - 1.5, cy + 3);
-  doc.setFont('helvetica','normal'); doc.setFontSize(7);
-  doc.text('Fertig', cx - 4, cy + 8);
-
-  doc.setLineWidth(0.3);
-  doc.setDrawColor(180,180,175); doc.line(mL, y, mL+pw, y); y += 5;
-
-  // Description
-  doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.text('Arbeiten:', mL, y); y += 4;
-  doc.setFont('helvetica','normal');
-  (inv.items||[]).forEach(function(it) {
-    if (it.titel) {
-      var lines = doc.splitTextToSize('• ' + it.titel + (it.desc ? ' – ' + it.desc : ''), pw);
-      doc.text(lines, mL, y); y += lines.length * 4 + 1;
-    }
-  });
-  y += 2; doc.setDrawColor(180,180,175); doc.line(mL, y, mL+pw, y); y += 5;
-
-  // Employee table
-  doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.text('Mitarbeiter', mL, y); y += 4;
-  var thdr = ['Mitarbeiter','Arbeitsdatum','Std.','Fahrtdatum','Fahrzeit'];
-  var tcols = [25, 35, 12, 32, 12];
-  doc.setFillColor(235,235,230); doc.rect(mL, y-3.5, pw, 5.5, 'F');
-  var tx = mL;
-  doc.setFontSize(7);
-  thdr.forEach(function(h,hi){ doc.text(h, tx+1, y); tx+=tcols[hi]; });
-  y += 4; doc.setDrawColor(200,200,196); doc.line(mL, y-1, mL+pw, y-1);
-
-  doc.setFont('helvetica','normal');
-  var empList = [
-    {name:'Dževad', key:'djevad_h'},
-    {name:'Helmut', key:'helmut_h'}
-  ];
-  empList.forEach(function(emp) {
-    // Collect date rows for this employee
-    var arbeitRows = [], fahrzeitRows = [];
-    (inv.items||[]).forEach(function(it) {
-      (it.arbeitsdaten||[]).forEach(function(r) {
-        if ((r[emp.key]||0) > 0) arbeitRows.push({datum:r.datum, h:r[emp.key]});
-      });
-      (it.fahrzeitdaten||[]).forEach(function(r) {
-        if ((r[emp.key]||0) > 0) fahrzeitRows.push({datum:r.datum, h:r[emp.key]});
-      });
-    });
-    // Fallback: no date rows, use total
-    var totalH = (inv.items||[]).reduce(function(s,it){ return s+(parseFloat(it[emp.key])||0); }, 0);
-    if (!arbeitRows.length && totalH > 0) arbeitRows.push({datum: inv.leistungsdatum||inv.datum, h:totalH});
-    if (!arbeitRows.length && !fahrzeitRows.length) return;
-
-    var rows = Math.max(arbeitRows.length, fahrzeitRows.length, 1);
-    for (var ri = 0; ri < rows; ri++) {
-      var ar = arbeitRows[ri]||{datum:'',h:0};
-      var fr = fahrzeitRows[ri]||{datum:'',h:0};
-      if (y > 195) { doc.addPage(); y = 12; }
-      var row = [
-        ri === 0 ? emp.name : '',
-        ar.datum ? fmtD(ar.datum) : '',
-        ar.h > 0 ? ar.h.toFixed(1) : '',
-        fr.datum ? fmtD(fr.datum) : '',
-        fr.h > 0 ? fr.h.toFixed(1) : ''
-      ];
-      var rx = mL;
-      doc.setFontSize(7);
-      row.forEach(function(v, vi){ doc.text(String(v), rx+1, y); rx+=tcols[vi]; });
-      y += 4.5;
-      doc.setDrawColor(225,225,220); doc.line(mL, y-1, mL+pw, y-1);
-    }
-  });
-
-  // Footer
-  y += 4; doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(160,160,155);
-  doc.text('Erstellt: ' + fmtD(new Date().toISOString().split('T')[0]), mL, y);
+  // "weiß" top right
+  doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(130,130,130);
+  doc.text('weiß', 138, 10, {align:'right'});
   doc.setTextColor(0,0,0);
+
+  // ARBEITSAUFTRAG centered
+  doc.setFont('helvetica','bold'); doc.setFontSize(13);
+  doc.text('ARBEITSAUFTRAG', mL + pw/2, y, {align:'center'}); y += 8;
+
+  // Datum + Auto on same line with underlines
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.text('Datum:', mL, y);
+  doc.setFont('helvetica','bold');
+  doc.text(fmtD(inv.leistungsdatum || inv.datum), mL + 14, y);
+  doc.setFont('helvetica','normal');
+  doc.text('Auto:', mL + 55, y);
+  doc.setFont('helvetica','bold');
+  doc.text(inv.fz_marke || '—', mL + 65, y);
+  doc.setFont('helvetica','normal'); y += 6;
+
+  // Material line
+  doc.text('Material:', mL, y);
+  doc.setDrawColor(150,150,150); doc.setLineWidth(0.3);
+  doc.line(mL + 18, y + 0.5, mL + pw, y + 0.5); y += 7;
+
+  // KZ centered bold
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.text(inv.fz_kz || '—', mL + pw/2, y, {align:'center'}); y += 6;
+
+  // Customer centered
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  var kundName = inv.privatkunde
+    ? ('P/' + (inv.partner_name || 'Privatkunde'))
+    : (inv.partner_name || '—');
+  doc.text(kundName, mL + pw/2, y, {align:'center'}); y += 5;
+
+  // Separator before table
+  doc.setDrawColor(130,130,130); doc.setLineWidth(0.4);
+  doc.line(mL, y, mL + pw, y); y += 2;
+
+  // ── Table ────────────────────────────────────────────────────────
+  // 4 sections × 2 sub-cols = 8 cols of 16mm each
+  var tL = mL, tW = pw;
+  var nSec = 4, secW = tW / nSec, subW = secW / 2;
+  var empLabels = ['Dz', 'Hel', '', ''];
+  var tTop = y;
+  var headerH = 6;
+
+  // Header row background
+  doc.setFillColor(225, 225, 220);
+  doc.rect(tL, y, tW, headerH, 'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(9);
+  doc.setDrawColor(130,130,130); doc.setLineWidth(0.4);
+
+  for (var s = 0; s < nSec; s++) {
+    var sx = tL + s * secW;
+    // Section outer left border
+    doc.line(sx, y, sx, y + headerH);
+    if (empLabels[s]) {
+      doc.text(empLabels[s], sx + secW/2, y + 4, {align:'center'});
+    }
+  }
+  doc.line(tL + tW, y, tL + tW, y + headerH); // right edge
+  doc.line(tL, y, tL + tW, y);                 // top
+  doc.line(tL, y + headerH, tL + tW, y + headerH); // bottom
+  y += headerH;
+
+  // Collect arbeitsdaten per employee
+  var dzAD = [], helAD = [];
+  (inv.items||[]).forEach(function(it) {
+    (it.arbeitsdaten||[]).forEach(function(r) {
+      if ((r.djevad_h||0) > 0) dzAD.push({datum:r.datum, h:r.djevad_h});
+      if ((r.helmut_h||0) > 0) helAD.push({datum:r.datum, h:r.helmut_h});
+    });
+  });
+  // Fallback
+  var dzTot  = (inv.items||[]).reduce(function(s,it){ return s+(parseFloat(it.djevad_h)||0); }, 0);
+  var helTot = (inv.items||[]).reduce(function(s,it){ return s+(parseFloat(it.helmut_h)||0); }, 0);
+  if (!dzAD.length  && dzTot  > 0) dzAD.push({datum:inv.leistungsdatum||inv.datum, h:dzTot});
+  if (!helAD.length && helTot > 0) helAD.push({datum:inv.leistungsdatum||inv.datum, h:helTot});
+
+  // Calculate available height for table rows
+  var notizH = 12;   // space at bottom for Notiz
+  var availH = 200 - y - notizH; // A5 height 210 - margins
+  var dataRows = Math.max(dzAD.length, helAD.length);
+  var minRows  = 18;
+  var totalRows = Math.max(dataRows + 2, minRows);
+  var rowH = Math.min(6.5, availH / totalRows);
+
+  // F circle position: bottom-left quadrant of table
+  var fRow = Math.floor(totalRows * 0.65);
+  var fCx  = tL + secW * 0.35;
+  var fCy  = y + fRow * rowH + rowH / 2;
+  var fR   = Math.min(secW * 0.28, rowH * 1.5);
+
+  // Draw all rows
+  doc.setFont('helvetica','normal'); doc.setFontSize(8);
+  for (var ri = 0; ri < totalRows; ri++) {
+    var ry = y + ri * rowH;
+
+    // F circle
+    if (ri === fRow) {
+      doc.setDrawColor(60,60,60); doc.setLineWidth(0.5);
+      doc.circle(fCx, fCy, fR);
+      doc.setFont('helvetica','bold'); doc.setFontSize(fR * 1.5);
+      doc.text('F', fCx, fCy + fR * 0.55, {align:'center'});
+      doc.setFont('helvetica','normal'); doc.setFontSize(8);
+      doc.setLineWidth(0.25); doc.setDrawColor(150,150,150);
+    }
+
+    // Data: Dz section (cols 0+1)
+    if (ri < dzAD.length) {
+      var dz = dzAD[ri];
+      doc.setFont('helvetica','normal'); doc.setFontSize(8);
+      doc.text(fmtHoursF(dz.h), tL + 1, ry + rowH * 0.65);
+      doc.text(fmtShortDate(dz.datum), tL + subW + 1, ry + rowH * 0.65);
+    }
+    // Data: Hel section (cols 2+3)
+    if (ri < helAD.length) {
+      var hel = helAD[ri];
+      doc.setFont('helvetica','normal'); doc.setFontSize(8);
+      doc.text(fmtHoursF(hel.h), tL + secW + 1, ry + rowH * 0.65);
+      doc.text(fmtShortDate(hel.datum), tL + secW + subW + 1, ry + rowH * 0.65);
+    }
+
+    // Row top line
+    doc.setLineWidth(0.2); doc.setDrawColor(170,170,165);
+    doc.line(tL, ry, tL + tW, ry);
+
+    // Vertical borders for each section and sub-col
+    for (var ss = 0; ss < nSec; ss++) {
+      var ssx = tL + ss * secW;
+      doc.setLineWidth(0.35); doc.setDrawColor(130,130,130);
+      doc.line(ssx, ry, ssx, ry + rowH);
+      doc.setLineWidth(0.15); doc.setDrawColor(190,190,185);
+      doc.line(ssx + subW, ry, ssx + subW, ry + rowH);
+    }
+    doc.setLineWidth(0.35); doc.setDrawColor(130,130,130);
+    doc.line(tL + tW, ry, tL + tW, ry + rowH); // right edge
+  }
+  // Bottom border
+  var tBottom = y + totalRows * rowH;
+  doc.setLineWidth(0.4); doc.setDrawColor(130,130,130);
+  doc.line(tL, tBottom, tL + tW, tBottom);
+
+  // ── Notiz ────────────────────────────────────────────────────────
+  var notizY = tBottom + 5;
+  var noteStr = (inv.items||[]).filter(function(it){ return it.titel; })
+    .map(function(it){ return it.titel; }).join(', ');
+  if (!noteStr) noteStr = inv.notizen || '';
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.text('Notiz: ', mL, notizY);
+  doc.setFont('helvetica','bold');
+  doc.text(noteStr, mL + 13, notizY);
+  doc.setLineWidth(0.3); doc.setDrawColor(150,150,150);
+  doc.line(mL + 13, notizY + 0.5, mL + pw, notizY + 0.5);
 
   openPDF(doc, 'Arbeitsauftrag_' + (inv.nummer||'neu') + '.pdf');
 }
