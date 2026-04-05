@@ -2383,9 +2383,10 @@ function _maSortJobs(jobs, col, dir) {
 }
 
 function _thSort(label, col, active, dir, onclick) {
-  var arrow = active ? (dir === 'asc' ? ' ↑' : ' ↓') : '';
+  var arrow = active ? (dir === 'asc' ? ' \u2191' : ' \u2193') : '';
   var style = 'cursor:pointer;user-select:none;white-space:nowrap' + (active ? ';color:var(--primary,#3b7)' : '');
-  return '<th style="' + style + '" onclick="' + onclick + '">' + label + arrow + '</th>';
+  // Use single quotes for onclick attr so inner double quotes don't break HTML
+  return '<th style="' + style + '" onclick=\'' + onclick + '\'>' + label + arrow + '</th>';
 }
 
 function renderMaAllJobs(s) {
