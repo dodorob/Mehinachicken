@@ -2359,17 +2359,54 @@ function _auftragBtn(id) {
   return '<button class="btn primary" style="padding:3px 8px;font-size:11px;white-space:nowrap" onclick="genArbeitsauftragPDF(getDB().invoices.find(function(x){return x.id===\'' + id + '\'}))">&#128196; Auftrag</button>';
 }
 
+// Sort helpers
+function _maSortJobs(jobs, col, dir) {
+  var sorted = jobs.slice();
+  sorted.sort(function(a, b) {
+    var va, vb;
+    if (col === 'lfd')              { va = a.lfd||0;          vb = b.lfd||0; }
+    else if (col === 'erstellt')    { va = a.inv.datum||'';   vb = b.inv.datum||''; }
+    else if (col === 'leistung')    { va = a.leistungsdatum||''; vb = b.leistungsdatum||''; }
+    else if (col === 'kunde')       { va = (a.kunde||'').toLowerCase(); vb = (b.kunde||'').toLowerCase(); }
+    else if (col === 'marke')       { va = (a.marke||'').toLowerCase(); vb = (b.marke||'').toLowerCase(); }
+    else if (col === 'kz')          { va = (a.kz||'').toLowerCase();    vb = (b.kz||'').toLowerCase(); }
+    else if (col === 'dz')          { va = a.dzTotal||0;      vb = b.dzTotal||0; }
+    else if (col === 'hel')         { va = a.helTotal||0;     vb = b.helTotal||0; }
+    else if (col === 'stunden')     { va = a.stunden||0;      vb = b.stunden||0; }
+    else if (col === 'fzH')        { va = a.fzH||0;          vb = b.fzH||0; }
+    else { va = 0; vb = 0; }
+    if (va < vb) return dir === 'asc' ? -1 : 1;
+    if (va > vb) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+  return sorted;
+}
+
+function _thSort(label, col, active, dir, onclick) {
+  var arrow = active ? (dir === 'asc' ? ' ↑' : ' ↓') : '';
+  var style = 'cursor:pointer;user-select:none;white-space:nowrap' + (active ? ';color:var(--primary,#3b7)' : '');
+  return '<th style="' + style + '" onclick="' + onclick + '">' + label + arrow + '</th>';
+}
+
 function renderMaAllJobs(s) {
   var el = document.getElementById('ma-all-jobs');
   if (!el) return;
-  var jobs = _maFilterJobs(window._maAllJobs || [], s);
+  var raw = _maFilterJobs(window._maAllJobs || [], s);
+  var sort = window._maSortAll || {col:'lfd', dir:'asc'};
+  var jobs = _maSortJobs(raw, sort.col, sort.dir);
   if (!jobs.length) { el.innerHTML = '<div class="empty">Keine Aufträge gefunden</div>'; return; }
+
+  function th(label, col) {
+    return _thSort(label, col, sort.col===col, sort.dir, '_maSortAllJobs("'+col+'")');
+  }
+
   var rows = jobs.map(function(j) {
     var dzDisp  = j.dzTotal  > 0 ? j.dzTotal.toFixed(1)  + ' h' : '—';
     var helDisp = j.helTotal > 0 ? j.helTotal.toFixed(1) + ' h' : '—';
     return '<tr>' +
       '<td style="white-space:nowrap">' + _auftragBtn(j.inv.id) + '</td>' +
       '<td style="font-size:11px;color:var(--t3)">' + (j.lfd||'') + '</td>' +
+      '<td>' + fmtD(j.inv.datum) + '</td>' +
       '<td>' + fmtD(j.leistungsdatum) + '</td>' +
       '<td>' + esc(j.kunde) + '</td>' +
       '<td style="font-size:12px">' + esc(j.marke) + '</td>' +
@@ -2380,16 +2417,32 @@ function renderMaAllJobs(s) {
   }).join('');
   el.innerHTML =
     '<div style="overflow-x:auto;max-height:360px;overflow-y:auto">' +
-    '<table style="min-width:650px"><thead><tr style="position:sticky;top:0;background:var(--bg2,#fff);z-index:1">' +
-    '<th>Auftrag</th><th style="width:30px">Lfd.</th><th>Leistungsdatum</th><th>Kunde</th><th>Modell</th><th>KZ</th><th>Dž-Std.</th><th>Helmut-Std.</th>' +
+    '<table style="min-width:700px"><thead><tr style="position:sticky;top:0;background:var(--bg2,#fff);z-index:1">' +
+    '<th>Auftrag</th>' + th('Lfd.','lfd') + th('Erstellt','erstellt') + th('Leistungsdatum','leistung') +
+    th('Kunde','kunde') + th('Modell','marke') + th('KZ','kz') + th('Dž-Std.','dz') + th('Helmut-Std.','hel') +
     '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+function _maSortAllJobs(col) {
+  var s = window._maSortAll || {col:'lfd', dir:'asc'};
+  window._maSortAll = {col:col, dir: s.col===col && s.dir==='asc' ? 'desc' : 'asc'};
+  var searchEl = document.getElementById('ma-s-all');
+  renderMaAllJobs(searchEl ? searchEl.value : '');
 }
 
 function renderMaEmpDetail(emp, s, curM, curY) {
   var el = document.getElementById('ma-' + emp + '-detail');
   if (!el) return;
-  var jobs = _maFilterJobs(window._maStats ? window._maStats[emp].jobs : [], s);
+  var raw = _maFilterJobs(window._maStats ? window._maStats[emp].jobs : [], s);
+  var sortKey = '_maSortEmp_' + emp;
+  var sort = window[sortKey] || {col:'lfd', dir:'asc'};
+  var jobs = _maSortJobs(raw, sort.col, sort.dir);
   if (!jobs.length) { el.innerHTML = '<div class="empty">Keine Einträge gefunden</div>'; return; }
+
+  function th(label, col) {
+    return _thSort(label, col, sort.col===col, sort.dir, '_maSortEmpJobs("'+emp+'","'+col+'")');
+  }
+
   var total = 0, totalFZ = 0;
   var rows = jobs.map(function(j, idx) {
     total += j.stunden; totalFZ += j.fzH;
@@ -2401,7 +2454,7 @@ function renderMaEmpDetail(emp, s, curM, curY) {
       : (j.fzH > 0 ? j.fzH.toFixed(1) + ' h' : '—');
     return '<tr>' +
       '<td style="white-space:nowrap">' + _auftragBtn(j.inv.id) + '</td>' +
-      '<td style="font-size:11px;color:var(--t3)">' + (idx+1) + '</td>' +
+      '<td style="font-size:11px;color:var(--t3)">' + (j.lfd||idx+1) + '</td>' +
       '<td>' + fmtD(j.leistungsdatum) + '</td>' +
       '<td>' + esc(j.kunde) + '</td>' +
       '<td style="font-size:12px">' + esc(j.marke) + '</td>' +
@@ -2416,13 +2469,23 @@ function renderMaEmpDetail(emp, s, curM, curY) {
     '<button class="btn primary" style="font-size:12px;padding:5px 14px" onclick="genMitarbeiterMonatsPDF(\'' + emp + '\',' + curM + ',' + curY + ')">&#8595; PDF</button>' +
     '</div>' +
     '<div style="overflow-x:auto"><table style="min-width:650px"><thead><tr>' +
-    '<th>Auftrag</th><th style="width:30px">Lfd.</th><th>Leistungsdatum</th><th>Kunde</th><th>Modell</th><th>KZ</th>' +
-    '<th>Arbeitsdaten / Std.</th><th>Fahrzeit</th>' +
+    '<th>Auftrag</th>' + th('Lfd.','lfd') + th('Leistungsdatum','leistung') +
+    th('Kunde','kunde') + th('Modell','marke') + th('KZ','kz') +
+    th('Arbeitsdaten / Std.','stunden') + th('Fahrzeit','fzH') +
     '</tr></thead><tbody>' + rows + '</tbody>' +
     '<tfoot><tr><td colspan="6" style="font-weight:500;padding:8px 10px">Gesamt</td>' +
     '<td style="font-weight:500;padding:8px 10px">' + total.toFixed(1) + ' h</td>' +
     '<td style="font-weight:500;padding:8px 10px">' + totalFZ.toFixed(1) + ' h</td></tr></tfoot>' +
     '</table></div>';
+}
+
+function _maSortEmpJobs(emp, col) {
+  var sortKey = '_maSortEmp_' + emp;
+  var s = window[sortKey] || {col:'lfd', dir:'asc'};
+  window[sortKey] = {col:col, dir: s.col===col && s.dir==='asc' ? 'desc' : 'asc'};
+  var curM = window._maCurM, curY = window._maCurY;
+  var searchEl = document.getElementById('ma-s-' + emp);
+  renderMaEmpDetail(emp, searchEl ? searchEl.value : '', curM, curY);
 }
 
 function renderMitarbeiter(offset) {
@@ -2434,6 +2497,10 @@ function renderMitarbeiter(offset) {
   var label = document.getElementById('ma-month-label');
   if (label) label.textContent = MONTHS_MA[curM] + ' ' + curY;
   window._maOffset = offset;
+  // Reset sort state when changing month
+  window._maSortAll = {col:'lfd', dir:'asc'};
+  window._maSortEmp_djevad = {col:'lfd', dir:'asc'};
+  window._maSortEmp_helmut = {col:'lfd', dir:'asc'};
 
   var allJobs = [];
   var stats = { djevad: {stunden:0, fahrzeit:0, jobs:[]}, helmut: {stunden:0, fahrzeit:0, jobs:[]} };
@@ -2512,8 +2579,13 @@ function renderMitarbeiter(offset) {
   allJobs.forEach(function(j, i){ j.lfd = i + 1; });
   // Newest first for display
   allJobs.sort(function(a,b){ return new Date(b.inv.datum) - new Date(a.inv.datum); });
-  stats.djevad.jobs.sort(function(a,b){ return new Date(b.inv.datum) - new Date(a.inv.datum); });
-  stats.helmut.jobs.sort(function(a,b){ return new Date(b.inv.datum) - new Date(a.inv.datum); });
+
+  // Assign lfd to employee jobs too (oldest=1 per employee, within the month)
+  ['djevad','helmut'].forEach(function(emp) {
+    stats[emp].jobs.sort(function(a,b){ return new Date(a.inv.datum) - new Date(b.inv.datum); });
+    stats[emp].jobs.forEach(function(j,i){ j.lfd = i+1; });
+    stats[emp].jobs.sort(function(a,b){ return new Date(b.inv.datum) - new Date(a.inv.datum); });
+  });
 
   window._maAllJobs = allJobs;
   window._maStats   = stats;
