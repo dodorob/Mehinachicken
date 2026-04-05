@@ -184,6 +184,16 @@ ipcMain.handle('save-pdf-to-path', async (event, folderPath, filename, base64dat
   }
 });
 
+ipcMain.handle('open-pdf', async (event, filePath) => {
+  try {
+    const { shell } = require('electron');
+    await shell.openPath(filePath);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 app.whenReady().then(() => {
   loadUpdateTokenFromEnvFiles();
   createWindow();
