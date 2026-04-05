@@ -2219,21 +2219,6 @@ function genPDFData(inv) {
     return rows;
   }
 
-  // ── € Ausrichtung: breiteste Zahl vorausberechnen ────────────────
-  doc.setFont('times','normal'); doc.setFontSize(10);
-  var allAmounts = [];
-  carGroups.forEach(function(g) {
-    buildSubRows(g).forEach(function(row) {
-      if (row.type === 'stunden') allAmounts.push(row.it.menge * row.it.preis * (1 + row.it.ust/100));
-      else if (row.type === 'extra') allAmounts.push(row.it.extraBetrag * (1 + (row.it.extraUst!=null?row.it.extraUst:20)/100));
-    });
-  });
-  if (hasMat) allAmounts.push(matAmt);
-  allAmounts.push(nt, va, totalH);
-  var maxNumW = 0;
-  allAmounts.forEach(function(n) { var w = doc.getTextWidth(numFmt(n)); if (w > maxNumW) maxNumW = w; });
-  var xEuro = xR - maxNumW - 6;  // € immer an dieser Position
-
   var tY = 113;
 
   // ── Grauer Hintergrund nur für Header-Zeile ───────────────────────
@@ -2274,13 +2259,13 @@ function genPDFData(inv) {
         doc.text(menge===1?'Arbeitsstunde':'Arbeitsstunden', colFzEnd + 2, rowY);
         doc.text(String(row.it.menge), colAnz, rowY, {align:'center'});
         var lt = row.it.menge * row.it.preis * (1 + row.it.ust/100);
-        doc.text('€', xEuro, rowY);
-        doc.text(numFmt(lt), xR - 2, rowY, {align:'right'});
+        doc.setFont('times','normal');
+        doc.text('€ ' + numFmt(lt), xR - 2, rowY, {align:'right'});
       } else if (row.type === 'extra') {
         var et = row.it.extraBetrag * (1 + (row.it.extraUst!=null?row.it.extraUst:20)/100);
         doc.text((row.it.extraLabel||'').trim(), colFzEnd + 2, rowY);
-        doc.text('€', xEuro, rowY);
-        doc.text(numFmt(et), xR - 2, rowY, {align:'right'});
+        doc.setFont('times','normal');
+        doc.text('€ ' + numFmt(et), xR - 2, rowY, {align:'right'});
       }
     }
     yCur += subRows.length * rowH;
@@ -2290,8 +2275,7 @@ function genPDFData(inv) {
   if (hasMat) {
     doc.setFont('times','normal'); doc.setFontSize(10);
     doc.text(mklbl, colFzEnd + 2, yCur + rowH - 2);
-    doc.text('€', xEuro, yCur + rowH - 2);
-    doc.text(numFmt(matAmt), xR - 2, yCur + rowH - 2, {align:'right'});
+    doc.text('€ ' + numFmt(matAmt), xR - 2, yCur + rowH - 2, {align:'right'});
     yCur += rowH;
   }
 
@@ -2304,24 +2288,22 @@ function genPDFData(inv) {
 
   doc.setFont('times','normal'); doc.setFontSize(10);
   doc.text('Netto',              xL + 2, yNettoY);
-  doc.text('€', xEuro, yNettoY);
-  doc.text(numFmt(nt),    xR - 2, yNettoY, {align:'right'});
-  // Linie unter Netto: volle Breite (Netto bis Betrag)
+  doc.text('€ ' + numFmt(nt),   xR - 2, yNettoY, {align:'right'});
+  // Linie unter Netto: volle Breite
   blackLine();
   doc.line(xL, yNettoY + 1, xR, yNettoY + 1);
 
   doc.text('MwSt. '+ustPct+'%', xL + 2, yMwstY);
-  doc.text('€', xEuro, yMwstY);
-  doc.text(numFmt(va),    xR - 2, yMwstY, {align:'right'});
+  doc.text('€ ' + numFmt(va),   xR - 2, yMwstY, {align:'right'});
   // Linie unter MwSt-Betrag
   blackLine();
-  doc.line(xEuro - 1, yMwstY + 1, xR, yMwstY + 1);
+  var xAmtLeft = xR - 2 - doc.getTextWidth('€ ' + numFmt(va)) - 1;
+  doc.line(xAmtLeft, yMwstY + 1, xR, yMwstY + 1);
 
   doc.setFont('times','bold');
-  doc.text('Gesamtbetrag',  xL + 2, yGesamtY);
-  doc.text('€', xEuro, yGesamtY);
-  doc.text(numFmt(totalH), xR - 2, yGesamtY, {align:'right'});
-  doc.setFont('times','normal');
+  doc.text('Gesamtbetrag', xL + 2, yGesamtY);
+  doc.setFont('times','normal');                       // number always normal-weight → commas align
+  doc.text('€ ' + numFmt(totalH), xR - 2, yGesamtY, {align:'right'});
   // Doppelte Linie unter Gesamtbetrag
   blackLine();
   doc.line(xEuro - 1, yGesamtY + 1, xR, yGesamtY + 1);
@@ -2381,12 +2363,12 @@ function renderMaAllJobs(s) {
   if (!el) return;
   var jobs = _maFilterJobs(window._maAllJobs || [], s);
   if (!jobs.length) { el.innerHTML = '<div class="empty">Keine Aufträge gefunden</div>'; return; }
-  var rows = jobs.map(function(j, idx) {
+  var rows = jobs.map(function(j) {
     var dzDisp  = j.dzTotal  > 0 ? j.dzTotal.toFixed(1)  + ' h' : '—';
     var helDisp = j.helTotal > 0 ? j.helTotal.toFixed(1) + ' h' : '—';
     return '<tr>' +
       '<td style="white-space:nowrap">' + _auftragBtn(j.inv.id) + '</td>' +
-      '<td style="font-size:11px;color:var(--t3)">' + (idx+1) + '</td>' +
+      '<td style="font-size:11px;color:var(--t3)">' + (j.lfd||'') + '</td>' +
       '<td>' + fmtD(j.leistungsdatum) + '</td>' +
       '<td>' + esc(j.kunde) + '</td>' +
       '<td style="font-size:12px">' + esc(j.marke) + '</td>' +
@@ -2524,7 +2506,10 @@ function renderMitarbeiter(offset) {
     }
   });
 
-  // Newest first
+  // Assign Lfd. number by creation order (oldest = 1) before reversing for display
+  allJobs.sort(function(a,b){ return new Date(a.inv.datum) - new Date(b.inv.datum); });
+  allJobs.forEach(function(j, i){ j.lfd = i + 1; });
+  // Newest first for display
   allJobs.sort(function(a,b){ return new Date(b.inv.datum) - new Date(a.inv.datum); });
   stats.djevad.jobs.sort(function(a,b){ return new Date(b.inv.datum) - new Date(a.inv.datum); });
   stats.helmut.jobs.sort(function(a,b){ return new Date(b.inv.datum) - new Date(a.inv.datum); });
@@ -2746,7 +2731,7 @@ function genAllJobsPDF(curM, curY) {
   doc.setFont('helvetica','normal'); doc.setFontSize(9);
   doc.text('Erstellt: ' + fmtD(new Date().toISOString().split('T')[0]), mL, y); y += 8;
 
-  var tableRows = jobs.map(function(j, idx) {
+  var tableRows = jobs.map(function(j) {
     var subs = Math.max(j.arbRows.length, j.fzRows.length, 1);
     var subrows = [];
     for (var si = 0; si < subs; si++) {
@@ -2760,7 +2745,7 @@ function genAllJobsPDF(curM, curY) {
         f && f.hel > 0 ? f.hel.toFixed(1) : ''
       ]);
     }
-    return {left:[idx+1, fmtD(j.leistungsdatum), j.kunde||'—', j.marke||'—', j.kz||'—'], subrows:subrows};
+    return {left:[j.lfd||'', fmtD(j.leistungsdatum), j.kunde||'—', j.marke||'—', j.kz||'—'], subrows:subrows};
   });
 
   y = _pdfSplitTable({doc:doc, mL:mL, pw:pw, y:y, topY:20, pageH:190,
@@ -2780,13 +2765,13 @@ function genAllJobsExcel(curM, curY) {
   var jobs = window._maAllJobs;
   if (!jobs) return alert('Bitte zuerst die Mitarbeiter-Seite laden.');
   var rows = [['Nr.', 'Leistungsdatum', 'Kunde', 'Modell', 'KZ', 'Arbeitsdatum', 'Dž h', 'Helmut h', 'FZ-Datum', 'Dž-FZ', 'Hel-FZ']];
-  jobs.forEach(function(j, idx) {
+  jobs.forEach(function(j) {
     var subs = Math.max(j.arbRows.length, j.fzRows.length, 1);
     for (var si = 0; si < subs; si++) {
       var a = j.arbRows[si], f = j.fzRows[si];
       var isFirst = si === 0;
       rows.push([
-        isFirst ? idx+1 : '',
+        isFirst ? (j.lfd||'') : '',
         isFirst ? fmtD(j.leistungsdatum) : '',
         isFirst ? (j.kunde||'—') : '',
         isFirst ? (j.marke||'—') : '',
