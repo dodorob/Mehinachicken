@@ -2304,10 +2304,11 @@ function genPDFData(inv) {
   doc.text('Gesamtbetrag', xL + 2, yGesamtY);
   doc.setFont('times','normal');                       // number always normal-weight → commas align
   doc.text('€ ' + numFmt(totalH), xR - 2, yGesamtY, {align:'right'});
-  // Doppelte Linie unter Gesamtbetrag
+  // Doppelte Linie unter Gesamtbetrag (starts where the € sign begins)
+  var gesamtAmtW = doc.getTextWidth('€ ' + numFmt(totalH));
   blackLine();
-  doc.line(xEuro - 1, yGesamtY + 1, xR, yGesamtY + 1);
-  doc.line(xEuro - 1, yGesamtY + 2, xR, yGesamtY + 2);
+  doc.line(xR - 2 - gesamtAmtW - 1, yGesamtY + 1, xR, yGesamtY + 1);
+  doc.line(xR - 2 - gesamtAmtW - 1, yGesamtY + 2, xR, yGesamtY + 2);
 
   // ── BEZAHLT IN BAR / BANKOMAT (alle Kassa-Zahlungen) ────────────
   if (inv.zahlungsart === 'kassa') {
