@@ -1,21 +1,21 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Georgia,serif;background:#f5f5f2;color:#1a1a1a;min-height:100vh}
 :root{--accent:#1D9E75;--al:#E1F5EE;--ad:#0F6E56;--danger:#E24B4A;--warn:#BA7517;--wbg:#FAEEDA;--card:#fff;--border:#e5e5e0;--t2:#666;--t3:#999}
-.app{display:flex;min-height:100vh}
-.sidebar{width:240px;background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;flex-shrink:0}
+.app{display:flex;height:100vh;overflow:hidden}
+.sidebar{width:240px;background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;overflow-y:auto;flex-shrink:0}
 .logo{padding:1.5rem 1.25rem 1rem;border-bottom:1px solid var(--border)}
 .logo h1{font-size:16px;font-weight:500;color:var(--ad)}
 .logo p{font-size:11px;color:var(--t3);margin-top:2px;font-family:sans-serif}
 nav{flex:1;padding:1rem 0}
-nav a{display:flex;align-items:center;gap:10px;padding:10px 1.5rem;font-size:14px;color:var(--t2);cursor:pointer;border-left:2px solid transparent;transition:all .15s}
+nav a{display:flex;align-items:center;gap:10px;padding:10px 1.5rem;font-size:14px;color:var(--t2);cursor:pointer;border-left:2px solid transparent;transition:background .15s,color .15s}
 nav a:hover{background:#f5f5f2;color:#1a1a1a}
 nav a.active{color:var(--ad);border-left-color:var(--accent);background:var(--al);font-weight:500}
 nav .sec{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--t3);padding:1rem 1.25rem .4rem;font-family:sans-serif}
-.main{flex:1;overflow:hidden;min-width:0}
+.main{flex:1;overflow-y:auto;overflow-x:hidden;min-width:0;height:100vh;overscroll-behavior:contain}
 .topbar{background:var(--card);border-bottom:1px solid var(--border);padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}
 .topbar h2{font-size:17px;font-weight:500}
 .tba{display:flex;gap:8px;flex-wrap:wrap}
-.btn{padding:7px 14px;font-size:13px;border-radius:8px;cursor:pointer;border:1px solid #ddd;background:var(--card);color:#1a1a1a;font-family:inherit;transition:all .15s}
+.btn{padding:7px 14px;font-size:13px;border-radius:8px;cursor:pointer;border:1px solid #ddd;background:var(--card);color:#1a1a1a;font-family:inherit;transition:background .15s,color .15s,border-color .15s}
 .btn:hover{background:#f5f5f2}
 .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
 .btn.primary:hover{background:var(--ad)}

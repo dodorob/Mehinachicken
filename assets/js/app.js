@@ -93,6 +93,9 @@ function savePDFToFolder(doc, filename, folderPath, fallback) {
         n.textContent = '\u2713 PDF gespeichert: ' + result.path;
         document.body.appendChild(n);
         setTimeout(function(){ n.remove(); }, 3500);
+        if(window.electronAPI && window.electronAPI.openPdfFile) {
+          window.electronAPI.openPdfFile(result.path);
+        }
       } else {
         fallback();
       }
@@ -145,6 +148,7 @@ function previewNum(typ) {
 // ================================================================
 var MONTHS = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 var FIN_M = new Date().getMonth(), FIN_Y = new Date().getFullYear();
+var STAT_M = new Date().getMonth(), STAT_Y = new Date().getFullYear();
 
 function fmt(n) {
   return new Intl.NumberFormat('de-AT', {style:'currency', currency:'EUR'}).format(n || 0);
@@ -152,6 +156,67 @@ function fmt(n) {
 
 function fmtAmt(n) {
   return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n || 0);
+}
+
+function openPDF(doc, filename) {
+  var url = doc.output('bloburl');
+  window.open(url, '_blank');
+}
+
+// ── Mitarbeiter date-row helpers ──────────────────────────────────
+function collectDateRows() {
+  itemsData.forEach(function(it, i) {
+    var sis = '[data-i="' + i + '"]';
+    var ad = [];
+    document.querySelectorAll('.item-arbeit-row' + sis).forEach(function(row) {
+      ad.push({
+        datum:     (row.querySelector('.item-arbeit-datum') || {value:''}).value,
+        djevad_h:  parseFloat((row.querySelector('.item-arbeit-dz')   || {value:0}).value) || 0,
+        helmut_h:  parseFloat((row.querySelector('.item-arbeit-helm') || {value:0}).value) || 0
+      });
+    });
+    it.arbeitsdaten = ad;
+    if (ad.length) {
+      it.djevad_h = ad.reduce(function(s,r){ return s+r.djevad_h; }, 0);
+      it.helmut_h = ad.reduce(function(s,r){ return s+r.helmut_h; }, 0);
+    }
+    var fd = [];
+    document.querySelectorAll('.item-fahrzeit-row' + sis).forEach(function(row) {
+      fd.push({
+        datum:    (row.querySelector('.item-fahrzeit-datum') || {value:''}).value,
+        djevad_h: parseFloat((row.querySelector('.item-fahrzeit-dz')   || {value:0}).value) || 0,
+        helmut_h: parseFloat((row.querySelector('.item-fahrzeit-helm') || {value:0}).value) || 0
+      });
+    });
+    it.fahrzeitdaten = fd;
+  });
+}
+
+function addArbeitsdatum(i) {
+  collectDateRows();
+  if (!itemsData[i].arbeitsdaten) itemsData[i].arbeitsdaten = [];
+  itemsData[i].arbeitsdaten.push({datum: new Date().toISOString().split('T')[0], djevad_h:0, helmut_h:0});
+  renderItems();
+}
+function removeArbeitsdatum(i, j) {
+  collectDateRows();
+  if (itemsData[i].arbeitsdaten) itemsData[i].arbeitsdaten.splice(j, 1);
+  if ((itemsData[i].arbeitsdaten||[]).length) {
+    itemsData[i].djevad_h = itemsData[i].arbeitsdaten.reduce(function(s,r){ return s+r.djevad_h; }, 0);
+    itemsData[i].helmut_h = itemsData[i].arbeitsdaten.reduce(function(s,r){ return s+r.helmut_h; }, 0);
+  }
+  renderItems();
+}
+function addFahrzeitdatum(i) {
+  collectDateRows();
+  if (!itemsData[i].fahrzeitdaten) itemsData[i].fahrzeitdaten = [];
+  itemsData[i].fahrzeitdaten.push({datum: new Date().toISOString().split('T')[0], djevad_h:0, helmut_h:0});
+  renderItems();
+}
+function removeFahrzeitdatum(i, j) {
+  collectDateRows();
+  if (itemsData[i].fahrzeitdaten) itemsData[i].fahrzeitdaten.splice(j, 1);
+  renderItems();
 }
 
 function fmtD(s) {
@@ -231,7 +296,11 @@ function SP(id) {
   if (id === 'mitarbeiter') renderMitarbeiter();
   if (id === 'lieferanten') { renderLief(); var el=document.getElementById('s-lieferanten'); if(el) el.oninput=function(){ renderLief(); }; }
   if (id === 'zahlungen')  renderZ();
-  if (id === 'statistik')  renderStatistik();
+  if (id === 'statistik') {
+    renderStatistik();
+    var spl=document.getElementById('stat-prev'); if(spl) spl.onclick=function(){ STAT_M--; if(STAT_M<0){STAT_M=11;STAT_Y--;} renderStatistik(); };
+    var snl=document.getElementById('stat-next'); if(snl) snl.onclick=function(){ STAT_M++; if(STAT_M>11){STAT_M=0;STAT_Y++;} renderStatistik(); };
+  }
   if (id === 'finanzen') {
     renderFin();
     var fpl=document.getElementById('fin-prev'); if(fpl) fpl.onclick=function(){ FIN_M--; if(FIN_M<0){FIN_M=11;FIN_Y--;} renderFin(); };
@@ -620,6 +689,16 @@ function initEinstellungen() {
     if (info) { info.textContent = '✓ Gespeichert: ' + v + ' Tage'; setTimeout(function(){ info.textContent = ''; }, 2000); }
   };
 
+  var rvEl = document.getElementById('rech-vorlauf');
+  if (rvEl) rvEl.value = localStorage.getItem('bp_rech_vorlauf') || '3';
+  var rvBtn = document.getElementById('btn-rech-vorlauf-save');
+  if (rvBtn) rvBtn.onclick = function(){
+    var v = parseInt((document.getElementById('rech-vorlauf')||{value:'3'}).value) || 3;
+    localStorage.setItem('bp_rech_vorlauf', String(v));
+    var info = document.getElementById('rech-vorlauf-info');
+    if (info) { info.textContent = '✓ Gespeichert: ' + v + ' Tage'; setTimeout(function(){ info.textContent = ''; }, 2000); }
+  };
+
   var btnSave = document.getElementById('btn-save-fixkosten');
   if(btnSave) btnSave.onclick = function(){
     var rows = document.querySelectorAll('.fk-row');
@@ -736,9 +815,10 @@ function renderFixkostenList() {
 // STATISTIK
 // ================================================================
 function renderStatistik() {
+  var MONTHS = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
   var d = getDB();
-  var now = new Date();
-  var curM = now.getMonth(), curY = now.getFullYear();
+  var curM = STAT_M, curY = STAT_Y;
+  var lbl = document.getElementById('stat-month-label'); if(lbl) lbl.textContent = MONTHS[curM] + ' ' + curY;
 
   function invForMonth(m, y) {
     return d.invoices.filter(function(i){ var dt=new Date(i.datum); return dt.getMonth()===m && dt.getFullYear()===y; });
@@ -755,8 +835,6 @@ function renderStatistik() {
   var gewinnVerlust  = umsatz - ausgaben;
   var isGewinn       = gewinnVerlust >= 0;
   var marge = umsatz > 0 ? Math.round(gewinnVerlust / umsatz * 1000) / 10 : 0;
-
-  var MONTHS = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
   // ── Metrics ──────────────────────────────────────────────────
   document.getElementById('stat-metrics').innerHTML =
@@ -971,11 +1049,12 @@ function renderDash() {
   c2._c = new Chart(c2, {type:'doughnut', data:{labels:['USt. eingenommen','USt. bezahlt'], datasets:[{data:[vC,vP], backgroundColor:['#1D9E75','#F09595']}]}, options:{plugins:{legend:{labels:{font:{size:11}}}}}});
 
   var rec = document.getElementById('d-recent');
-  var in3 = new Date(now.getTime() + 3*86400000);
+  var rechVorlauf = parseInt(localStorage.getItem('bp_rech_vorlauf') || '3');
+  var in3 = new Date(now.getTime() + rechVorlauf*86400000);
   var due3 = d.invoices.filter(function(i){
     return i.status === 'offen' && i.faellig && new Date(i.faellig) <= in3;
   }).sort(function(a,b){ return new Date(a.faellig)-new Date(b.faellig); });
-  if (!due3.length) { rec.innerHTML = '<div class="empty">Keine Rechnungen in den nächsten 3 Tagen fällig ✓</div>'; }
+  if (!due3.length) { rec.innerHTML = '<div class="empty">Keine Rechnungen in den nächsten ' + rechVorlauf + ' Tagen fällig ✓</div>'; }
   else {
     var rows = due3.map(function(inv){
       var fd = new Date(inv.faellig);
@@ -1015,14 +1094,14 @@ function renderDash() {
           : '<span style="color:#f59e0b;font-weight:600">in '+tage+' Tag(en)</span>';
         var wdh = {keine:'–',taeglich:'Täglich',woechentlich:'Wöchentlich',monatlich:'Monatlich',jaehrlich:'Jährlich'};
         return '<tr>'+
-          '<td>'+esc(t.titel)+'</td>'+
-          '<td>'+fmtD(t.faellig)+'</td>'+
-          '<td>'+tageStr+'</td>'+
-          '<td style="font-size:11px;color:var(--t3)">'+(wdh[t.wiederholung]||'–')+'</td>'+
-          '<td><button class="btn primary" style="font-size:11px;padding:3px 10px" onclick="erledigeTodo(\''+t.id+'\')">Erledigt</button></td>'+
+          '<td style="word-break:break-word">'+esc(t.titel)+'</td>'+
+          '<td style="white-space:nowrap">'+fmtD(t.faellig)+'</td>'+
+          '<td style="white-space:nowrap">'+tageStr+'</td>'+
+          '<td style="font-size:11px;color:var(--t3);white-space:nowrap">'+(wdh[t.wiederholung]||'–')+'</td>'+
+          '<td style="white-space:nowrap"><button class="btn primary" style="font-size:11px;padding:3px 10px" onclick="erledigeTodo(\''+t.id+'\')">Erledigt</button></td>'+
         '</tr>';
       }).join('');
-      todosEl.innerHTML = '<table><thead><tr><th>Titel</th><th>Fällig</th><th>Fälligkeit</th><th>Wiederholung</th><th></th></tr></thead><tbody>'+trows+'</tbody></table>';
+      todosEl.innerHTML = '<table style="table-layout:fixed;width:100%"><thead><tr><th style="width:35%">Titel</th><th style="width:15%">Fällig</th><th style="width:20%">Fälligkeit</th><th style="width:15%">Wiederholung</th><th style="width:15%"></th></tr></thead><tbody>'+trows+'</tbody></table>';
     }
   }
 }
@@ -1044,7 +1123,19 @@ function renderTable(typ) {
   if (bis)    invs = invs.filter(function(i){ return i.datum <= bis; });
   if (status) invs = invs.filter(function(i){ return i.status === status; });
   invs = invs.filter(function(i){ var b=brutto(i); return b>=minB && b<=maxB; });
-  invs = invs.slice().sort(function(a,b){ return b.datum > a.datum ? 1 : -1; });
+  var sort = window._tableSort[typ] || {col:'datum', dir:'desc'};
+  invs = invs.slice().sort(function(a, b) {
+    var va, vb;
+    if      (sort.col==='lfd')     { va=a.lfd_nr||0;               vb=b.lfd_nr||0; }
+    else if (sort.col==='nr')      { va=(a.nummer||'').toLowerCase(); vb=(b.nummer||'').toLowerCase(); }
+    else if (sort.col==='partner') { va=(a.partner_name||'').toLowerCase(); vb=(b.partner_name||'').toLowerCase(); }
+    else if (sort.col==='faellig') { va=a.faellig||''; vb=b.faellig||''; }
+    else if (sort.col==='netto')   { va=netto(a); vb=netto(b); }
+    else if (sort.col==='brutto')  { va=brutto(a); vb=brutto(b); }
+    else if (sort.col==='status')  { va=a.status||''; vb=b.status||''; }
+    else                           { va=a.datum||''; vb=b.datum||''; }
+    return _cmp(va, vb, sort.dir);
+  });
   var el = document.getElementById('tbl-'+typ);
   if (!invs.length) { el.innerHTML = '<div class="empty">Keine Rechnungen</div>'; return; }
   var rows = invs.map(function(inv){
@@ -1065,7 +1156,13 @@ function renderTable(typ) {
       '</td>' +
     '</tr>';
   }).join('');
-  el.innerHTML = (typ==='ausgang'?'<table><thead><tr><th>Lfd.</th><th>Nr.</th><th>Partner</th><th>Datum</th><th>Fällig</th><th>Netto</th><th>Brutto</th><th>Status</th><th>Aktion</th></tr></thead><tbody>':'<table><thead><tr><th>Lfd.</th><th>Partner</th><th>Datum</th><th>Fällig</th><th>Netto</th><th>Brutto</th><th>Status</th><th>Aktion</th></tr></thead><tbody>') + rows + '</tbody></table>';
+  var hdr = '<table><thead><tr>' +
+    _th(typ,'Lfd.','lfd') +
+    (typ==='ausgang' ? _th(typ,'Nr.','nr') : '') +
+    _th(typ,'Partner','partner') + _th(typ,'Datum','datum') + _th(typ,'Fällig','faellig') +
+    _th(typ,'Netto','netto') + _th(typ,'Brutto','brutto') + _th(typ,'Status','status') +
+    '<th>Aktion</th></tr></thead><tbody>';
+  el.innerHTML = hdr + rows + '</tbody></table>';
   el.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){
       var id = this.dataset.id, action = this.dataset.action;
@@ -1104,12 +1201,11 @@ function initForm() {
   editId = null;
   document.getElementById('form-title').textContent = 'Neue Rechnung';
   var now = new Date().toISOString().split('T')[0];
-  var due = new Date(Date.now() + 14*86400000).toISOString().split('T')[0];
   document.getElementById('datum').value = now;
   document.getElementById('leistungsdatum').value = now;
   if (document.getElementById('fz-marke-inv')) document.getElementById('fz-marke-inv').value = '';
   if (document.getElementById('fz-kz-inv')) document.getElementById('fz-kz-inv').value = '';
-  document.getElementById('faellig').value = due;
+  document.getElementById('faellig').value = now;
   document.getElementById('status').value = 'offen';
   document.getElementById('notizen').value = '';
   document.getElementById('pinfo').value = '';
@@ -1128,9 +1224,8 @@ function initForm() {
   // Set AR as default
   setTyp('ausgang');
   // Init ER dates
-  var erNow = new Date().toISOString().split('T')[0];
   var erDue = new Date(Date.now()+14*86400000).toISOString().split('T')[0];
-  var erD = document.getElementById('er-datum'); if(erD) erD.value = erNow;
+  var erD = document.getElementById('er-datum'); if(erD) erD.value = now;
   var erF = document.getElementById('er-faellig'); if(erF) erF.value = erDue;
   var erPct = document.getElementById('er-ust-pct'); if(erPct) erPct.value = '20';
   updateFT();
@@ -1286,6 +1381,20 @@ function wireERForm() {
   // New Lieferant inline
   var btnNewL = document.getElementById('btn-new-lief-inline');
   if (btnNewL) btnNewL.onclick = function(){ openLiefModal(); };
+  // Auto-update Fälligkeitsdatum when Rechnungsdatum changes
+  var erDatumEl = document.getElementById('er-datum');
+  if (erDatumEl && !erDatumEl._faelligWired) {
+    erDatumEl._faelligWired = true;
+    erDatumEl.addEventListener('change', function() {
+      var zahlungsziel = parseInt(localStorage.getItem('bp_zahlungsziel') || '14');
+      var nd = new Date(this.value);
+      if (!isNaN(nd)) {
+        nd.setDate(nd.getDate() + zahlungsziel);
+        var erFEl = document.getElementById('er-faellig');
+        if (erFEl) erFEl.value = nd.toISOString().split('T')[0];
+      }
+    });
+  }
 }
 
 function handleERFile(file) {
@@ -1650,20 +1759,68 @@ function renderItems() {
         '<td></td>' +
         '<td style="text-align:right;font-family:sans-serif;font-size:12px;color:#333;white-space:nowrap;padding:0 8px 4px;vertical-align:bottom">' + (it.extraBetrag ? fmt(it.extraBetrag*(1+(it.extraUst!=null?it.extraUst:20)/100)) : '') + '</td>' +
       '</tr>' +
-      '<tr style="' + bg + ';border-bottom:2px solid #e0e0d8">' +
-        '<td colspan="7" style="padding:0 8px 8px">' +
+      '<tr style="' + bg + '">' +
+        '<td colspan="7" style="padding:0 8px 4px">' +
           '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#f5f5f2;border-radius:6px;padding:5px 10px;border:1px solid #e5e5e0">' +
-            '<span style="font-family:sans-serif;font-size:10px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px">Intern – Mitarbeiter:</span>' +
+            '<span style="font-family:sans-serif;font-size:10px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px">Intern – Mitarbeiter (Gesamt):</span>' +
             '<label style="display:flex;align-items:center;gap:5px;font-family:sans-serif;font-size:12px;color:#555">' +
               '<span style="font-weight:500">Dž</span>' +
-              '<input type="number" class="item-djevad-h" data-i="' + i + '" value="' + (it.djevad_h||0) + '" min="0" step="0.5" style="width:60px;padding:3px 6px;border:1px solid #ddd;border-radius:5px;font-size:12px">' +
+              '<input type="number" class="item-djevad-h" data-i="' + i + '" value="' + (it.djevad_h||0) + '" min="0" step="0.5" style="width:60px;padding:3px 6px;border:1px solid #ddd;border-radius:5px;font-size:12px' + ((it.arbeitsdaten||[]).length ? ';background:#f0f7ff;color:#2c5aa0' : '') + '">' +
               '<span style="color:#888">h</span>' +
             '</label>' +
             '<label style="display:flex;align-items:center;gap:5px;font-family:sans-serif;font-size:12px;color:#555">' +
               '<span style="font-weight:500">Helmut</span>' +
-              '<input type="number" class="item-helmut-h" data-i="' + i + '" value="' + (it.helmut_h||0) + '" min="0" step="0.5" style="width:60px;padding:3px 6px;border:1px solid #ddd;border-radius:5px;font-size:12px">' +
+              '<input type="number" class="item-helmut-h" data-i="' + i + '" value="' + (it.helmut_h||0) + '" min="0" step="0.5" style="width:60px;padding:3px 6px;border:1px solid #ddd;border-radius:5px;font-size:12px' + ((it.arbeitsdaten||[]).length ? ';background:#f0f7ff;color:#2c5aa0' : '') + '">' +
               '<span style="color:#888">h</span>' +
             '</label>' +
+          '</div>' +
+        '</td>' +
+      '</tr>' +
+      // Arbeitsdaten section
+      '<tr style="' + bg + '">' +
+        '<td colspan="7" style="padding:0 8px 4px">' +
+          '<div style="background:#eef4ff;border-radius:6px;border:1px solid #c8d9f8;padding:5px 8px">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">' +
+              '<span style="font-size:10px;font-weight:600;color:#2c5aa0;text-transform:uppercase;letter-spacing:.5px">Arbeitsdaten</span>' +
+              '<button type="button" onclick="addArbeitsdatum(' + i + ')" style="font-size:11px;padding:1px 8px;border-radius:4px;border:1px solid #2c5aa0;background:#fff;color:#2c5aa0;cursor:pointer;font-family:sans-serif">+ Datum</button>' +
+            '</div>' +
+            (it.arbeitsdaten||[]).map(function(r, j) {
+              return '<div class="item-arbeit-row" data-i="' + i + '" style="display:flex;align-items:center;gap:4px;margin-bottom:3px;flex-wrap:wrap">' +
+                '<input type="date" class="item-arbeit-datum" data-i="' + i + '" data-j="' + j + '" value="' + (r.datum||'') + '" style="flex:1;min-width:90px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+                '<span style="font-size:11px;color:#555;white-space:nowrap">Dž</span>' +
+                '<input type="number" class="item-arbeit-dz" data-i="' + i + '" data-j="' + j + '" value="' + (r.djevad_h||0) + '" min="0" step="0.5" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+                '<span style="font-size:11px;color:#888">h</span>' +
+                '<span style="font-size:11px;color:#555;white-space:nowrap">Helm.</span>' +
+                '<input type="number" class="item-arbeit-helm" data-i="' + i + '" data-j="' + j + '" value="' + (r.helmut_h||0) + '" min="0" step="0.5" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+                '<span style="font-size:11px;color:#888">h</span>' +
+                '<button type="button" onclick="removeArbeitsdatum(' + i + ',' + j + ')" style="padding:1px 6px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;font-size:12px;color:#888;line-height:1.4">×</button>' +
+              '</div>';
+            }).join('') +
+            (!(it.arbeitsdaten||[]).length ? '<div style="font-size:11px;color:#aaa;font-style:italic">Noch kein Arbeitsdatum eingetragen</div>' : '') +
+          '</div>' +
+        '</td>' +
+      '</tr>' +
+      // Fahrzeitdaten section
+      '<tr style="' + bg + ';border-bottom:2px solid #e0e0d8">' +
+        '<td colspan="7" style="padding:0 8px 8px">' +
+          '<div style="background:#fdf8ee;border-radius:6px;border:1px solid #f0d98a;padding:5px 8px">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">' +
+              '<span style="font-size:10px;font-weight:600;color:#7a5a00;text-transform:uppercase;letter-spacing:.5px">Fahrzeitdaten</span>' +
+              '<button type="button" onclick="addFahrzeitdatum(' + i + ')" style="font-size:11px;padding:1px 8px;border-radius:4px;border:1px solid #7a5a00;background:#fff;color:#7a5a00;cursor:pointer;font-family:sans-serif">+ Datum</button>' +
+            '</div>' +
+            (it.fahrzeitdaten||[]).map(function(r, j) {
+              return '<div class="item-fahrzeit-row" data-i="' + i + '" style="display:flex;align-items:center;gap:4px;margin-bottom:3px;flex-wrap:wrap">' +
+                '<input type="date" class="item-fahrzeit-datum" data-i="' + i + '" data-j="' + j + '" value="' + (r.datum||'') + '" style="flex:1;min-width:90px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+                '<span style="font-size:11px;color:#555;white-space:nowrap">Dž</span>' +
+                '<input type="number" class="item-fahrzeit-dz" data-i="' + i + '" data-j="' + j + '" value="' + (r.djevad_h||0) + '" min="0" step="0.5" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+                '<span style="font-size:11px;color:#888">h</span>' +
+                '<span style="font-size:11px;color:#555;white-space:nowrap">Helm.</span>' +
+                '<input type="number" class="item-fahrzeit-helm" data-i="' + i + '" data-j="' + j + '" value="' + (r.helmut_h||0) + '" min="0" step="0.5" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+                '<span style="font-size:11px;color:#888">h</span>' +
+                '<button type="button" onclick="removeFahrzeitdatum(' + i + ',' + j + ')" style="padding:1px 6px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;font-size:12px;color:#888;line-height:1.4">×</button>' +
+              '</div>';
+            }).join('') +
+            (!(it.fahrzeitdaten||[]).length ? '<div style="font-size:11px;color:#aaa;font-style:italic">Noch keine Fahrzeit eingetragen</div>' : '') +
           '</div>' +
         '</td>' +
       '</tr>'
@@ -1725,6 +1882,22 @@ function renderItems() {
   });
   document.querySelectorAll('.item-helmut-h').forEach(function(el){
     el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'helmut_h', this.value); });
+  });
+  // Date row listeners – collect & sync totals on change (no full re-render)
+  function syncDateInputs() {
+    collectDateRows();
+    document.querySelectorAll('.item-djevad-h').forEach(function(inp) {
+      var ii = parseInt(inp.dataset.i);
+      if ((itemsData[ii].arbeitsdaten||[]).length) inp.value = itemsData[ii].djevad_h || 0;
+    });
+    document.querySelectorAll('.item-helmut-h').forEach(function(inp) {
+      var ii = parseInt(inp.dataset.i);
+      if ((itemsData[ii].arbeitsdaten||[]).length) inp.value = itemsData[ii].helmut_h || 0;
+    });
+  }
+  document.querySelectorAll('.item-arbeit-datum,.item-arbeit-dz,.item-arbeit-helm,.item-fahrzeit-datum,.item-fahrzeit-dz,.item-fahrzeit-helm').forEach(function(el) {
+    el.addEventListener('change', syncDateInputs);
+    el.addEventListener('input', syncDateInputs);
   });
   document.querySelectorAll('.item-fz-marke').forEach(function(el){
     el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'fz_marke', this.value); });
@@ -1803,6 +1976,7 @@ function renderSum() {
 }
 
 function saveInvoice() {
+  collectDateRows();  // sync arbeitsdaten/fahrzeitdaten into itemsData before saving
   var typ  = document.getElementById('typ').value;
   var pi   = document.getElementById('pinfo').value;
   var sel  = document.getElementById('partner');
@@ -1892,6 +2066,7 @@ function saveInvoice() {
     if (it.titel && it.titel.trim()) addToBeschHist(it.titel);
   });
   genPDFData(inv);
+  if (inv.typ === 'ausgang') genArbeitsauftragPDF(inv);
   document.getElementById('f-alerts').innerHTML = '<div class="alert success">&#10003; Gespeichert & PDF erstellt!</div>';
   refreshNumbers();
   setTimeout(function(){ SP(typ==='ausgang' ? 'ausgang' : 'eingang'); }, 1500);
@@ -2062,21 +2237,6 @@ function genPDFData(inv) {
     return rows;
   }
 
-  // ── € Ausrichtung: breiteste Zahl vorausberechnen ────────────────
-  doc.setFont('times','normal'); doc.setFontSize(10);
-  var allAmounts = [];
-  carGroups.forEach(function(g) {
-    buildSubRows(g).forEach(function(row) {
-      if (row.type === 'stunden') allAmounts.push(row.it.menge * row.it.preis * (1 + row.it.ust/100));
-      else if (row.type === 'extra') allAmounts.push(row.it.extraBetrag * (1 + (row.it.extraUst!=null?row.it.extraUst:20)/100));
-    });
-  });
-  if (hasMat) allAmounts.push(matAmt);
-  allAmounts.push(nt, va, totalH);
-  var maxNumW = 0;
-  allAmounts.forEach(function(n) { var w = doc.getTextWidth(numFmt(n)); if (w > maxNumW) maxNumW = w; });
-  var xEuro = xR - maxNumW - 6;  // € immer an dieser Position
-
   var tY = 113;
 
   // ── Grauer Hintergrund nur für Header-Zeile ───────────────────────
@@ -2117,13 +2277,13 @@ function genPDFData(inv) {
         doc.text(menge===1?'Arbeitsstunde':'Arbeitsstunden', colFzEnd + 2, rowY);
         doc.text(String(row.it.menge), colAnz, rowY, {align:'center'});
         var lt = row.it.menge * row.it.preis * (1 + row.it.ust/100);
-        doc.text('€', xEuro, rowY);
-        doc.text(numFmt(lt), xR - 2, rowY, {align:'right'});
+        doc.setFont('times','normal');
+        doc.text('€ ' + numFmt(lt), xR - 2, rowY, {align:'right'});
       } else if (row.type === 'extra') {
         var et = row.it.extraBetrag * (1 + (row.it.extraUst!=null?row.it.extraUst:20)/100);
         doc.text((row.it.extraLabel||'').trim(), colFzEnd + 2, rowY);
-        doc.text('€', xEuro, rowY);
-        doc.text(numFmt(et), xR - 2, rowY, {align:'right'});
+        doc.setFont('times','normal');
+        doc.text('€ ' + numFmt(et), xR - 2, rowY, {align:'right'});
       }
     }
     yCur += subRows.length * rowH;
@@ -2133,8 +2293,7 @@ function genPDFData(inv) {
   if (hasMat) {
     doc.setFont('times','normal'); doc.setFontSize(10);
     doc.text(mklbl, colFzEnd + 2, yCur + rowH - 2);
-    doc.text('€', xEuro, yCur + rowH - 2);
-    doc.text(numFmt(matAmt), xR - 2, yCur + rowH - 2, {align:'right'});
+    doc.text('€ ' + numFmt(matAmt), xR - 2, yCur + rowH - 2, {align:'right'});
     yCur += rowH;
   }
 
@@ -2147,28 +2306,27 @@ function genPDFData(inv) {
 
   doc.setFont('times','normal'); doc.setFontSize(10);
   doc.text('Netto',              xL + 2, yNettoY);
-  doc.text('€', xEuro, yNettoY);
-  doc.text(numFmt(nt),    xR - 2, yNettoY, {align:'right'});
-  // Linie unter Netto: volle Breite (Netto bis Betrag)
+  doc.text('€ ' + numFmt(nt),   xR - 2, yNettoY, {align:'right'});
+  // Linie unter Netto: volle Breite
   blackLine();
   doc.line(xL, yNettoY + 1, xR, yNettoY + 1);
 
   doc.text('MwSt. '+ustPct+'%', xL + 2, yMwstY);
-  doc.text('€', xEuro, yMwstY);
-  doc.text(numFmt(va),    xR - 2, yMwstY, {align:'right'});
+  doc.text('€ ' + numFmt(va),   xR - 2, yMwstY, {align:'right'});
   // Linie unter MwSt-Betrag
   blackLine();
-  doc.line(xEuro - 1, yMwstY + 1, xR, yMwstY + 1);
+  var xAmtLeft = xR - 2 - doc.getTextWidth('€ ' + numFmt(va)) - 1;
+  doc.line(xAmtLeft, yMwstY + 1, xR, yMwstY + 1);
 
   doc.setFont('times','bold');
-  doc.text('Gesamtbetrag',  xL + 2, yGesamtY);
-  doc.text('€', xEuro, yGesamtY);
-  doc.text(numFmt(totalH), xR - 2, yGesamtY, {align:'right'});
-  doc.setFont('times','normal');
-  // Doppelte Linie unter Gesamtbetrag
+  doc.text('Gesamtbetrag', xL + 2, yGesamtY);
+  doc.setFont('times','normal');                       // number always normal-weight → commas align
+  doc.text('€ ' + numFmt(totalH), xR - 2, yGesamtY, {align:'right'});
+  // Doppelte Linie unter Gesamtbetrag (starts where the € sign begins)
+  var gesamtAmtW = doc.getTextWidth('€ ' + numFmt(totalH));
   blackLine();
-  doc.line(xEuro - 1, yGesamtY + 1, xR, yGesamtY + 1);
-  doc.line(xEuro - 1, yGesamtY + 2, xR, yGesamtY + 2);
+  doc.line(xR - 2 - gesamtAmtW - 1, yGesamtY + 1, xR, yGesamtY + 1);
+  doc.line(xR - 2 - gesamtAmtW - 1, yGesamtY + 2, xR, yGesamtY + 2);
 
   // ── BEZAHLT IN BAR / BANKOMAT (alle Kassa-Zahlungen) ────────────
   if (inv.zahlungsart === 'kassa') {
@@ -2201,82 +2359,301 @@ function genPDFData(inv) {
   var arPath = inv.zahlungsart === 'kassa'
     ? (localStorage.getItem('bp_path_ar_kassa') || localStorage.getItem('bp_path_ar'))
     : (localStorage.getItem('bp_path_ar_bank')  || localStorage.getItem('bp_path_ar'));
-  savePDFToFolder(doc, filename, arPath, function(){ doc.save(filename); });
+  savePDFToFolder(doc, filename, arPath, function(){ openPDF(doc, filename); });
 }
 
 // ================================================================
 // MITARBEITER
 // ================================================================
+function _maFilterJobs(jobs, s) {
+  if (!s) return jobs;
+  s = s.toLowerCase();
+  return jobs.filter(function(j) {
+    return (j.kunde + ' ' + j.kz + ' ' + j.marke + ' ' + (j.inv.nummer||'') + ' ' + fmtD(j.leistungsdatum)).toLowerCase().indexOf(s) !== -1;
+  });
+}
+
+function _auftragBtn(id) {
+  return '<button class="btn primary" style="padding:3px 8px;font-size:11px;white-space:nowrap" onclick="genArbeitsauftragPDF(getDB().invoices.find(function(x){return x.id===\'' + id + '\'}))">&#128196; Auftrag</button>';
+}
+
+// Sort helpers
+function _maSortJobs(jobs, col, dir) {
+  var sorted = jobs.slice();
+  sorted.sort(function(a, b) {
+    var va, vb;
+    if (col === 'lfd')              { va = a.lfd||0;          vb = b.lfd||0; }
+    else if (col === 'erstellt')    { va = a.inv.datum||'';   vb = b.inv.datum||''; }
+    else if (col === 'leistung')    { va = a.leistungsdatum||''; vb = b.leistungsdatum||''; }
+    else if (col === 'kunde')       { va = (a.kunde||'').toLowerCase(); vb = (b.kunde||'').toLowerCase(); }
+    else if (col === 'marke')       { va = (a.marke||'').toLowerCase(); vb = (b.marke||'').toLowerCase(); }
+    else if (col === 'kz')          { va = (a.kz||'').toLowerCase();    vb = (b.kz||'').toLowerCase(); }
+    else if (col === 'dz')          { va = a.dzTotal||0;      vb = b.dzTotal||0; }
+    else if (col === 'hel')         { va = a.helTotal||0;     vb = b.helTotal||0; }
+    else if (col === 'stunden')     { va = a.stunden||0;      vb = b.stunden||0; }
+    else if (col === 'fzH')        { va = a.fzH||0;          vb = b.fzH||0; }
+    else { va = 0; vb = 0; }
+    if (va < vb) return dir === 'asc' ? -1 : 1;
+    if (va > vb) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+  return sorted;
+}
+
+function _thSort(label, col, active, dir, onclick) {
+  var arrow = active ? (dir === 'asc' ? ' \u2191' : ' \u2193') : '';
+  var style = 'cursor:pointer;user-select:none;white-space:nowrap' + (active ? ';color:var(--primary,#3b7)' : '');
+  // Use single quotes for onclick attr so inner double quotes don't break HTML
+  return '<th style="' + style + '" onclick=\'' + onclick + '\'>' + label + arrow + '</th>';
+}
+
+// Universal table sort state + dispatcher
+if (!window._tableSort) window._tableSort = {};
+function _sortTbl(key, col) {
+  var cur = window._tableSort[key] || {col:'', dir:'asc'};
+  window._tableSort[key] = {col: col, dir: cur.col === col && cur.dir === 'asc' ? 'desc' : 'asc'};
+  // Dispatch to the right render function
+  if (key === 'ausgang' || key === 'eingang') renderTable(key);
+  else if (key === 'angebote') renderKVListe();
+  else if (key === 'kunden')     renderKunden();
+  else if (key === 'fahrzeuge')  renderFahrzeuge();
+  else if (key === 'lieferanten') renderLief();
+  else if (key === 'zahlungen')  renderZ();
+}
+// Shortcut: build a sortable <th> for a given table key
+function _th(key, label, col) {
+  var sort = window._tableSort[key] || {col:'', dir:'asc'};
+  return _thSort(label, col, sort.col === col, sort.dir, '_sortTbl("' + key + '","' + col + '")');
+}
+// Generic sort comparator
+function _cmp(a, b, dir) {
+  if (a < b) return dir === 'asc' ? -1 : 1;
+  if (a > b) return dir === 'asc' ?  1 : -1;
+  return 0;
+}
+
+function renderMaAllJobs(s) {
+  var el = document.getElementById('ma-all-jobs');
+  if (!el) return;
+  var raw = _maFilterJobs(window._maAllJobs || [], s);
+  var sort = window._maSortAll || {col:'lfd', dir:'asc'};
+  var jobs = _maSortJobs(raw, sort.col, sort.dir);
+  if (!jobs.length) { el.innerHTML = '<div class="empty">Keine Aufträge gefunden</div>'; return; }
+
+  function th(label, col) {
+    return _thSort(label, col, sort.col===col, sort.dir, '_maSortAllJobs("'+col+'")');
+  }
+
+  var rows = jobs.map(function(j) {
+    var dzDisp  = j.dzTotal  > 0 ? j.dzTotal.toFixed(1)  + ' h' : '—';
+    var helDisp = j.helTotal > 0 ? j.helTotal.toFixed(1) + ' h' : '—';
+    return '<tr>' +
+      '<td style="white-space:nowrap">' + _auftragBtn(j.inv.id) + '</td>' +
+      '<td style="font-size:11px;color:var(--t3)">' + (j.lfd||'') + '</td>' +
+      '<td>' + fmtD(j.inv.datum) + '</td>' +
+      '<td>' + fmtD(j.leistungsdatum) + '</td>' +
+      '<td>' + esc(j.kunde) + '</td>' +
+      '<td style="font-size:12px">' + esc(j.marke) + '</td>' +
+      '<td class="mono">' + esc(j.kz) + '</td>' +
+      '<td style="font-size:11px">' + dzDisp + '</td>' +
+      '<td style="font-size:11px">' + helDisp + '</td>' +
+    '</tr>';
+  }).join('');
+  el.innerHTML =
+    '<div style="overflow-x:auto;max-height:360px;overflow-y:auto">' +
+    '<table style="min-width:700px"><thead><tr style="position:sticky;top:0;background:var(--bg2,#fff);z-index:1">' +
+    '<th>Auftrag</th>' + th('Lfd.','lfd') + th('Erstellt','erstellt') + th('Leistungsdatum','leistung') +
+    th('Kunde','kunde') + th('Modell','marke') + th('KZ','kz') + th('Dž-Std.','dz') + th('Helmut-Std.','hel') +
+    '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+function _maSortAllJobs(col) {
+  var s = window._maSortAll || {col:'lfd', dir:'asc'};
+  window._maSortAll = {col:col, dir: s.col===col && s.dir==='asc' ? 'desc' : 'asc'};
+  var searchEl = document.getElementById('ma-s-all');
+  renderMaAllJobs(searchEl ? searchEl.value : '');
+}
+
+function renderMaEmpDetail(emp, s, curM, curY) {
+  var el = document.getElementById('ma-' + emp + '-detail');
+  if (!el) return;
+  var raw = _maFilterJobs(window._maStats ? window._maStats[emp].jobs : [], s);
+  var sortKey = '_maSortEmp_' + emp;
+  var sort = window[sortKey] || {col:'lfd', dir:'asc'};
+  var jobs = _maSortJobs(raw, sort.col, sort.dir);
+  if (!jobs.length) { el.innerHTML = '<div class="empty">Keine Einträge gefunden</div>'; return; }
+
+  function th(label, col) {
+    return _thSort(label, col, sort.col===col, sort.dir, '_maSortEmpJobs("'+emp+'","'+col+'")');
+  }
+
+  var total = 0, totalFZ = 0;
+  var rows = jobs.map(function(j, idx) {
+    total += j.stunden; totalFZ += j.fzH;
+    var arbeitStr = j.arbeit.length
+      ? j.arbeit.map(function(a){ return fmtD(a.datum) + ' (' + a.h.toFixed(1) + 'h)'; }).join(', ')
+      : (j.stunden > 0 ? j.stunden.toFixed(1) + ' h' : '—');
+    var fzStr = j.fahrzeit.length
+      ? j.fahrzeit.map(function(a){ return fmtD(a.datum) + ' (' + a.h.toFixed(1) + 'h)'; }).join(', ')
+      : (j.fzH > 0 ? j.fzH.toFixed(1) + ' h' : '—');
+    return '<tr>' +
+      '<td style="white-space:nowrap">' + _auftragBtn(j.inv.id) + '</td>' +
+      '<td style="font-size:11px;color:var(--t3)">' + (j.lfd||idx+1) + '</td>' +
+      '<td>' + fmtD(j.leistungsdatum) + '</td>' +
+      '<td>' + esc(j.kunde) + '</td>' +
+      '<td style="font-size:12px">' + esc(j.marke) + '</td>' +
+      '<td class="mono">' + esc(j.kz) + '</td>' +
+      '<td style="font-size:11px">' + arbeitStr + '</td>' +
+      '<td style="font-size:11px">' + fzStr + '</td>' +
+    '</tr>';
+  }).join('');
+  el.innerHTML =
+    '<div style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:8px">' +
+    '<button class="btn" style="font-size:12px;padding:5px 14px" onclick="genMitarbeiterMonatsExcel(\'' + emp + '\',' + curM + ',' + curY + ')">&#8595; Excel</button>' +
+    '<button class="btn primary" style="font-size:12px;padding:5px 14px" onclick="genMitarbeiterMonatsPDF(\'' + emp + '\',' + curM + ',' + curY + ')">&#8595; PDF</button>' +
+    '</div>' +
+    '<div style="overflow-x:auto"><table style="min-width:650px"><thead><tr>' +
+    '<th>Auftrag</th>' + th('Lfd.','lfd') + th('Leistungsdatum','leistung') +
+    th('Kunde','kunde') + th('Modell','marke') + th('KZ','kz') +
+    th('Arbeitsdaten / Std.','stunden') + th('Fahrzeit','fzH') +
+    '</tr></thead><tbody>' + rows + '</tbody>' +
+    '<tfoot><tr><td colspan="6" style="font-weight:500;padding:8px 10px">Gesamt</td>' +
+    '<td style="font-weight:500;padding:8px 10px">' + total.toFixed(1) + ' h</td>' +
+    '<td style="font-weight:500;padding:8px 10px">' + totalFZ.toFixed(1) + ' h</td></tr></tfoot>' +
+    '</table></div>';
+}
+
+function _maSortEmpJobs(emp, col) {
+  var sortKey = '_maSortEmp_' + emp;
+  var s = window[sortKey] || {col:'lfd', dir:'asc'};
+  window[sortKey] = {col:col, dir: s.col===col && s.dir==='asc' ? 'desc' : 'asc'};
+  var curM = window._maCurM, curY = window._maCurY;
+  var searchEl = document.getElementById('ma-s-' + emp);
+  renderMaEmpDetail(emp, searchEl ? searchEl.value : '', curM, curY);
+}
+
 function renderMitarbeiter(offset) {
   offset = offset || 0;
   var d = getDB();
-  var base = new Date();
-  var targetDate = new Date(base.getFullYear(), base.getMonth() + offset, 1);
+  var targetDate = new Date(new Date().getFullYear(), new Date().getMonth() + offset, 1);
   var curM = targetDate.getMonth(), curY = targetDate.getFullYear();
-
   var MONTHS_MA = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
   var label = document.getElementById('ma-month-label');
   if (label) label.textContent = MONTHS_MA[curM] + ' ' + curY;
-
-  // Store offset for nav buttons
   window._maOffset = offset;
+  // Reset sort state when changing month
+  window._maSortAll = {col:'lfd', dir:'asc'};
+  window._maSortEmp_djevad = {col:'lfd', dir:'asc'};
+  window._maSortEmp_helmut = {col:'lfd', dir:'asc'};
 
-  // Collect hours per employee from AR invoices this month
-  var stats = { djevad: {stunden:0, jobs:[]}, helmut: {stunden:0, jobs:[]} };
+  var allJobs = [];
+  var stats = { djevad: {stunden:0, fahrzeit:0, jobs:[]}, helmut: {stunden:0, fahrzeit:0, jobs:[]} };
 
   d.invoices.forEach(function(inv) {
     if (inv.typ !== 'ausgang') return;
     var dt = new Date(inv.datum);
     if (dt.getMonth() !== curM || dt.getFullYear() !== curY) return;
 
-    var kz = inv.fz_kz || inv.fz_marke || '—';
-    var datum = fmtD(inv.datum);
+    var effKZ    = inv.fz_kz    || (inv.items||[]).map(function(it){return it.fz_kz;}).filter(Boolean)[0]    || '—';
+    var effMarke = inv.fz_marke || (inv.items||[]).map(function(it){return it.fz_marke;}).filter(Boolean)[0] || '';
+    var kundeName = inv.privatkunde ? 'Privatkunde' : (inv.partner_name || '—');
+    var leistungsdatum = inv.leistungsdatum || inv.datum;
 
-    // Per-item employee hours (new system)
-    var djevadH = (inv.items||[]).reduce(function(s,it){ return s + (parseFloat(it.djevad_h)||0); }, 0);
-    var helmutH = (inv.items||[]).reduce(function(s,it){ return s + (parseFloat(it.helmut_h)||0); }, 0);
+    // Per-employee date entries
+    var dzArbeit = [], helArbeit = [], dzFahr = [], helFahr = [];
+    (inv.items||[]).forEach(function(it) {
+      (it.arbeitsdaten||[]).forEach(function(r) {
+        if ((r.djevad_h||0) > 0) dzArbeit.push({datum:r.datum, h:r.djevad_h});
+        if ((r.helmut_h||0) > 0) helArbeit.push({datum:r.datum, h:r.helmut_h});
+      });
+      (it.fahrzeitdaten||[]).forEach(function(r) {
+        if ((r.djevad_h||0) > 0) dzFahr.push({datum:r.datum, h:r.djevad_h});
+        if ((r.helmut_h||0) > 0) helFahr.push({datum:r.datum, h:r.helmut_h});
+      });
+    });
 
-    // Fallback for old invoices without per-item hours: use total hours via invoice flags
-    var totalH = (inv.items||[]).reduce(function(s,it){ return s + (parseFloat(it.menge)||0); }, 0);
+    var djevadH = (inv.items||[]).reduce(function(s,it){ return s+(parseFloat(it.djevad_h)||0); }, 0);
+    var helmutH = (inv.items||[]).reduce(function(s,it){ return s+(parseFloat(it.helmut_h)||0); }, 0);
+    var totalH  = (inv.items||[]).reduce(function(s,it){ return s+(parseFloat(it.menge)||0); }, 0);
+    var effDz  = djevadH > 0 ? djevadH : (inv.flag_djevad ? totalH : 0);
+    var effHel = helmutH > 0 ? helmutH : (inv.flag_helmut ? totalH : 0);
 
-    var effDjevad = djevadH > 0 ? djevadH : (inv.flag_djevad ? totalH : 0);
-    var effHelmut = helmutH > 0 ? helmutH : (inv.flag_helmut ? totalH : 0);
+    // Build combined date-keyed rows for all-jobs PDF
+    var arbDateMap = {}, arbDateOrder = [], fzDateMap = {}, fzDateOrder = [];
+    (inv.items||[]).forEach(function(it) {
+      (it.arbeitsdaten||[]).forEach(function(r) {
+        if (!r.datum) return;
+        if (!arbDateMap[r.datum]) { arbDateMap[r.datum] = {dz:0, hel:0}; arbDateOrder.push(r.datum); }
+        arbDateMap[r.datum].dz  += parseFloat(r.djevad_h)||0;
+        arbDateMap[r.datum].hel += parseFloat(r.helmut_h)||0;
+      });
+      (it.fahrzeitdaten||[]).forEach(function(r) {
+        if (!r.datum) return;
+        if (!fzDateMap[r.datum]) { fzDateMap[r.datum] = {dz:0, hel:0}; fzDateOrder.push(r.datum); }
+        fzDateMap[r.datum].dz  += parseFloat(r.djevad_h)||0;
+        fzDateMap[r.datum].hel += parseFloat(r.helmut_h)||0;
+      });
+    });
+    var arbRows = arbDateOrder.map(function(d){ return {datum:d, dz:arbDateMap[d].dz, hel:arbDateMap[d].hel}; });
+    var fzRows  = fzDateOrder.map(function(d){ return {datum:d, dz:fzDateMap[d].dz, hel:fzDateMap[d].hel}; });
+    if (!arbRows.length && (effDz > 0 || effHel > 0))
+      arbRows.push({datum:leistungsdatum, dz:effDz, hel:effHel});
 
-    if (effDjevad > 0) {
-      stats.djevad.stunden += effDjevad;
-      stats.djevad.jobs.push({datum:datum, kz:kz, stunden:effDjevad, nr:inv.nummer});
+    allJobs.push({inv:inv, kunde:kundeName, marke:effMarke, kz:effKZ, leistungsdatum:leistungsdatum,
+      dzTotal:effDz, helTotal:effHel, arbRows:arbRows, fzRows:fzRows});
+
+    var fzH  = dzFahr.reduce(function(s,r){return s+r.h;}, 0);
+    var fzH2 = helFahr.reduce(function(s,r){return s+r.h;}, 0);
+    if (effDz > 0 || dzArbeit.length) {
+      stats.djevad.stunden  += effDz;
+      stats.djevad.fahrzeit += fzH;
+      stats.djevad.jobs.push({inv:inv, kunde:kundeName, marke:effMarke, kz:effKZ, leistungsdatum:leistungsdatum,
+        stunden:effDz, arbeit:dzArbeit, fahrzeit:dzFahr, fzH:fzH});
     }
-    if (effHelmut > 0) {
-      stats.helmut.stunden += effHelmut;
-      stats.helmut.jobs.push({datum:datum, kz:kz, stunden:effHelmut, nr:inv.nummer});
+    if (effHel > 0 || helArbeit.length) {
+      stats.helmut.stunden  += effHel;
+      stats.helmut.fahrzeit += fzH2;
+      stats.helmut.jobs.push({inv:inv, kunde:kundeName, marke:effMarke, kz:effKZ, leistungsdatum:leistungsdatum,
+        stunden:effHel, arbeit:helArbeit, fahrzeit:helFahr, fzH:fzH2});
     }
   });
 
-  // Metrics
+  // Assign Lfd. number by creation order (oldest = 1) before reversing for display
+  allJobs.sort(function(a,b){ return new Date(a.inv.datum) - new Date(b.inv.datum); });
+  allJobs.forEach(function(j, i){ j.lfd = i + 1; });
+  // Newest first for display
+  allJobs.sort(function(a,b){ return new Date(b.inv.datum) - new Date(a.inv.datum); });
+
+  // Assign lfd to employee jobs too (oldest=1 per employee, within the month)
+  ['djevad','helmut'].forEach(function(emp) {
+    stats[emp].jobs.sort(function(a,b){ return new Date(a.inv.datum) - new Date(b.inv.datum); });
+    stats[emp].jobs.forEach(function(j,i){ j.lfd = i+1; });
+    stats[emp].jobs.sort(function(a,b){ return new Date(b.inv.datum) - new Date(a.inv.datum); });
+  });
+
+  window._maAllJobs = allJobs;
+  window._maStats   = stats;
+  window._maCurM    = curM;
+  window._maCurY    = curY;
+
   document.getElementById('ma-metrics').innerHTML =
     '<div class="metric"><div class="lbl">Monat</div><div class="val" style="font-size:15px">' + MONTHS_MA[curM] + ' ' + curY + '</div></div>' +
     '<div class="metric green"><div class="lbl">Dževad — Stunden</div><div class="val">' + stats.djevad.stunden.toFixed(1) + ' h</div></div>' +
     '<div class="metric green"><div class="lbl">Helmut — Stunden</div><div class="val">' + stats.helmut.stunden.toFixed(1) + ' h</div></div>' +
     '<div class="metric"><div class="lbl">Gesamt Stunden</div><div class="val">' + (stats.djevad.stunden + stats.helmut.stunden).toFixed(1) + ' h</div></div>';
 
-  // Detail tables
-  function buildDetail(jobs) {
-    if (!jobs.length) return '<div class="empty">Keine Einträge</div>';
-    var rows = jobs.map(function(j) {
-      return '<tr><td>' + j.datum + '</td><td class="mono">' + esc(j.kz) + '</td>' +
-             '<td style="text-align:right">' + j.stunden.toFixed(1) + ' h</td>' +
-             '<td class="mono" style="font-size:11px;color:var(--t3)">' + esc(j.nr) + '</td></tr>';
-    }).join('');
-    var total = jobs.reduce(function(s,j){ return s+j.stunden; }, 0);
-    return '<table><thead><tr><th>Datum</th><th>Kennzeichen</th><th style="text-align:right">Stunden</th><th>Rech.Nr.</th></tr></thead>' +
-           '<tbody>' + rows + '</tbody>' +
-           '<tfoot><tr><td colspan="2" style="font-weight:500;padding:8px 10px">Gesamt</td><td style="text-align:right;font-weight:500;padding:8px 10px">' + total.toFixed(1) + ' h</td><td></td></tr></tfoot></table>';
-  }
+  renderMaAllJobs('');
+  renderMaEmpDetail('djevad', '', curM, curY);
+  renderMaEmpDetail('helmut', '', curM, curY);
 
-  document.getElementById('ma-djevad-detail').innerHTML = buildDetail(stats.djevad.jobs);
-  document.getElementById('ma-helmut-detail').innerHTML = buildDetail(stats.helmut.jobs);
+  // Wire search inputs
+  var saEl = document.getElementById('ma-s-all');
+  if (saEl) { saEl.value = ''; saEl.oninput = function(){ renderMaAllJobs(this.value); }; }
+  var sdEl = document.getElementById('ma-s-djevad');
+  if (sdEl) { sdEl.value = ''; sdEl.oninput = function(){ renderMaEmpDetail('djevad', this.value, curM, curY); }; }
+  var shEl = document.getElementById('ma-s-helmut');
+  if (shEl) { shEl.value = ''; shEl.oninput = function(){ renderMaEmpDetail('helmut', this.value, curM, curY); }; }
 
-  // Wire nav buttons
   var btnPrev = document.getElementById('ma-prev');
   var btnNext = document.getElementById('ma-next');
   if (btnPrev) btnPrev.onclick = function(){ renderMitarbeiter((window._maOffset||0) - 1); };
@@ -2284,16 +2661,450 @@ function renderMitarbeiter(offset) {
     var next = (window._maOffset||0) + 1;
     if (next <= 0) renderMitarbeiter(next);
   };
-  // Disable next if at current month
   if (btnNext) btnNext.disabled = offset >= 0;
+
+  var btnAllPDF = document.getElementById('btn-all-jobs-pdf');
+  if (btnAllPDF) btnAllPDF.onclick = function(){ genAllJobsPDF(curM, curY); };
+  var btnAllXLS = document.getElementById('btn-all-jobs-excel');
+  if (btnAllXLS) btnAllXLS.onclick = function(){ genAllJobsExcel(curM, curY); };
+}
+
+// ── Shared PDF split-table helper ────────────────────────────────
+// Left columns span all sub-rows; right columns repeat per date-entry.
+// opts: { doc, mL, pw, y, topY, pageH, leftCols, rightCols, headers,
+//         rows:[{left:[...], subrows:[[...],...]}, ...], fontSize, headerH, subRowH }
+function _pdfSplitTable(opts) {
+  var doc = opts.doc, mL = opts.mL, pw = opts.pw;
+  var pageH = opts.pageH || 190, topY = opts.topY || 20;
+  var lC = opts.leftCols, rC = opts.rightCols;
+  var lW = lC.reduce(function(a,b){return a+b;},0);
+  var allCols = lC.concat(rC);
+  var headers = opts.headers;
+  var fs = opts.fontSize || 8, hH = opts.headerH || 7, srH = opts.subRowH || 6;
+  var y = opts.y;
+
+  function cell(txt, x, cy, w, h) {
+    doc.setDrawColor(175,175,170); doc.setLineWidth(0.25);
+    doc.rect(x, cy, w, h, 'S');
+    if (txt !== '' && txt != null) {
+      var lines = doc.splitTextToSize(String(txt), w - 2.5);
+      doc.text(lines, x + 1.5, cy + 3.8);
+    }
+  }
+
+  function header(yy) {
+    doc.setFillColor(220, 220, 215);
+    doc.rect(mL, yy, pw, hH, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(fs);
+    doc.setDrawColor(140,140,135); doc.setLineWidth(0.3);
+    doc.rect(mL, yy, pw, hH, 'S');
+    var cx = mL;
+    headers.forEach(function(h, i) {
+      if (i > 0) doc.line(cx, yy, cx, yy + hH);
+      doc.text(h, cx + 1.5, yy + hH * 0.68);
+      cx += allCols[i];
+    });
+    return yy + hH;
+  }
+
+  y = header(y);
+  doc.setFont('helvetica','normal'); doc.setFontSize(fs);
+
+  opts.rows.forEach(function(row, ri) {
+    var subs = row.subrows.length || 1;
+    var totalH = subs * srH;
+    if (y + totalH > pageH) { doc.addPage(); y = topY; y = header(y); doc.setFont('helvetica','normal'); doc.setFontSize(fs); }
+    if (ri % 2 === 1) { doc.setFillColor(247,247,244); doc.rect(mL, y, pw, totalH, 'F'); }
+    // Left cells – full height
+    var cx = mL;
+    row.left.forEach(function(txt, i) { cell(txt, cx, y, lC[i], totalH); cx += lC[i]; });
+    // Right cells – one sub-row per date
+    for (var si = 0; si < subs; si++) {
+      var sy = y + si * srH, rx = mL + lW;
+      var sr = row.subrows[si] || [];
+      rC.forEach(function(w, ri2) { cell(sr[ri2] != null ? sr[ri2] : '', rx, sy, w, srH); rx += w; });
+    }
+    y += totalH;
+  });
+  return y;
+}
+
+// ── PDF 1: Monatsaufstellung pro Mitarbeiter ──────────────────────
+function genMitarbeiterMonatsPDF(emp, curM, curY) {
+  var MONTHS_LONG = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+  var empName = emp === 'djevad' ? 'Dževad' : 'Helmut';
+  var stats = window._maStats;
+  if (!stats) return alert('Bitte zuerst die Mitarbeiter-Seite laden.');
+  var jobs = stats[emp].jobs;
+
+  // Landscape A4: 297-30 = 267mm usable
+  // Left: Nr(8)+Datum(24)+Kunde(60)+Modell(42)+KZ(22) = 156
+  // Right: ArbDatum(28)+ArbStd(20)+FZDatum(28)+FZStd(20) = 96  → total 252... add 15 → Kunde 75
+  // Nr(8)+Datum(24)+Kunde(70)+Modell(42)+KZ(22)=166  Right: 26+20+26+20+9(pad)=101 → 267 ok
+  // Simpler: Nr(8)+Datum(24)+Kunde(68)+Modell(40)+KZ(21)=161  Right:ArbD(28)+ArbH(21)+FZD(28)+FZH(21)=98 → 259
+  // Final: Nr(8)+Datum(24)+Kunde(70)+Modell(40)+KZ(22)=164  Right:ArbD(28)+ArbH(20)+FZD(28)+FZH(20)+Spc(7)=103 → 267
+  // Keep simple: lC+rC = 267
+  var lC = [8, 24, 70, 40, 22];      // Nr, Datum, Kunde, Modell, KZ  → sum=164
+  var rC = [28, 21, 28, 21, 5];      // ArbDatum, ArbStd, FZDatum, FZStd, pad → sum=103 → 267
+  var pw = 267;
+  var headers = ['Nr.', 'Datum', 'Kunde', 'Modell', 'KZ', 'Arb.datum', 'Arb. h', 'FZ-Datum', 'FZ h', ''];
+
+  var doc = new window.jspdf.jsPDF({unit:'mm', format:'a4', orientation:'landscape'});
+  var mL = 15, y = 20;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(14);
+  doc.text('Monatsaufstellung – ' + empName, mL, y); y += 7;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.text(MONTHS_LONG[curM] + ' ' + curY, mL, y); y += 8;
+
+  var tableRows = jobs.map(function(j, idx) {
+    var subs = Math.max(j.arbeit.length, j.fahrzeit.length, 1);
+    var subrows = [];
+    for (var si = 0; si < subs; si++) {
+      var a = j.arbeit[si], f = j.fahrzeit[si];
+      subrows.push([
+        a ? fmtD(a.datum) : '',
+        a ? a.h.toFixed(1) : '',
+        f ? fmtD(f.datum)  : '',
+        f ? f.h.toFixed(1) : '',
+        ''
+      ]);
+    }
+    // Fallback: no detail rows, use totals
+    if (!j.arbeit.length && !j.fahrzeit.length) {
+      subrows = [[
+        j.stunden > 0 ? fmtD(j.leistungsdatum) : '',
+        j.stunden > 0 ? j.stunden.toFixed(1) : '',
+        j.fzH > 0    ? fmtD(j.leistungsdatum) : '',
+        j.fzH > 0    ? j.fzH.toFixed(1) : '',
+        ''
+      ]];
+    }
+    return {left:[idx+1, fmtD(j.leistungsdatum), j.kunde||'—', j.marke||'—', j.kz||'—'], subrows:subrows};
+  });
+
+  y = _pdfSplitTable({doc:doc, mL:mL, pw:pw, y:y, topY:20, pageH:190,
+    leftCols:lC, rightCols:rC, headers:headers, rows:tableRows, fontSize:8, headerH:7, subRowH:6});
+
+  y += 5;
+  doc.setFont('helvetica','bold'); doc.setFontSize(9);
+  doc.text('Gesamt Arbeitszeit: ' + stats[emp].stunden.toFixed(1) + ' h', mL, y); y += 5;
+  doc.text('Gesamt Fahrzeit: '    + stats[emp].fahrzeit.toFixed(1) + ' h', mL, y);
+
+  openPDF(doc, 'Monatsaufstellung_' + empName + '_' + MONTHS_LONG[curM] + '_' + curY + '.pdf');
+}
+
+function genMitarbeiterMonatsExcel(emp, curM, curY) {
+  var MONTHS_LONG = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+  var empName = emp === 'djevad' ? 'Dževad' : 'Helmut';
+  var stats = window._maStats;
+  if (!stats) return alert('Bitte zuerst die Mitarbeiter-Seite laden.');
+  var jobs = stats[emp].jobs;
+  var rows = [['Nr.', 'Leistungsdatum', 'Kunde', 'Modell', 'KZ', 'Arbeitsdatum', 'Arb. h', 'FZ-Datum', 'FZ h']];
+  jobs.forEach(function(j, idx) {
+    var subs = Math.max(j.arbeit.length, j.fahrzeit.length, 1);
+    for (var si = 0; si < subs; si++) {
+      var a = j.arbeit[si], f = j.fahrzeit[si];
+      var isFirst = si === 0;
+      rows.push([
+        isFirst ? idx+1 : '',
+        isFirst ? fmtD(j.leistungsdatum) : '',
+        isFirst ? (j.kunde||'—') : '',
+        isFirst ? (j.marke||'—') : '',
+        isFirst ? (j.kz||'—') : '',
+        a ? fmtD(a.datum) : (isFirst && j.stunden > 0 ? fmtD(j.leistungsdatum) : ''),
+        a ? a.h.toFixed(1) : (isFirst && j.stunden > 0 ? j.stunden.toFixed(1) : ''),
+        f ? fmtD(f.datum)  : (isFirst && j.fzH > 0 ? fmtD(j.leistungsdatum) : ''),
+        f ? f.h.toFixed(1) : (isFirst && j.fzH > 0 ? j.fzH.toFixed(1) : '')
+      ]);
+    }
+  });
+  rows.push(['', '', '', '', 'Gesamt', '', stats[emp].stunden.toFixed(1), '', stats[emp].fahrzeit.toFixed(1)]);
+  var csv = toCSV(rows);
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8;'}));
+  a.download = 'Monatsaufstellung_' + empName + '_' + MONTHS_LONG[curM] + '_' + curY + '.csv';
+  a.click();
+}
+
+function genAllJobsPDF(curM, curY) {
+  var MONTHS_LONG = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+  var jobs = window._maAllJobs;
+  if (!jobs) return alert('Bitte zuerst die Mitarbeiter-Seite laden.');
+
+  // Landscape A4: 267mm usable
+  // Left: Nr(8)+Datum(24)+Kunde(60)+Modell(38)+KZ(21) = 151
+  // Right: ArbD(26)+Dz(18)+Hel(18)+FZD(26)+DzFZ(15)+HelFZ(13) = 116 → 267
+  var lC = [8, 24, 60, 38, 21];
+  var rC = [26, 18, 18, 26, 15, 13];
+  var pw = 267;
+  var headers = ['Nr.', 'Datum', 'Kunde', 'Modell', 'KZ', 'Arb.datum', 'Dž h', 'Hel h', 'FZ-Datum', 'Dž-FZ', 'Hel-FZ'];
+
+  var doc = new window.jspdf.jsPDF({unit:'mm', format:'a4', orientation:'landscape'});
+  var mL = 15, y = 20;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(14);
+  doc.text('Alle Aufträge – ' + MONTHS_LONG[curM] + ' ' + curY, mL, y); y += 7;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.text('Erstellt: ' + fmtD(new Date().toISOString().split('T')[0]), mL, y); y += 8;
+
+  var tableRows = jobs.map(function(j) {
+    var subs = Math.max(j.arbRows.length, j.fzRows.length, 1);
+    var subrows = [];
+    for (var si = 0; si < subs; si++) {
+      var a = j.arbRows[si], f = j.fzRows[si];
+      subrows.push([
+        a ? fmtD(a.datum) : '',
+        a && a.dz  > 0 ? a.dz.toFixed(1)  : '',
+        a && a.hel > 0 ? a.hel.toFixed(1) : '',
+        f ? fmtD(f.datum)  : '',
+        f && f.dz  > 0 ? f.dz.toFixed(1)  : '',
+        f && f.hel > 0 ? f.hel.toFixed(1) : ''
+      ]);
+    }
+    return {left:[j.lfd||'', fmtD(j.leistungsdatum), j.kunde||'—', j.marke||'—', j.kz||'—'], subrows:subrows};
+  });
+
+  y = _pdfSplitTable({doc:doc, mL:mL, pw:pw, y:y, topY:20, pageH:190,
+    leftCols:lC, rightCols:rC, headers:headers, rows:tableRows, fontSize:8, headerH:7, subRowH:6});
+
+  y += 5;
+  var totalDz  = jobs.reduce(function(s,j){ return s+j.dzTotal;  }, 0);
+  var totalHel = jobs.reduce(function(s,j){ return s+j.helTotal; }, 0);
+  doc.setFont('helvetica','bold'); doc.setFontSize(9);
+  doc.text('Gesamt Dž: ' + totalDz.toFixed(1) + ' h    Gesamt Helmut: ' + totalHel.toFixed(1) + ' h', mL, y);
+
+  openPDF(doc, 'Alle_Auftraege_' + MONTHS_LONG[curM] + '_' + curY + '.pdf');
+}
+
+function genAllJobsExcel(curM, curY) {
+  var MONTHS_LONG = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+  var jobs = window._maAllJobs;
+  if (!jobs) return alert('Bitte zuerst die Mitarbeiter-Seite laden.');
+  var rows = [['Nr.', 'Leistungsdatum', 'Kunde', 'Modell', 'KZ', 'Arbeitsdatum', 'Dž h', 'Helmut h', 'FZ-Datum', 'Dž-FZ', 'Hel-FZ']];
+  jobs.forEach(function(j) {
+    var subs = Math.max(j.arbRows.length, j.fzRows.length, 1);
+    for (var si = 0; si < subs; si++) {
+      var a = j.arbRows[si], f = j.fzRows[si];
+      var isFirst = si === 0;
+      rows.push([
+        isFirst ? (j.lfd||'') : '',
+        isFirst ? fmtD(j.leistungsdatum) : '',
+        isFirst ? (j.kunde||'—') : '',
+        isFirst ? (j.marke||'—') : '',
+        isFirst ? (j.kz||'—') : '',
+        a ? fmtD(a.datum) : '',
+        a && a.dz  > 0 ? a.dz.toFixed(1)  : '',
+        a && a.hel > 0 ? a.hel.toFixed(1) : '',
+        f ? fmtD(f.datum)  : '',
+        f && f.dz  > 0 ? f.dz.toFixed(1)  : '',
+        f && f.hel > 0 ? f.hel.toFixed(1) : ''
+      ]);
+    }
+  });
+  var totalDz  = jobs.reduce(function(s,j){ return s+j.dzTotal;  }, 0);
+  var totalHel = jobs.reduce(function(s,j){ return s+j.helTotal; }, 0);
+  rows.push(['', '', '', '', 'Gesamt', '', totalDz.toFixed(1), totalHel.toFixed(1), '', '', '']);
+  var csv = toCSV(rows);
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8;'}));
+  a.download = 'Alle_Auftraege_' + MONTHS_LONG[curM] + '_' + curY + '.csv';
+  a.click();
+}
+
+// ── PDF 2: Arbeitsauftrag (A5) ────────────────────────────────────
+function fmtShortDate(s) {
+  if (!s) return '';
+  try { var d = new Date(s); return d.getDate() + '.' + (d.getMonth()+1) + '.'; } catch(e) { return s; }
+}
+
+function fmtHoursF(h) {
+  h = parseFloat(h) || 0;
+  if (!h) return '';
+  var whole = Math.floor(h);
+  var frac = Math.round((h - whole) * 100) / 100;
+  var fracStr = frac > 0.01 && frac < 0.13 ? '1/8'
+    : frac >= 0.13 && frac < 0.38 ? '1/4'
+    : frac >= 0.38 && frac < 0.63 ? '1/2'
+    : frac >= 0.63 && frac < 0.88 ? '3/4'
+    : frac >= 0.88 ? '' : '';
+  if (fracStr && frac >= 0.88) whole++;
+  if (whole === 0) return fracStr || h.toString();
+  return fracStr ? whole + ' ' + fracStr : String(whole);
+}
+
+function genArbeitsauftragPDF(inv) {
+  if (!inv) return;
+  var doc = new window.jspdf.jsPDF({unit:'mm', format:'a5', orientation:'portrait'});
+  var mL = 10, pw = 128, y = 12;
+
+  // ARBEITSAUFTRAG centered
+  doc.setFont('helvetica','bold'); doc.setFontSize(13);
+  doc.text('ARBEITSAUFTRAG', mL + pw/2, y, {align:'center'}); y += 8;
+
+  // Datum + Auto on same line
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.text('Datum:', mL, y);
+  doc.setFont('helvetica','bold');
+  doc.text(fmtD(inv.leistungsdatum || inv.datum), mL + 14, y);
+  doc.setFont('helvetica','normal');
+  doc.text('Auto:', mL + 55, y);
+  doc.setFont('helvetica','bold');
+  doc.text(inv.fz_marke || '—', mL + 65, y);
+  doc.setFont('helvetica','normal'); y += 6;
+
+  // Material line
+  doc.text('Material:', mL, y);
+  doc.setDrawColor(150,150,150); doc.setLineWidth(0.3);
+  doc.line(mL + 18, y + 0.5, mL + pw, y + 0.5); y += 7;
+
+  // KZ centered bold
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.text(inv.fz_kz || '—', mL + pw/2, y, {align:'center'}); y += 6;
+
+  // Customer centered
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  var kundName = inv.privatkunde
+    ? ('P/' + (inv.partner_name || 'Privatkunde'))
+    : (inv.partner_name || '—');
+  doc.text(kundName, mL + pw/2, y, {align:'center'}); y += 5;
+
+  // Separator before table
+  doc.setDrawColor(130,130,130); doc.setLineWidth(0.4);
+  doc.line(mL, y, mL + pw, y); y += 2;
+
+  // ── Table ────────────────────────────────────────────────────────
+  // 4 sections × 2 sub-cols: Dz(h|date), Hel(h|date), empty, empty
+  var tL = mL, tW = pw;
+  var nSec = 4, secW = tW / nSec, subW = secW / 2;
+  var empLabels = ['Dz', 'Hel', '', ''];
+  var headerH = 6;
+
+  // Header row
+  doc.setFillColor(225, 225, 220);
+  doc.rect(tL, y, tW, headerH, 'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(9);
+  doc.setDrawColor(130,130,130); doc.setLineWidth(0.4);
+  for (var s = 0; s < nSec; s++) {
+    var sx = tL + s * secW;
+    doc.line(sx, y, sx, y + headerH);
+    if (empLabels[s]) doc.text(empLabels[s], sx + secW/2, y + 4, {align:'center'});
+  }
+  doc.line(tL + tW, y, tL + tW, y + headerH);
+  doc.line(tL, y, tL + tW, y);
+  doc.line(tL, y + headerH, tL + tW, y + headerH);
+  y += headerH;
+
+  // ── Collect arbeitsdaten: one row per date, both employees ────────
+  // Merge entries by date across all items
+  var dateMap = {}, dateOrder = [];
+  (inv.items||[]).forEach(function(it) {
+    (it.arbeitsdaten||[]).forEach(function(r) {
+      if (!r.datum) return;
+      if (!dateMap[r.datum]) { dateMap[r.datum] = {dz:0, hel:0}; dateOrder.push(r.datum); }
+      dateMap[r.datum].dz  += parseFloat(r.djevad_h) || 0;
+      dateMap[r.datum].hel += parseFloat(r.helmut_h) || 0;
+    });
+  });
+  var arbeitRows = dateOrder.map(function(d){ return {datum:d, dz:dateMap[d].dz, hel:dateMap[d].hel}; });
+
+  // Fallback: no arbeitsdaten → use Leistungsdatum + total item hours
+  if (!arbeitRows.length) {
+    var dzTot  = (inv.items||[]).reduce(function(s,it){ return s+(parseFloat(it.djevad_h)||0); }, 0);
+    var helTot = (inv.items||[]).reduce(function(s,it){ return s+(parseFloat(it.helmut_h)||0); }, 0);
+    if (dzTot > 0 || helTot > 0)
+      arbeitRows.push({datum: inv.leistungsdatum||inv.datum, dz:dzTot, hel:helTot});
+  }
+
+  // Table rows: fill page
+  var notizH = 12;
+  var availH = 200 - y - notizH;
+  var minRows = 18;
+  var totalRows = Math.max(arbeitRows.length + 2, minRows);
+  var rowH = Math.min(6.5, availH / totalRows);
+
+  // F circle: bottom-left area
+  var fRow = Math.floor(totalRows * 0.65);
+  var fCx  = tL + secW * 0.35;
+  var fCy  = y + fRow * rowH + rowH / 2;
+  var fR   = Math.min(secW * 0.28, rowH * 1.5);
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(8);
+  for (var ri = 0; ri < totalRows; ri++) {
+    var ry = y + ri * rowH;
+
+    // F circle
+    if (ri === fRow) {
+      doc.setDrawColor(60,60,60); doc.setLineWidth(0.5);
+      doc.circle(fCx, fCy, fR);
+      doc.setFont('helvetica','bold'); doc.setFontSize(fR * 1.5);
+      doc.text('F', fCx, fCy + fR * 0.55, {align:'center'});
+      doc.setFont('helvetica','normal'); doc.setFontSize(8);
+      doc.setLineWidth(0.25); doc.setDrawColor(150,150,150);
+    }
+
+    // Data: one row per date entry
+    if (ri < arbeitRows.length) {
+      var row = arbeitRows[ri];
+      var textY = ry + rowH * 0.65;
+      // Dz section: hours | date — only if Dz worked that day
+      if (row.dz > 0) {
+        doc.text(fmtHoursF(row.dz), tL + 1, textY);
+        doc.text(fmtShortDate(row.datum), tL + subW + 1, textY);
+      }
+      // Hel section: hours | date — only if Hel worked that day
+      if (row.hel > 0) {
+        doc.text(fmtHoursF(row.hel), tL + secW + 1, textY);
+        doc.text(fmtShortDate(row.datum), tL + secW + subW + 1, textY);
+      }
+    }
+
+    // Row lines
+    doc.setLineWidth(0.2); doc.setDrawColor(170,170,165);
+    doc.line(tL, ry, tL + tW, ry);
+    for (var ss = 0; ss < nSec; ss++) {
+      var ssx = tL + ss * secW;
+      doc.setLineWidth(0.35); doc.setDrawColor(130,130,130);
+      doc.line(ssx, ry, ssx, ry + rowH);
+      doc.setLineWidth(0.15); doc.setDrawColor(190,190,185);
+      doc.line(ssx + subW, ry, ssx + subW, ry + rowH);
+    }
+    doc.setLineWidth(0.35); doc.setDrawColor(130,130,130);
+    doc.line(tL + tW, ry, tL + tW, ry + rowH);
+  }
+  var tBottom = y + totalRows * rowH;
+  doc.setLineWidth(0.4); doc.setDrawColor(130,130,130);
+  doc.line(tL, tBottom, tL + tW, tBottom);
+
+  // ── Notiz ────────────────────────────────────────────────────────
+  var notizY = tBottom + 5;
+  var noteStr = (inv.items||[]).filter(function(it){ return it.titel; })
+    .map(function(it){ return it.titel; }).join(', ');
+  if (!noteStr) noteStr = inv.notizen || '';
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.text('Notiz: ', mL, notizY);
+  doc.setFont('helvetica','bold');
+  doc.text(noteStr, mL + 13, notizY);
+  doc.setLineWidth(0.3); doc.setDrawColor(150,150,150);
+  doc.line(mL + 13, notizY + 0.5, mL + pw, notizY + 0.5);
+
+  openPDF(doc, 'Arbeitsauftrag_' + (inv.nummer||'neu') + '.pdf');
 }
 
 
 function renderKunden() {
   var d = getDB(), el = document.getElementById('tbl-kunden');
   var s = (document.getElementById('s-kunden')||{value:''}).value.toLowerCase();
-  var kunden = s ? d.kunden.filter(function(k){ return (k.name+' '+(k.adresse||'')+(k.email||'')).toLowerCase().indexOf(s)!==-1; }) : d.kunden;
+  var kunden = s ? d.kunden.filter(function(k){ return (k.name+' '+(k.adresse||'')+(k.email||'')).toLowerCase().indexOf(s)!==-1; }) : d.kunden.slice();
   if (!kunden.length) { el.innerHTML = '<div class="empty">Keine Kunden gefunden</div>'; return; }
+  var sort = window._tableSort['kunden'] || {col:'name', dir:'asc'};
+  kunden = kunden.slice().sort(function(a,b){
+    var va, vb;
+    if      (sort.col==='name')   { va=(a.name||'').toLowerCase(); vb=(b.name||'').toLowerCase(); }
+    else if (sort.col==='email')  { va=(a.email||'').toLowerCase(); vb=(b.email||'').toLowerCase(); }
+    else                          { va=(a.name||'').toLowerCase(); vb=(b.name||'').toLowerCase(); }
+    return _cmp(va, vb, sort.dir);
+  });
   var rows = kunden.map(function(k){
     var autos = d.fahrzeuge.filter(function(f){ return f.kundeId===k.id; });
     var badges = autos.map(function(a){ return '<span class="badge blue" style="margin:1px">&#128663; ' + esc(a.kennzeichen||a.marke||'Auto') + '</span>'; }).join(' ');
@@ -2309,7 +3120,10 @@ function renderKunden() {
         '<button class="btn danger" style="padding:4px 8px;font-size:11px" data-action="del" data-id="' + k.id + '">Löschen</button>' +
       '</td></tr>';
   }).join('');
-  el.innerHTML = '<table><thead><tr><th>Name</th><th>Adresse</th><th>Fahrzeuge</th><th>E-Mail</th><th>Aktion</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  el.innerHTML = '<table><thead><tr>' +
+    _th('kunden','Name','name') + '<th>Adresse</th><th>Fahrzeuge</th>' +
+    _th('kunden','E-Mail','email') + '<th>Aktion</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>';
   el.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if (this.dataset.action === 'edit')  editKunde(this.dataset.id);
@@ -2369,8 +3183,19 @@ function delKunde(id) {
 function renderFahrzeuge() {
   var d = getDB(), el = document.getElementById('tbl-fahrzeuge');
   var s = (document.getElementById('s-fahrzeuge')||{value:''}).value.toLowerCase();
-  var fzList = s ? d.fahrzeuge.filter(function(f){ return ((f.kennzeichen||'')+(f.marke||'')+(f.kundeName||'')).toLowerCase().indexOf(s)!==-1; }) : d.fahrzeuge;
+  var fzList = s ? d.fahrzeuge.filter(function(f){ return ((f.kennzeichen||'')+(f.marke||'')+(f.kundeName||'')).toLowerCase().indexOf(s)!==-1; }) : d.fahrzeuge.slice();
   if (!fzList.length) { el.innerHTML = '<div class="empty">Keine Fahrzeuge gefunden</div>'; return; }
+  var sort = window._tableSort['fahrzeuge'] || {col:'kz', dir:'asc'};
+  fzList = fzList.slice().sort(function(a,b){
+    var va, vb;
+    if      (sort.col==='kz')     { va=(a.kennzeichen||'').toLowerCase(); vb=(b.kennzeichen||'').toLowerCase(); }
+    else if (sort.col==='marke')  { va=(a.marke||'').toLowerCase(); vb=(b.marke||'').toLowerCase(); }
+    else if (sort.col==='vin')    { va=(a.vin||'').toLowerCase(); vb=(b.vin||'').toLowerCase(); }
+    else if (sort.col==='erst')   { va=a.erstzulassung||''; vb=b.erstzulassung||''; }
+    else if (sort.col==='kunde')  { va=(a.kundeName||'').toLowerCase(); vb=(b.kundeName||'').toLowerCase(); }
+    else                          { va=(a.kennzeichen||'').toLowerCase(); vb=(b.kennzeichen||'').toLowerCase(); }
+    return _cmp(va, vb, sort.dir);
+  });
   var rows = fzList.map(function(f){
     var kzCount = d.invoices.filter(function(i){ return i.typ==='ausgang' && i.fz_kz && i.fz_kz.trim().toUpperCase() === (f.kennzeichen||'').trim().toUpperCase(); }).length;
     var kzBadge = kzCount > 0 ? ' <span class="badge blue" style="font-size:10px">'+kzCount+' Rechnungen</span>' : '';
@@ -2383,7 +3208,11 @@ function renderFahrzeuge() {
       '<td style="white-space:nowrap"><button class="btn" style="padding:4px 8px;font-size:11px" data-action="edit" data-id="' + f.id + '">&#9998;</button> <button class="btn danger" style="padding:4px 8px;font-size:11px" data-action="del" data-id="' + f.id + '">Löschen</button></td>' +
     '</tr>';
   }).join('');
-  el.innerHTML = '<table><thead><tr><th>Kennzeichen</th><th>Marke / Modell</th><th>VIN</th><th>Erstzulassung</th><th>Kunde</th><th>Aktion</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  el.innerHTML = '<table><thead><tr>' +
+    _th('fahrzeuge','Kennzeichen','kz') + _th('fahrzeuge','Marke / Modell','marke') +
+    _th('fahrzeuge','VIN','vin') + _th('fahrzeuge','Erstzulassung','erst') +
+    _th('fahrzeuge','Kunde','kunde') + '<th>Aktion</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>';
   el.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if(this.dataset.action==='edit') editFz(this.dataset.id);
@@ -2479,13 +3308,24 @@ function delFz(id) {
 function renderLief() {
   var d = getDB(), el = document.getElementById('tbl-lieferanten');
   var s = (document.getElementById('s-lieferanten')||{value:''}).value.toLowerCase();
-  var lief = s ? d.lieferanten.filter(function(l){ return (l.name+' '+(l.adresse||'')).toLowerCase().indexOf(s)!==-1; }) : d.lieferanten;
+  var lief = s ? d.lieferanten.filter(function(l){ return (l.name+' '+(l.adresse||'')).toLowerCase().indexOf(s)!==-1; }) : d.lieferanten.slice();
   if (!lief.length) { el.innerHTML = '<div class="empty">Keine Lieferanten gefunden</div>'; return; }
+  var sort = window._tableSort['lieferanten'] || {col:'name', dir:'asc'};
+  lief = lief.slice().sort(function(a,b){
+    var va, vb;
+    if      (sort.col==='uid')   { va=(a.uid||'').toLowerCase(); vb=(b.uid||'').toLowerCase(); }
+    else if (sort.col==='email') { va=(a.email||'').toLowerCase(); vb=(b.email||'').toLowerCase(); }
+    else                         { va=(a.name||'').toLowerCase(); vb=(b.name||'').toLowerCase(); }
+    return _cmp(va, vb, sort.dir);
+  });
   var rows = lief.map(function(l){
     return '<tr><td>' + esc(l.name) + '</td><td>' + esc((l.adresse||'').replace(/\n/g,', ')) + '</td><td>' + esc(l.uid||'—') + '</td><td>' + esc(l.email||'—') + '</td>' +
       '<td style="white-space:nowrap"><button class="btn" style="padding:4px 8px;font-size:11px" data-action="edit" data-id="' + l.id + '">&#9998;</button> <button class="btn danger" style="padding:4px 8px;font-size:11px" data-action="del" data-id="' + l.id + '">Löschen</button></td></tr>';
   }).join('');
-  el.innerHTML = '<table><thead><tr><th>Name</th><th>Adresse</th><th>UID</th><th>E-Mail</th><th>Aktion</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  el.innerHTML = '<table><thead><tr>' +
+    _th('lieferanten','Name','name') + '<th>Adresse</th>' +
+    _th('lieferanten','UID','uid') + _th('lieferanten','E-Mail','email') + '<th>Aktion</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>';
   el.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if(this.dataset.action==='edit') editLief(this.dataset.id);
@@ -2509,8 +3349,19 @@ function saveLief() {
   var name = document.getElementById('l-name').value.trim();
   if (!name) { alert('Name eingeben'); return; }
   var d = getDB();
-  d.lieferanten.push({id:uid(), name:name, adresse:document.getElementById('l-adr').value, uid:document.getElementById('l-uid').value, email:document.getElementById('l-email').value});
+  var newL = {id:uid(), name:name, adresse:document.getElementById('l-adr').value, uid:document.getElementById('l-uid').value, email:document.getElementById('l-email').value};
+  d.lieferanten.push(newL);
   saveDB(d); closeModal(); renderLief();
+  // Refresh ER partner dropdown if the ER form is open
+  var erPartner = document.getElementById('er-partner');
+  if (erPartner) {
+    var d2 = getDB();
+    erPartner.innerHTML = '<option value="">-- Bitte wählen --</option>' +
+      d2.lieferanten.map(function(l){ return '<option value="'+l.id+'">'+esc(l.name)+'</option>'; }).join('');
+    erPartner.value = newL.id;
+    var lnEl = document.getElementById('er-lief-name');
+    if (lnEl) lnEl.value = newL.name;
+  }
 }
 
 function delLief(id) {
@@ -2526,11 +3377,18 @@ function delLief(id) {
 function renderZ() {
   var d = getDB(), el = document.getElementById('tbl-zahlungen');
   var now = new Date();
+  var sort = window._tableSort['zahlungen'] || {col:'faellig', dir:'asc'};
   var open = d.invoices.filter(function(i){ return i.status === 'offen'; })
-    .sort(function(a,b){
-      var da = a.faellig ? new Date(a.faellig) : new Date('9999-12-31');
-      var db = b.faellig ? new Date(b.faellig) : new Date('9999-12-31');
-      return da - db;
+    .slice().sort(function(a,b){
+      var va, vb;
+      if      (sort.col==='nr')      { va=(a.nummer||'').toLowerCase(); vb=(b.nummer||'').toLowerCase(); }
+      else if (sort.col==='partner') { va=(a.partner_name||'').toLowerCase(); vb=(b.partner_name||'').toLowerCase(); }
+      else if (sort.col==='typ')     { va=a.typ||''; vb=b.typ||''; }
+      else if (sort.col==='betrag')  { va=brutto(a); vb=brutto(b); }
+      else { // faellig default
+        va = a.faellig || '9999-12-31'; vb = b.faellig || '9999-12-31';
+      }
+      return _cmp(va, vb, sort.dir);
     });
   if (!open.length) { el.innerHTML = '<div class="empty">Keine offenen Rechnungen &#10003;</div>'; return; }
   var rows = open.map(function(inv){
@@ -2554,7 +3412,11 @@ function renderZ() {
       '</td>'+
     '</tr>';
   }).join('');
-  el.innerHTML = '<table><thead><tr><th>Nr.</th><th>Partner</th><th>Typ</th><th>Fällig</th><th>Status</th><th style="text-align:right">Betrag</th><th>Aktion</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  el.innerHTML = '<table><thead><tr>' +
+    _th('zahlungen','Nr.','nr') + _th('zahlungen','Partner','partner') +
+    _th('zahlungen','Typ','typ') + _th('zahlungen','Fällig','faellig') +
+    '<th>Status</th>' + _th('zahlungen','Betrag','betrag') + '<th>Aktion</th>' +
+    '</tr></thead><tbody>'+rows+'</tbody></table>';
   el.querySelectorAll('button[data-act]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if (this.dataset.act==='status'){ togStatus(this.dataset.id); renderZ(); }
@@ -3080,52 +3942,55 @@ function initPathSettings() {
 function initEx() {
   var now = new Date(), curM = now.getMonth(), curY = now.getFullYear();
   var lastDay = new Date(curY, curM+1, 0).getDate();
-  initExDateSel('ex-von', 1, curM, curY);
-  initExDateSel('ex-bis', lastDay, curM, curY);
-  ['ex-von-d','ex-von-m','ex-von-y','ex-bis-d','ex-bis-m','ex-bis-y'].forEach(function(id){
-    var el=document.getElementById(id); if(!el) return;
-    el.addEventListener('change', function(){
-      if(id==='ex-von-m'||id==='ex-von-y') updateExDaysFor('ex-von');
-      if(id==='ex-bis-m'||id==='ex-bis-y') updateExDaysFor('ex-bis');
-      renderExport();
-    });
-  });
-  var se=document.getElementById('s-export'); if(se) se.oninput=function(){ renderExport(); };
-  var bfe=document.getElementById('btn-filter-export'); if(bfe) bfe.onclick=function(){ openFilterModal('export','buch'); };
+  var vonDate = document.getElementById('ex-von-date');
+  var bisDate = document.getElementById('ex-bis-date');
+  if(vonDate && !vonDate.value) vonDate.value = curY+'-'+String(curM+1).padStart(2,'0')+'-01';
+  if(bisDate && !bisDate.value) bisDate.value = curY+'-'+String(curM+1).padStart(2,'0')+'-'+String(lastDay).padStart(2,'0');
+
+  var sm = document.getElementById('ex-m-quick'), sy = document.getElementById('ex-y-quick');
+  if(sm && !sm.innerHTML) {
+    sm.innerHTML = MONTHS.map(function(mn,i){return '<option value="'+i+'">'+mn+'</option>';}).join('');
+    sm.value = curM;
+  }
+  if(sy && !sy.innerHTML) {
+    for(var y=curY-2;y<=curY;y++) sy.innerHTML+='<option value="'+y+'">'+y+'</option>';
+    sy.value = curY;
+  }
+
+  if(sm) sm.onchange = function(){ applyMonthQuickSelect(); };
+  if(sy) sy.onchange = function(){ applyMonthQuickSelect(); };
+  if(vonDate) vonDate.onchange = function(){ renderExport(); };
+  if(bisDate) bisDate.onchange = function(){ renderExport(); };
+
+  var stSel = document.getElementById('f-export-status-sel');
+  if(stSel) stSel.onchange = function(){ renderExport(); };
+
+  var se = document.getElementById('s-export');
+  if(se) se.oninput = function(){ renderExport(); };
+
   renderExport();
 }
 
-function initExDateSel(prefix, day, m, y) {
-  var sd=document.getElementById(prefix+'-d'), sm=document.getElementById(prefix+'-m'), sy=document.getElementById(prefix+'-y');
-  if(!sd||!sm||!sy) return;
-  sm.innerHTML=MONTHS.map(function(mn,i){return '<option value="'+i+'">'+mn+'</option>';}).join('');
-  sm.value=m;
-  sy.innerHTML='';
-  var now=new Date();
-  for(var yr=now.getFullYear()-2;yr<=now.getFullYear();yr++) sy.innerHTML+='<option value="'+yr+'">'+yr+'</option>';
-  sy.value=y;
-  updateExDaysFor(prefix, day);
-}
-
-function updateExDaysFor(prefix, selectedDay) {
-  var sm=document.getElementById(prefix+'-m'), sy=document.getElementById(prefix+'-y'), sd=document.getElementById(prefix+'-d');
-  if(!sm||!sy||!sd) return;
-  var lm=parseInt(sm.value), ly=parseInt(sy.value), lastDay=new Date(ly,lm+1,0).getDate();
-  var prev=selectedDay!=null?selectedDay:(parseInt(sd.value)||1);
-  var opts=''; for(var d=1;d<=lastDay;d++) opts+='<option value="'+d+'">'+d+'.</option>';
-  sd.innerHTML=opts; sd.value=prev<=lastDay?String(prev):String(lastDay);
+function applyMonthQuickSelect() {
+  var sm = document.getElementById('ex-m-quick'), sy = document.getElementById('ex-y-quick');
+  if(!sm || !sy) return;
+  var m = parseInt(sm.value), y = parseInt(sy.value);
+  var lastDay = new Date(y, m+1, 0).getDate();
+  var vonDate = document.getElementById('ex-von-date');
+  var bisDate = document.getElementById('ex-bis-date');
+  if(vonDate) vonDate.value = y+'-'+String(m+1).padStart(2,'0')+'-01';
+  if(bisDate) bisDate.value = y+'-'+String(m+1).padStart(2,'0')+'-'+String(lastDay).padStart(2,'0');
+  renderExport();
 }
 
 function getExVonStr() {
-  var d=document.getElementById('ex-von-d'), m=document.getElementById('ex-von-m'), y=document.getElementById('ex-von-y');
-  if(!d||!m||!y) return '';
-  return y.value+'-'+String(parseInt(m.value)+1).padStart(2,'0')+'-'+String(parseInt(d.value)).padStart(2,'0');
+  var el = document.getElementById('ex-von-date');
+  return el ? el.value : '';
 }
 
 function getExBisStr() {
-  var d=document.getElementById('ex-bis-d'), m=document.getElementById('ex-bis-m'), y=document.getElementById('ex-bis-y');
-  if(!d||!m||!y) return '';
-  return y.value+'-'+String(parseInt(m.value)+1).padStart(2,'0')+'-'+String(parseInt(d.value)).padStart(2,'0');
+  var el = document.getElementById('ex-bis-date');
+  return el ? el.value : '';
 }
 
 function getExD() {
@@ -3136,7 +4001,7 @@ function getExD() {
 function getExFiltered() {
   var vonStr=getExVonStr(), bisStr=getExBisStr();
   var s=(document.getElementById('s-export')||{value:''}).value.toLowerCase();
-  var st=(document.getElementById('f-export-status')||{value:''}).value;
+  var st=(document.getElementById('f-export-status-sel')||{value:''}).value;
   return getDB().invoices.filter(function(i){
     if(!i.datum||i.datum<vonStr||i.datum>bisStr) return false;
     if(s&&((i.nummer||'')+(i.partner_name||'')).toLowerCase().indexOf(s)===-1) return false;
@@ -3823,7 +4688,7 @@ function toPDF(rows,title){
     if(isTot)doc.setFont('helvetica','normal');
     y+=7;
   });
-  doc.save(title+'.pdf');
+  openPDF(doc, title+'.pdf');
 }
 function dlBuch(art,fmt){
   var title=art==='bank'?'Bankbuch':'Kassabuch';
@@ -3841,7 +4706,7 @@ function dlExport(fmt){
 }
 function dlExportYear(fmt){
   var d=getDB();
-  var yEl=document.getElementById('ex-von-y');
+  var yEl=document.getElementById('ex-y-quick');
   var yr=yEl?parseInt(yEl.value):new Date().getFullYear();
   var invs=d.invoices.filter(function(i){if(!i.datum)return false;var dt=new Date(i.datum);return dt.getFullYear()===yr;}).sort(function(a,b){return a.datum>b.datum?1:-1;});
   var title='Export_'+yr;
@@ -4259,7 +5124,7 @@ function genKVPDF(kv) {
   var kvName = (kv.partner_name || '').replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
   var kvFilename = 'Kostenvoranschlag' + (kvName ? '_' + kvName : '') + (kv.datum ? '_' + kv.datum : '') + '.pdf';
   var kvPath = localStorage.getItem('bp_path_kv');
-  savePDFToFolder(doc, kvFilename, kvPath, function(){ doc.save(kvFilename); });
+  savePDFToFolder(doc, kvFilename, kvPath, function(){ openPDF(doc, kvFilename); });
 }
 
 // ================================================================
@@ -4267,7 +5132,8 @@ function genKVPDF(kv) {
 // ================================================================
 function renderKVListe() {
   var d = getDB();
-  var kvs = (d.kostenvoranschlaege || []).slice().reverse(); // neueste zuerst
+  var sort = window._tableSort['angebote'] || {col:'datum', dir:'desc'};
+  var kvs = (d.kostenvoranschlaege || []).slice();
   var el = document.getElementById('tbl-kv-liste');
   if (!el) return;
 
@@ -4279,6 +5145,19 @@ function renderKVListe() {
       return (fmtD(kv.datum) + ' ' + kundeStr + ' ' + fzList).toLowerCase().indexOf(s) !== -1;
     });
   }
+
+  // Sort
+  kvs = kvs.slice().sort(function(a, b) {
+    var ka = a.partner_name || (a.partner_info||'').split('\n')[0] || '';
+    var kb = b.partner_name || (b.partner_info||'').split('\n')[0] || '';
+    var ba = ((a.items||[]).reduce(function(s,it){return s+(parseFloat(it.anzahl)||1)*(parseFloat(it.betrag)||0);},0)) * (1+(a.mwst_pct||20)/100);
+    var bb = ((b.items||[]).reduce(function(s,it){return s+(parseFloat(it.anzahl)||1)*(parseFloat(it.betrag)||0);},0)) * (1+(b.mwst_pct||20)/100);
+    var va, vb;
+    if      (sort.col==='kunde')  { va=ka.toLowerCase(); vb=kb.toLowerCase(); }
+    else if (sort.col==='brutto') { va=ba; vb=bb; }
+    else                          { va=a.datum||''; vb=b.datum||''; }
+    return _cmp(va, vb, sort.dir);
+  });
 
   if (!kvs.length) {
     el.innerHTML = '<div class="empty">Keine Angebote vorhanden</div>';
@@ -4311,7 +5190,8 @@ function renderKVListe() {
   }).join('');
 
   el.innerHTML = '<table><thead><tr>' +
-    '<th>Datum</th><th>Kunde</th><th>Fahrzeuge</th><th style="text-align:right">Brutto</th><th>Aktionen</th>' +
+    _th('angebote','Datum','datum') + _th('angebote','Kunde','kunde') +
+    '<th>Fahrzeuge</th>' + _th('angebote','Brutto','brutto') + '<th>Aktionen</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table>';
 
   el.querySelectorAll('button[data-action]').forEach(function(btn) {

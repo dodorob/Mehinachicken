@@ -162,14 +162,6 @@
           <div class="fg"><label for="faellig" style="cursor:pointer">Fällig</label><input type="date" id="faellig"></div>
           <div class="fg"><label>Status</label><select id="status"><option value="offen">Offen</option><option value="bezahlt">Bezahlt</option><option value="überfällig">Überfällig</option></select></div>
         </div>
-        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-          <label style="display:flex;align-items:center;gap:8px;font-family:sans-serif;font-size:13px;cursor:pointer;padding:8px 14px;background:#f5f5f2;border-radius:8px;border:1px solid #e5e5e0">
-            <input type="checkbox" id="inv-djevad" style="width:15px;height:15px;cursor:pointer"><span>Dževad</span>
-          </label>
-          <label style="display:flex;align-items:center;gap:8px;font-family:sans-serif;font-size:13px;cursor:pointer;padding:8px 14px;background:#f5f5f2;border-radius:8px;border:1px solid #e5e5e0">
-            <input type="checkbox" id="inv-helmut" style="width:15px;height:15px;cursor:pointer"><span>Helmut</span>
-          </label>
-        </div>
       </div>
 
       <!-- Positionen -->
@@ -365,9 +357,36 @@
       <button class="btn" id="ma-next" style="font-size:16px;padding:6px 14px">&#8594;</button>
     </div>
     <div id="ma-metrics" class="grid4" style="margin-bottom:1.5rem"></div>
+
+    <!-- Alle Aufträge -->
+    <div class="card" style="margin-bottom:1.5rem">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <h3 style="margin:0">Alle Aufträge</h3>
+        <div style="display:flex;gap:6px">
+          <button class="btn" style="font-size:12px;padding:5px 12px" id="btn-all-jobs-excel">&#8595; Excel</button>
+          <button class="btn primary" style="font-size:12px;padding:5px 12px" id="btn-all-jobs-pdf">&#8595; PDF</button>
+        </div>
+      </div>
+      <div class="sbar" style="margin-bottom:0.75rem"><input type="text" id="ma-s-all" placeholder="Suchen (Kunde, KZ, Modell, Nr.)..." style="flex:1"></div>
+      <div id="ma-all-jobs"></div>
+    </div>
+
+    <!-- Mitarbeiter-Aufstellungen -->
     <div class="grid2">
-      <div class="card"><h3>Dževad — Aufstellung</h3><div id="ma-djevad-detail"></div></div>
-      <div class="card"><h3>Helmut — Aufstellung</h3><div id="ma-helmut-detail"></div></div>
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <h3 style="margin:0">Dževad — Aufstellung</h3>
+        </div>
+        <div class="sbar" style="margin-bottom:0.75rem"><input type="text" id="ma-s-djevad" placeholder="Suchen..." style="flex:1"></div>
+        <div id="ma-djevad-detail"></div>
+      </div>
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <h3 style="margin:0">Helmut — Aufstellung</h3>
+        </div>
+        <div class="sbar" style="margin-bottom:0.75rem"><input type="text" id="ma-s-helmut" placeholder="Suchen..." style="flex:1"></div>
+        <div id="ma-helmut-detail"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -383,7 +402,7 @@
 </div>
 
 <div class="page" id="page-statistik">
-  <div class="topbar"><h2><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128202; Statistik</h2></div>
+  <div class="topbar"><h2><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128202;</span> Statistik</h2><div class="tba" style="display:flex;align-items:center;gap:8px"><button class="btn" id="stat-prev">&#8249;</button><span id="stat-month-label" style="font-size:13px;font-weight:500;min-width:110px;text-align:center"></span><button class="btn" id="stat-next">&#8250;</button></div></div>
   <div class="content">
     <div id="stat-metrics" class="grid4" style="margin-bottom:1.5rem"></div>
     <div class="grid2" style="margin-bottom:1.5rem">
@@ -452,21 +471,25 @@
   <div class="topbar"><h2>Monatsexport</h2><div class="tba"><button class="btn" onclick="dlExport('excel')">&#8595; Excel</button> <button class="btn" onclick="dlExport('pdf')">&#8595; PDF</button></div></div>
   <div class="content">
     <div id="export-metrics" class="grid4" style="margin-bottom:1.5rem"></div>
-    <div style="padding:.75rem 1.5rem;display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:var(--card);border-bottom:1px solid var(--border)">
+    <div style="padding:.75rem 1.5rem;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--card);border-bottom:1px solid var(--border)">
       <span style="font-size:13px;font-weight:500;color:var(--t2)">Von:</span>
-      <select id="ex-von-d" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
-      <select id="ex-von-m" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
-      <select id="ex-von-y" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
-      <span style="font-size:13px;font-weight:500;color:var(--t2);margin-left:8px">Bis:</span>
-      <select id="ex-bis-d" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
-      <select id="ex-bis-m" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
-      <select id="ex-bis-y" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+      <input type="date" id="ex-von-date" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+      <span style="font-size:13px;color:var(--t2)">–</span>
+      <input type="date" id="ex-bis-date" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+      <span style="font-size:13px;font-weight:500;color:var(--t2);margin-left:8px">Monat:</span>
+      <select id="ex-m-quick" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
+      <select id="ex-y-quick" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px"></select>
     </div>
-    <div style="padding:.75rem 1.5rem;display:flex;gap:8px;align-items:center;background:var(--card);border-bottom:1px solid var(--border);margin-bottom:0">
-      <button class="btn" id="btn-filter-export" style="display:flex;align-items:center;gap:6px;font-size:13px">&#9776; Filter <span id="f-export-badge" style="display:none;background:var(--accent);color:#fff;border-radius:20px;padding:1px 7px;font-size:11px"></span></button>
+    <div style="padding:.75rem 1.5rem;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--card);border-bottom:1px solid var(--border);margin-bottom:0">
+      <span style="font-size:13px;font-weight:500;color:var(--t2)">Status:</span>
+      <select id="f-export-status-sel" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+        <option value="">Alle</option>
+        <option value="offen">Offen</option>
+        <option value="bezahlt">Bezahlt</option>
+        <option value="überfällig">Überfällig</option>
+      </select>
       <input type="text" id="s-export" placeholder="Schnellsuche..." style="flex:1;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px">
     </div>
-    <input type="hidden" id="f-export-status">
     <div id="ex-prev" style="padding:.5rem 1.5rem"></div>
     <div class="card" style="padding:0"><div id="tbl-export"></div></div>
     <div style="padding:1rem 1.5rem;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -720,6 +743,19 @@
         <button class="btn primary" id="btn-save-fixkosten">Speichern</button>
       </div>
       <div id="fixkosten-info" style="font-family:sans-serif;font-size:12px;color:var(--accent);margin-top:8px"></div>
+    </div>
+
+    <div class="card">
+      <h3>Rechnungs-Vorlauf (Dashboard)</h3>
+      <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin-bottom:1rem">
+        Wie viele Tage im Voraus sollen fällige Rechnungen auf dem Dashboard angezeigt werden?
+      </p>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="number" id="rech-vorlauf" min="0" max="365" value="3" style="width:80px;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+        <span style="font-family:sans-serif;font-size:13px;color:var(--t2)">Tage</span>
+        <button class="btn primary" id="btn-rech-vorlauf-save">Speichern</button>
+      </div>
+      <div style="font-size:11px;color:var(--accent);margin-top:4px" id="rech-vorlauf-info"></div>
     </div>
 
     <div class="card">
