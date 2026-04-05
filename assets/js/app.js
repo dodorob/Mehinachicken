@@ -2484,7 +2484,29 @@ function renderMitarbeiter(offset) {
     var effDz  = djevadH > 0 ? djevadH : (inv.flag_djevad ? totalH : 0);
     var effHel = helmutH > 0 ? helmutH : (inv.flag_helmut ? totalH : 0);
 
-    allJobs.push({inv:inv, kunde:kundeName, marke:effMarke, kz:effKZ, leistungsdatum:leistungsdatum, dzTotal:effDz, helTotal:effHel});
+    // Build combined date-keyed rows for all-jobs PDF
+    var arbDateMap = {}, arbDateOrder = [], fzDateMap = {}, fzDateOrder = [];
+    (inv.items||[]).forEach(function(it) {
+      (it.arbeitsdaten||[]).forEach(function(r) {
+        if (!r.datum) return;
+        if (!arbDateMap[r.datum]) { arbDateMap[r.datum] = {dz:0, hel:0}; arbDateOrder.push(r.datum); }
+        arbDateMap[r.datum].dz  += parseFloat(r.djevad_h)||0;
+        arbDateMap[r.datum].hel += parseFloat(r.helmut_h)||0;
+      });
+      (it.fahrzeitdaten||[]).forEach(function(r) {
+        if (!r.datum) return;
+        if (!fzDateMap[r.datum]) { fzDateMap[r.datum] = {dz:0, hel:0}; fzDateOrder.push(r.datum); }
+        fzDateMap[r.datum].dz  += parseFloat(r.djevad_h)||0;
+        fzDateMap[r.datum].hel += parseFloat(r.helmut_h)||0;
+      });
+    });
+    var arbRows = arbDateOrder.map(function(d){ return {datum:d, dz:arbDateMap[d].dz, hel:arbDateMap[d].hel}; });
+    var fzRows  = fzDateOrder.map(function(d){ return {datum:d, dz:fzDateMap[d].dz, hel:fzDateMap[d].hel}; });
+    if (!arbRows.length && (effDz > 0 || effHel > 0))
+      arbRows.push({datum:leistungsdatum, dz:effDz, hel:effHel});
+
+    allJobs.push({inv:inv, kunde:kundeName, marke:effMarke, kz:effKZ, leistungsdatum:leistungsdatum,
+      dzTotal:effDz, helTotal:effHel, arbRows:arbRows, fzRows:fzRows});
 
     var fzH  = dzFahr.reduce(function(s,r){return s+r.h;}, 0);
     var fzH2 = helFahr.reduce(function(s,r){return s+r.h;}, 0);
@@ -2545,64 +2567,63 @@ function renderMitarbeiter(offset) {
   if (btnAllXLS) btnAllXLS.onclick = function(){ genAllJobsExcel(curM, curY); };
 }
 
-// ── Shared PDF table helper ───────────────────────────────────────
-// Draws a table with a full grid (horizontal + vertical lines).
-// Returns final y after the last row.
-function _pdfTable(doc, opts) {
-  // opts: { mL, pw, y, pageH, cols, headers, rows, fontSize, headerH, minRowH }
-  var mL = opts.mL, pw = opts.pw, pageH = opts.pageH || 277;
-  var cols = opts.cols, headers = opts.headers;
-  var fs = opts.fontSize || 8, headerH = opts.headerH || 7, minRowH = opts.minRowH || 5;
+// ── Shared PDF split-table helper ────────────────────────────────
+// Left columns span all sub-rows; right columns repeat per date-entry.
+// opts: { doc, mL, pw, y, topY, pageH, leftCols, rightCols, headers,
+//         rows:[{left:[...], subrows:[[...],...]}, ...], fontSize, headerH, subRowH }
+function _pdfSplitTable(opts) {
+  var doc = opts.doc, mL = opts.mL, pw = opts.pw;
+  var pageH = opts.pageH || 190, topY = opts.topY || 20;
+  var lC = opts.leftCols, rC = opts.rightCols;
+  var lW = lC.reduce(function(a,b){return a+b;},0);
+  var allCols = lC.concat(rC);
+  var headers = opts.headers;
+  var fs = opts.fontSize || 8, hH = opts.headerH || 7, srH = opts.subRowH || 6;
   var y = opts.y;
 
-  function drawHeader(yy) {
-    doc.setFillColor(230, 230, 225);
-    doc.rect(mL, yy, pw, headerH, 'F');
+  function cell(txt, x, cy, w, h) {
+    doc.setDrawColor(175,175,170); doc.setLineWidth(0.25);
+    doc.rect(x, cy, w, h, 'S');
+    if (txt !== '' && txt != null) {
+      var lines = doc.splitTextToSize(String(txt), w - 2.5);
+      doc.text(lines, x + 1.5, cy + 3.8);
+    }
+  }
+
+  function header(yy) {
+    doc.setFillColor(220, 220, 215);
+    doc.rect(mL, yy, pw, hH, 'F');
     doc.setFont('helvetica','bold'); doc.setFontSize(fs);
-    doc.setDrawColor(160,160,155); doc.setLineWidth(0.3);
-    // outer border
-    doc.rect(mL, yy, pw, headerH, 'S');
-    // vertical dividers + text
+    doc.setDrawColor(140,140,135); doc.setLineWidth(0.3);
+    doc.rect(mL, yy, pw, hH, 'S');
     var cx = mL;
     headers.forEach(function(h, i) {
-      if (i > 0) { doc.line(cx, yy, cx, yy + headerH); }
-      var lines = doc.splitTextToSize(h, cols[i] - 2);
-      doc.text(lines[0], cx + 1.5, yy + headerH * 0.65);
-      cx += cols[i];
+      if (i > 0) doc.line(cx, yy, cx, yy + hH);
+      doc.text(h, cx + 1.5, yy + hH * 0.68);
+      cx += allCols[i];
     });
-    return yy + headerH;
+    return yy + hH;
   }
 
-  function drawRow(yy, cells, rowH, shade) {
-    if (shade) { doc.setFillColor(248,248,245); doc.rect(mL, yy, pw, rowH, 'F'); }
-    doc.setDrawColor(190,190,185); doc.setLineWidth(0.2);
-    doc.rect(mL, yy, pw, rowH, 'S');
-    doc.setFont('helvetica','normal'); doc.setFontSize(fs);
+  y = header(y);
+  doc.setFont('helvetica','normal'); doc.setFontSize(fs);
+
+  opts.rows.forEach(function(row, ri) {
+    var subs = row.subrows.length || 1;
+    var totalH = subs * srH;
+    if (y + totalH > pageH) { doc.addPage(); y = topY; y = header(y); doc.setFont('helvetica','normal'); doc.setFontSize(fs); }
+    if (ri % 2 === 1) { doc.setFillColor(247,247,244); doc.rect(mL, y, pw, totalH, 'F'); }
+    // Left cells – full height
     var cx = mL;
-    cells.forEach(function(lines, i) {
-      if (i > 0) { doc.setDrawColor(190,190,185); doc.setLineWidth(0.2); doc.line(cx, yy, cx, yy + rowH); }
-      doc.text(lines, cx + 1.5, yy + 3.5);
-      cx += cols[i];
-    });
-    return yy + rowH;
-  }
-
-  y = drawHeader(y);
-
-  opts.rows.forEach(function(rowData, ri) {
-    var cells = rowData.map(function(c, ci) {
-      return doc.splitTextToSize(String(c == null ? '—' : c), cols[ci] - 2);
-    });
-    var lineH = fs * 0.45;
-    var rowH = Math.max(minRowH, Math.max.apply(null, cells.map(function(l){ return l.length * lineH + 2; })));
-    if (y + rowH > pageH) {
-      doc.addPage();
-      y = opts.topY || 20;
-      y = drawHeader(y);
+    row.left.forEach(function(txt, i) { cell(txt, cx, y, lC[i], totalH); cx += lC[i]; });
+    // Right cells – one sub-row per date
+    for (var si = 0; si < subs; si++) {
+      var sy = y + si * srH, rx = mL + lW;
+      var sr = row.subrows[si] || [];
+      rC.forEach(function(w, ri2) { cell(sr[ri2] != null ? sr[ri2] : '', rx, sy, w, srH); rx += w; });
     }
-    y = drawRow(y, cells, rowH, ri % 2 === 1);
+    y += totalH;
   });
-
   return y;
 }
 
@@ -2614,30 +2635,54 @@ function genMitarbeiterMonatsPDF(emp, curM, curY) {
   if (!stats) return alert('Bitte zuerst die Mitarbeiter-Seite laden.');
   var jobs = stats[emp].jobs;
 
-  // Landscape A4: 297mm wide, margins 15+15 → pw = 267mm
+  // Landscape A4: 297-30 = 267mm usable
+  // Left: Nr(8)+Datum(24)+Kunde(60)+Modell(42)+KZ(22) = 156
+  // Right: ArbDatum(28)+ArbStd(20)+FZDatum(28)+FZStd(20) = 96  → total 252... add 15 → Kunde 75
+  // Nr(8)+Datum(24)+Kunde(70)+Modell(42)+KZ(22)=166  Right: 26+20+26+20+9(pad)=101 → 267 ok
+  // Simpler: Nr(8)+Datum(24)+Kunde(68)+Modell(40)+KZ(21)=161  Right:ArbD(28)+ArbH(21)+FZD(28)+FZH(21)=98 → 259
+  // Final: Nr(8)+Datum(24)+Kunde(70)+Modell(40)+KZ(22)=164  Right:ArbD(28)+ArbH(20)+FZD(28)+FZH(20)+Spc(7)=103 → 267
+  // Keep simple: lC+rC = 267
+  var lC = [8, 24, 70, 40, 22];      // Nr, Datum, Kunde, Modell, KZ  → sum=164
+  var rC = [28, 21, 28, 21, 5];      // ArbDatum, ArbStd, FZDatum, FZStd, pad → sum=103 → 267
+  var pw = 267;
+  var headers = ['Nr.', 'Datum', 'Kunde', 'Modell', 'KZ', 'Arb.datum', 'Arb. h', 'FZ-Datum', 'FZ h', ''];
+
   var doc = new window.jspdf.jsPDF({unit:'mm', format:'a4', orientation:'landscape'});
-  var mL = 15, pw = 267, y = 20;
+  var mL = 15, y = 20;
 
   doc.setFont('helvetica','bold'); doc.setFontSize(14);
   doc.text('Monatsaufstellung – ' + empName, mL, y); y += 7;
   doc.setFont('helvetica','normal'); doc.setFontSize(9);
   doc.text(MONTHS_LONG[curM] + ' ' + curY, mL, y); y += 8;
 
-  // Cols sum to 267: Nr(8)+Datum(26)+Kunde(60)+Modell(42)+KZ(26)+Arb(65)+FZ(40)=267
-  var cols    = [8, 26, 60, 42, 26, 65, 40];
-  var headers = ['Nr.', 'Datum', 'Kunde', 'Modell', 'KZ', 'Arbeitsdatum / Std.', 'Fahrzeit'];
-
   var tableRows = jobs.map(function(j, idx) {
-    var arbeitStr = j.arbeit.length
-      ? j.arbeit.map(function(a){ return fmtD(a.datum)+' ('+a.h.toFixed(1)+' h)'; }).join('\n')
-      : (j.stunden > 0 ? j.stunden.toFixed(1)+' h' : '—');
-    var fzStr = j.fahrzeit.length
-      ? j.fahrzeit.map(function(a){ return fmtD(a.datum)+' ('+a.h.toFixed(1)+' h)'; }).join('\n')
-      : (j.fzH > 0 ? j.fzH.toFixed(1)+' h' : '—');
-    return [idx+1, fmtD(j.leistungsdatum), j.kunde||'—', j.marke||'—', j.kz||'—', arbeitStr, fzStr];
+    var subs = Math.max(j.arbeit.length, j.fahrzeit.length, 1);
+    var subrows = [];
+    for (var si = 0; si < subs; si++) {
+      var a = j.arbeit[si], f = j.fahrzeit[si];
+      subrows.push([
+        a ? fmtD(a.datum) : '',
+        a ? a.h.toFixed(1) : '',
+        f ? fmtD(f.datum)  : '',
+        f ? f.h.toFixed(1) : '',
+        ''
+      ]);
+    }
+    // Fallback: no detail rows, use totals
+    if (!j.arbeit.length && !j.fahrzeit.length) {
+      subrows = [[
+        j.stunden > 0 ? fmtD(j.leistungsdatum) : '',
+        j.stunden > 0 ? j.stunden.toFixed(1) : '',
+        j.fzH > 0    ? fmtD(j.leistungsdatum) : '',
+        j.fzH > 0    ? j.fzH.toFixed(1) : '',
+        ''
+      ]];
+    }
+    return {left:[idx+1, fmtD(j.leistungsdatum), j.kunde||'—', j.marke||'—', j.kz||'—'], subrows:subrows};
   });
 
-  y = _pdfTable(doc, {mL:mL, pw:pw, y:y, topY:20, pageH:190, cols:cols, headers:headers, rows:tableRows, fontSize:8, headerH:7, minRowH:6});
+  y = _pdfSplitTable({doc:doc, mL:mL, pw:pw, y:y, topY:20, pageH:190,
+    leftCols:lC, rightCols:rC, headers:headers, rows:tableRows, fontSize:8, headerH:7, subRowH:6});
 
   y += 5;
   doc.setFont('helvetica','bold'); doc.setFontSize(9);
@@ -2653,17 +2698,26 @@ function genMitarbeiterMonatsExcel(emp, curM, curY) {
   var stats = window._maStats;
   if (!stats) return alert('Bitte zuerst die Mitarbeiter-Seite laden.');
   var jobs = stats[emp].jobs;
-  var rows = [['Lfd.', 'Leistungsdatum', 'Kunde', 'Modell', 'KZ', 'Arb.Datum / Std.', 'Fahrzeitdat. / Std.']];
+  var rows = [['Nr.', 'Leistungsdatum', 'Kunde', 'Modell', 'KZ', 'Arbeitsdatum', 'Arb. h', 'FZ-Datum', 'FZ h']];
   jobs.forEach(function(j, idx) {
-    var arbeitStr = j.arbeit.length
-      ? j.arbeit.map(function(a){ return fmtD(a.datum)+' ('+a.h.toFixed(1)+'h)'; }).join('; ')
-      : (j.stunden > 0 ? j.stunden.toFixed(1)+' h' : '—');
-    var fzStr = j.fahrzeit.length
-      ? j.fahrzeit.map(function(a){ return fmtD(a.datum)+' ('+a.h.toFixed(1)+'h)'; }).join('; ')
-      : (j.fzH > 0 ? j.fzH.toFixed(1)+' h' : '—');
-    rows.push([idx+1, fmtD(j.leistungsdatum), j.kunde, j.marke, j.kz, arbeitStr, fzStr]);
+    var subs = Math.max(j.arbeit.length, j.fahrzeit.length, 1);
+    for (var si = 0; si < subs; si++) {
+      var a = j.arbeit[si], f = j.fahrzeit[si];
+      var isFirst = si === 0;
+      rows.push([
+        isFirst ? idx+1 : '',
+        isFirst ? fmtD(j.leistungsdatum) : '',
+        isFirst ? (j.kunde||'—') : '',
+        isFirst ? (j.marke||'—') : '',
+        isFirst ? (j.kz||'—') : '',
+        a ? fmtD(a.datum) : (isFirst && j.stunden > 0 ? fmtD(j.leistungsdatum) : ''),
+        a ? a.h.toFixed(1) : (isFirst && j.stunden > 0 ? j.stunden.toFixed(1) : ''),
+        f ? fmtD(f.datum)  : (isFirst && j.fzH > 0 ? fmtD(j.leistungsdatum) : ''),
+        f ? f.h.toFixed(1) : (isFirst && j.fzH > 0 ? j.fzH.toFixed(1) : '')
+      ]);
+    }
   });
-  rows.push(['', '', '', '', '', 'Gesamt: '+stats[emp].stunden.toFixed(1)+' h', 'Gesamt: '+stats[emp].fahrzeit.toFixed(1)+' h']);
+  rows.push(['', '', '', '', 'Gesamt', '', stats[emp].stunden.toFixed(1), '', stats[emp].fahrzeit.toFixed(1)]);
   var csv = toCSV(rows);
   var a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8;'}));
@@ -2676,26 +2730,41 @@ function genAllJobsPDF(curM, curY) {
   var jobs = window._maAllJobs;
   if (!jobs) return alert('Bitte zuerst die Mitarbeiter-Seite laden.');
 
-  // Portrait A4: pw = 180mm
-  // Nr(8)+Datum(24)+Kunde(44)+Modell(30)+KZ(24)+Dz(25)+Hel(25)=180
-  var doc = new window.jspdf.jsPDF({unit:'mm', format:'a4', orientation:'portrait'});
-  var mL = 15, pw = 180, y = 20;
+  // Landscape A4: 267mm usable
+  // Left: Nr(8)+Datum(24)+Kunde(60)+Modell(38)+KZ(21) = 151
+  // Right: ArbD(26)+Dz(18)+Hel(18)+FZD(26)+DzFZ(15)+HelFZ(13) = 116 → 267
+  var lC = [8, 24, 60, 38, 21];
+  var rC = [26, 18, 18, 26, 15, 13];
+  var pw = 267;
+  var headers = ['Nr.', 'Datum', 'Kunde', 'Modell', 'KZ', 'Arb.datum', 'Dž h', 'Hel h', 'FZ-Datum', 'Dž-FZ', 'Hel-FZ'];
+
+  var doc = new window.jspdf.jsPDF({unit:'mm', format:'a4', orientation:'landscape'});
+  var mL = 15, y = 20;
 
   doc.setFont('helvetica','bold'); doc.setFontSize(14);
   doc.text('Alle Aufträge – ' + MONTHS_LONG[curM] + ' ' + curY, mL, y); y += 7;
   doc.setFont('helvetica','normal'); doc.setFontSize(9);
   doc.text('Erstellt: ' + fmtD(new Date().toISOString().split('T')[0]), mL, y); y += 8;
 
-  var cols    = [8, 24, 44, 30, 24, 25, 25];
-  var headers = ['Nr.', 'Datum', 'Kunde', 'Modell', 'KZ', 'Dž-Std.', 'Hel-Std.'];
-
   var tableRows = jobs.map(function(j, idx) {
-    return [idx+1, fmtD(j.leistungsdatum), j.kunde||'—', j.marke||'—', j.kz||'—',
-      j.dzTotal  > 0 ? j.dzTotal.toFixed(1)  + ' h' : '—',
-      j.helTotal > 0 ? j.helTotal.toFixed(1) + ' h' : '—'];
+    var subs = Math.max(j.arbRows.length, j.fzRows.length, 1);
+    var subrows = [];
+    for (var si = 0; si < subs; si++) {
+      var a = j.arbRows[si], f = j.fzRows[si];
+      subrows.push([
+        a ? fmtD(a.datum) : '',
+        a && a.dz  > 0 ? a.dz.toFixed(1)  : '',
+        a && a.hel > 0 ? a.hel.toFixed(1) : '',
+        f ? fmtD(f.datum)  : '',
+        f && f.dz  > 0 ? f.dz.toFixed(1)  : '',
+        f && f.hel > 0 ? f.hel.toFixed(1) : ''
+      ]);
+    }
+    return {left:[idx+1, fmtD(j.leistungsdatum), j.kunde||'—', j.marke||'—', j.kz||'—'], subrows:subrows};
   });
 
-  y = _pdfTable(doc, {mL:mL, pw:pw, y:y, topY:20, pageH:277, cols:cols, headers:headers, rows:tableRows, fontSize:8, headerH:7, minRowH:6});
+  y = _pdfSplitTable({doc:doc, mL:mL, pw:pw, y:y, topY:20, pageH:190,
+    leftCols:lC, rightCols:rC, headers:headers, rows:tableRows, fontSize:8, headerH:7, subRowH:6});
 
   y += 5;
   var totalDz  = jobs.reduce(function(s,j){ return s+j.dzTotal;  }, 0);
@@ -2710,15 +2779,30 @@ function genAllJobsExcel(curM, curY) {
   var MONTHS_LONG = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
   var jobs = window._maAllJobs;
   if (!jobs) return alert('Bitte zuerst die Mitarbeiter-Seite laden.');
-  var rows = [['Lfd.', 'Leistungsdatum', 'Kunde', 'Modell', 'KZ', 'Dž-Std.', 'Helmut-Std.']];
+  var rows = [['Nr.', 'Leistungsdatum', 'Kunde', 'Modell', 'KZ', 'Arbeitsdatum', 'Dž h', 'Helmut h', 'FZ-Datum', 'Dž-FZ', 'Hel-FZ']];
   jobs.forEach(function(j, idx) {
-    rows.push([idx+1, fmtD(j.leistungsdatum), j.kunde, j.marke, j.kz,
-      j.dzTotal  > 0 ? j.dzTotal.toFixed(1)  : '',
-      j.helTotal > 0 ? j.helTotal.toFixed(1) : '']);
+    var subs = Math.max(j.arbRows.length, j.fzRows.length, 1);
+    for (var si = 0; si < subs; si++) {
+      var a = j.arbRows[si], f = j.fzRows[si];
+      var isFirst = si === 0;
+      rows.push([
+        isFirst ? idx+1 : '',
+        isFirst ? fmtD(j.leistungsdatum) : '',
+        isFirst ? (j.kunde||'—') : '',
+        isFirst ? (j.marke||'—') : '',
+        isFirst ? (j.kz||'—') : '',
+        a ? fmtD(a.datum) : '',
+        a && a.dz  > 0 ? a.dz.toFixed(1)  : '',
+        a && a.hel > 0 ? a.hel.toFixed(1) : '',
+        f ? fmtD(f.datum)  : '',
+        f && f.dz  > 0 ? f.dz.toFixed(1)  : '',
+        f && f.hel > 0 ? f.hel.toFixed(1) : ''
+      ]);
+    }
   });
   var totalDz  = jobs.reduce(function(s,j){ return s+j.dzTotal;  }, 0);
   var totalHel = jobs.reduce(function(s,j){ return s+j.helTotal; }, 0);
-  rows.push(['', '', '', '', '', totalDz.toFixed(1), totalHel.toFixed(1)]);
+  rows.push(['', '', '', '', 'Gesamt', '', totalDz.toFixed(1), totalHel.toFixed(1), '', '', '']);
   var csv = toCSV(rows);
   var a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8;'}));
