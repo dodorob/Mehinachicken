@@ -1123,7 +1123,19 @@ function renderTable(typ) {
   if (bis)    invs = invs.filter(function(i){ return i.datum <= bis; });
   if (status) invs = invs.filter(function(i){ return i.status === status; });
   invs = invs.filter(function(i){ var b=brutto(i); return b>=minB && b<=maxB; });
-  invs = invs.slice().sort(function(a,b){ return b.datum > a.datum ? 1 : -1; });
+  var sort = window._tableSort[typ] || {col:'datum', dir:'desc'};
+  invs = invs.slice().sort(function(a, b) {
+    var va, vb;
+    if      (sort.col==='lfd')     { va=a.lfd_nr||0;               vb=b.lfd_nr||0; }
+    else if (sort.col==='nr')      { va=(a.nummer||'').toLowerCase(); vb=(b.nummer||'').toLowerCase(); }
+    else if (sort.col==='partner') { va=(a.partner_name||'').toLowerCase(); vb=(b.partner_name||'').toLowerCase(); }
+    else if (sort.col==='faellig') { va=a.faellig||''; vb=b.faellig||''; }
+    else if (sort.col==='netto')   { va=netto(a); vb=netto(b); }
+    else if (sort.col==='brutto')  { va=brutto(a); vb=brutto(b); }
+    else if (sort.col==='status')  { va=a.status||''; vb=b.status||''; }
+    else                           { va=a.datum||''; vb=b.datum||''; }
+    return _cmp(va, vb, sort.dir);
+  });
   var el = document.getElementById('tbl-'+typ);
   if (!invs.length) { el.innerHTML = '<div class="empty">Keine Rechnungen</div>'; return; }
   var rows = invs.map(function(inv){
@@ -1144,7 +1156,13 @@ function renderTable(typ) {
       '</td>' +
     '</tr>';
   }).join('');
-  el.innerHTML = (typ==='ausgang'?'<table><thead><tr><th>Lfd.</th><th>Nr.</th><th>Partner</th><th>Datum</th><th>Fällig</th><th>Netto</th><th>Brutto</th><th>Status</th><th>Aktion</th></tr></thead><tbody>':'<table><thead><tr><th>Lfd.</th><th>Partner</th><th>Datum</th><th>Fällig</th><th>Netto</th><th>Brutto</th><th>Status</th><th>Aktion</th></tr></thead><tbody>') + rows + '</tbody></table>';
+  var hdr = '<table><thead><tr>' +
+    _th(typ,'Lfd.','lfd') +
+    (typ==='ausgang' ? _th(typ,'Nr.','nr') : '') +
+    _th(typ,'Partner','partner') + _th(typ,'Datum','datum') + _th(typ,'Fällig','faellig') +
+    _th(typ,'Netto','netto') + _th(typ,'Brutto','brutto') + _th(typ,'Status','status') +
+    '<th>Aktion</th></tr></thead><tbody>';
+  el.innerHTML = hdr + rows + '</tbody></table>';
   el.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){
       var id = this.dataset.id, action = this.dataset.action;
@@ -2389,6 +2407,31 @@ function _thSort(label, col, active, dir, onclick) {
   return '<th style="' + style + '" onclick=\'' + onclick + '\'>' + label + arrow + '</th>';
 }
 
+// Universal table sort state + dispatcher
+if (!window._tableSort) window._tableSort = {};
+function _sortTbl(key, col) {
+  var cur = window._tableSort[key] || {col:'', dir:'asc'};
+  window._tableSort[key] = {col: col, dir: cur.col === col && cur.dir === 'asc' ? 'desc' : 'asc'};
+  // Dispatch to the right render function
+  if (key === 'ausgang' || key === 'eingang') renderTable(key);
+  else if (key === 'angebote') renderKVListe();
+  else if (key === 'kunden')     renderKunden();
+  else if (key === 'fahrzeuge')  renderFahrzeuge();
+  else if (key === 'lieferanten') renderLief();
+  else if (key === 'zahlungen')  renderZ();
+}
+// Shortcut: build a sortable <th> for a given table key
+function _th(key, label, col) {
+  var sort = window._tableSort[key] || {col:'', dir:'asc'};
+  return _thSort(label, col, sort.col === col, sort.dir, '_sortTbl("' + key + '","' + col + '")');
+}
+// Generic sort comparator
+function _cmp(a, b, dir) {
+  if (a < b) return dir === 'asc' ? -1 : 1;
+  if (a > b) return dir === 'asc' ?  1 : -1;
+  return 0;
+}
+
 function renderMaAllJobs(s) {
   var el = document.getElementById('ma-all-jobs');
   if (!el) return;
@@ -3052,8 +3095,16 @@ function genArbeitsauftragPDF(inv) {
 function renderKunden() {
   var d = getDB(), el = document.getElementById('tbl-kunden');
   var s = (document.getElementById('s-kunden')||{value:''}).value.toLowerCase();
-  var kunden = s ? d.kunden.filter(function(k){ return (k.name+' '+(k.adresse||'')+(k.email||'')).toLowerCase().indexOf(s)!==-1; }) : d.kunden;
+  var kunden = s ? d.kunden.filter(function(k){ return (k.name+' '+(k.adresse||'')+(k.email||'')).toLowerCase().indexOf(s)!==-1; }) : d.kunden.slice();
   if (!kunden.length) { el.innerHTML = '<div class="empty">Keine Kunden gefunden</div>'; return; }
+  var sort = window._tableSort['kunden'] || {col:'name', dir:'asc'};
+  kunden = kunden.slice().sort(function(a,b){
+    var va, vb;
+    if      (sort.col==='name')   { va=(a.name||'').toLowerCase(); vb=(b.name||'').toLowerCase(); }
+    else if (sort.col==='email')  { va=(a.email||'').toLowerCase(); vb=(b.email||'').toLowerCase(); }
+    else                          { va=(a.name||'').toLowerCase(); vb=(b.name||'').toLowerCase(); }
+    return _cmp(va, vb, sort.dir);
+  });
   var rows = kunden.map(function(k){
     var autos = d.fahrzeuge.filter(function(f){ return f.kundeId===k.id; });
     var badges = autos.map(function(a){ return '<span class="badge blue" style="margin:1px">&#128663; ' + esc(a.kennzeichen||a.marke||'Auto') + '</span>'; }).join(' ');
@@ -3069,7 +3120,10 @@ function renderKunden() {
         '<button class="btn danger" style="padding:4px 8px;font-size:11px" data-action="del" data-id="' + k.id + '">Löschen</button>' +
       '</td></tr>';
   }).join('');
-  el.innerHTML = '<table><thead><tr><th>Name</th><th>Adresse</th><th>Fahrzeuge</th><th>E-Mail</th><th>Aktion</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  el.innerHTML = '<table><thead><tr>' +
+    _th('kunden','Name','name') + '<th>Adresse</th><th>Fahrzeuge</th>' +
+    _th('kunden','E-Mail','email') + '<th>Aktion</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>';
   el.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if (this.dataset.action === 'edit')  editKunde(this.dataset.id);
@@ -3129,8 +3183,19 @@ function delKunde(id) {
 function renderFahrzeuge() {
   var d = getDB(), el = document.getElementById('tbl-fahrzeuge');
   var s = (document.getElementById('s-fahrzeuge')||{value:''}).value.toLowerCase();
-  var fzList = s ? d.fahrzeuge.filter(function(f){ return ((f.kennzeichen||'')+(f.marke||'')+(f.kundeName||'')).toLowerCase().indexOf(s)!==-1; }) : d.fahrzeuge;
+  var fzList = s ? d.fahrzeuge.filter(function(f){ return ((f.kennzeichen||'')+(f.marke||'')+(f.kundeName||'')).toLowerCase().indexOf(s)!==-1; }) : d.fahrzeuge.slice();
   if (!fzList.length) { el.innerHTML = '<div class="empty">Keine Fahrzeuge gefunden</div>'; return; }
+  var sort = window._tableSort['fahrzeuge'] || {col:'kz', dir:'asc'};
+  fzList = fzList.slice().sort(function(a,b){
+    var va, vb;
+    if      (sort.col==='kz')     { va=(a.kennzeichen||'').toLowerCase(); vb=(b.kennzeichen||'').toLowerCase(); }
+    else if (sort.col==='marke')  { va=(a.marke||'').toLowerCase(); vb=(b.marke||'').toLowerCase(); }
+    else if (sort.col==='vin')    { va=(a.vin||'').toLowerCase(); vb=(b.vin||'').toLowerCase(); }
+    else if (sort.col==='erst')   { va=a.erstzulassung||''; vb=b.erstzulassung||''; }
+    else if (sort.col==='kunde')  { va=(a.kundeName||'').toLowerCase(); vb=(b.kundeName||'').toLowerCase(); }
+    else                          { va=(a.kennzeichen||'').toLowerCase(); vb=(b.kennzeichen||'').toLowerCase(); }
+    return _cmp(va, vb, sort.dir);
+  });
   var rows = fzList.map(function(f){
     var kzCount = d.invoices.filter(function(i){ return i.typ==='ausgang' && i.fz_kz && i.fz_kz.trim().toUpperCase() === (f.kennzeichen||'').trim().toUpperCase(); }).length;
     var kzBadge = kzCount > 0 ? ' <span class="badge blue" style="font-size:10px">'+kzCount+' Rechnungen</span>' : '';
@@ -3143,7 +3208,11 @@ function renderFahrzeuge() {
       '<td style="white-space:nowrap"><button class="btn" style="padding:4px 8px;font-size:11px" data-action="edit" data-id="' + f.id + '">&#9998;</button> <button class="btn danger" style="padding:4px 8px;font-size:11px" data-action="del" data-id="' + f.id + '">Löschen</button></td>' +
     '</tr>';
   }).join('');
-  el.innerHTML = '<table><thead><tr><th>Kennzeichen</th><th>Marke / Modell</th><th>VIN</th><th>Erstzulassung</th><th>Kunde</th><th>Aktion</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  el.innerHTML = '<table><thead><tr>' +
+    _th('fahrzeuge','Kennzeichen','kz') + _th('fahrzeuge','Marke / Modell','marke') +
+    _th('fahrzeuge','VIN','vin') + _th('fahrzeuge','Erstzulassung','erst') +
+    _th('fahrzeuge','Kunde','kunde') + '<th>Aktion</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>';
   el.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if(this.dataset.action==='edit') editFz(this.dataset.id);
@@ -3239,13 +3308,24 @@ function delFz(id) {
 function renderLief() {
   var d = getDB(), el = document.getElementById('tbl-lieferanten');
   var s = (document.getElementById('s-lieferanten')||{value:''}).value.toLowerCase();
-  var lief = s ? d.lieferanten.filter(function(l){ return (l.name+' '+(l.adresse||'')).toLowerCase().indexOf(s)!==-1; }) : d.lieferanten;
+  var lief = s ? d.lieferanten.filter(function(l){ return (l.name+' '+(l.adresse||'')).toLowerCase().indexOf(s)!==-1; }) : d.lieferanten.slice();
   if (!lief.length) { el.innerHTML = '<div class="empty">Keine Lieferanten gefunden</div>'; return; }
+  var sort = window._tableSort['lieferanten'] || {col:'name', dir:'asc'};
+  lief = lief.slice().sort(function(a,b){
+    var va, vb;
+    if      (sort.col==='uid')   { va=(a.uid||'').toLowerCase(); vb=(b.uid||'').toLowerCase(); }
+    else if (sort.col==='email') { va=(a.email||'').toLowerCase(); vb=(b.email||'').toLowerCase(); }
+    else                         { va=(a.name||'').toLowerCase(); vb=(b.name||'').toLowerCase(); }
+    return _cmp(va, vb, sort.dir);
+  });
   var rows = lief.map(function(l){
     return '<tr><td>' + esc(l.name) + '</td><td>' + esc((l.adresse||'').replace(/\n/g,', ')) + '</td><td>' + esc(l.uid||'—') + '</td><td>' + esc(l.email||'—') + '</td>' +
       '<td style="white-space:nowrap"><button class="btn" style="padding:4px 8px;font-size:11px" data-action="edit" data-id="' + l.id + '">&#9998;</button> <button class="btn danger" style="padding:4px 8px;font-size:11px" data-action="del" data-id="' + l.id + '">Löschen</button></td></tr>';
   }).join('');
-  el.innerHTML = '<table><thead><tr><th>Name</th><th>Adresse</th><th>UID</th><th>E-Mail</th><th>Aktion</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  el.innerHTML = '<table><thead><tr>' +
+    _th('lieferanten','Name','name') + '<th>Adresse</th>' +
+    _th('lieferanten','UID','uid') + _th('lieferanten','E-Mail','email') + '<th>Aktion</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>';
   el.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if(this.dataset.action==='edit') editLief(this.dataset.id);
@@ -3297,11 +3377,18 @@ function delLief(id) {
 function renderZ() {
   var d = getDB(), el = document.getElementById('tbl-zahlungen');
   var now = new Date();
+  var sort = window._tableSort['zahlungen'] || {col:'faellig', dir:'asc'};
   var open = d.invoices.filter(function(i){ return i.status === 'offen'; })
-    .sort(function(a,b){
-      var da = a.faellig ? new Date(a.faellig) : new Date('9999-12-31');
-      var db = b.faellig ? new Date(b.faellig) : new Date('9999-12-31');
-      return da - db;
+    .slice().sort(function(a,b){
+      var va, vb;
+      if      (sort.col==='nr')      { va=(a.nummer||'').toLowerCase(); vb=(b.nummer||'').toLowerCase(); }
+      else if (sort.col==='partner') { va=(a.partner_name||'').toLowerCase(); vb=(b.partner_name||'').toLowerCase(); }
+      else if (sort.col==='typ')     { va=a.typ||''; vb=b.typ||''; }
+      else if (sort.col==='betrag')  { va=brutto(a); vb=brutto(b); }
+      else { // faellig default
+        va = a.faellig || '9999-12-31'; vb = b.faellig || '9999-12-31';
+      }
+      return _cmp(va, vb, sort.dir);
     });
   if (!open.length) { el.innerHTML = '<div class="empty">Keine offenen Rechnungen &#10003;</div>'; return; }
   var rows = open.map(function(inv){
@@ -3325,7 +3412,11 @@ function renderZ() {
       '</td>'+
     '</tr>';
   }).join('');
-  el.innerHTML = '<table><thead><tr><th>Nr.</th><th>Partner</th><th>Typ</th><th>Fällig</th><th>Status</th><th style="text-align:right">Betrag</th><th>Aktion</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  el.innerHTML = '<table><thead><tr>' +
+    _th('zahlungen','Nr.','nr') + _th('zahlungen','Partner','partner') +
+    _th('zahlungen','Typ','typ') + _th('zahlungen','Fällig','faellig') +
+    '<th>Status</th>' + _th('zahlungen','Betrag','betrag') + '<th>Aktion</th>' +
+    '</tr></thead><tbody>'+rows+'</tbody></table>';
   el.querySelectorAll('button[data-act]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if (this.dataset.act==='status'){ togStatus(this.dataset.id); renderZ(); }
@@ -5041,7 +5132,8 @@ function genKVPDF(kv) {
 // ================================================================
 function renderKVListe() {
   var d = getDB();
-  var kvs = (d.kostenvoranschlaege || []).slice().reverse(); // neueste zuerst
+  var sort = window._tableSort['angebote'] || {col:'datum', dir:'desc'};
+  var kvs = (d.kostenvoranschlaege || []).slice();
   var el = document.getElementById('tbl-kv-liste');
   if (!el) return;
 
@@ -5053,6 +5145,19 @@ function renderKVListe() {
       return (fmtD(kv.datum) + ' ' + kundeStr + ' ' + fzList).toLowerCase().indexOf(s) !== -1;
     });
   }
+
+  // Sort
+  kvs = kvs.slice().sort(function(a, b) {
+    var ka = a.partner_name || (a.partner_info||'').split('\n')[0] || '';
+    var kb = b.partner_name || (b.partner_info||'').split('\n')[0] || '';
+    var ba = ((a.items||[]).reduce(function(s,it){return s+(parseFloat(it.anzahl)||1)*(parseFloat(it.betrag)||0);},0)) * (1+(a.mwst_pct||20)/100);
+    var bb = ((b.items||[]).reduce(function(s,it){return s+(parseFloat(it.anzahl)||1)*(parseFloat(it.betrag)||0);},0)) * (1+(b.mwst_pct||20)/100);
+    var va, vb;
+    if      (sort.col==='kunde')  { va=ka.toLowerCase(); vb=kb.toLowerCase(); }
+    else if (sort.col==='brutto') { va=ba; vb=bb; }
+    else                          { va=a.datum||''; vb=b.datum||''; }
+    return _cmp(va, vb, sort.dir);
+  });
 
   if (!kvs.length) {
     el.innerHTML = '<div class="empty">Keine Angebote vorhanden</div>';
@@ -5085,7 +5190,8 @@ function renderKVListe() {
   }).join('');
 
   el.innerHTML = '<table><thead><tr>' +
-    '<th>Datum</th><th>Kunde</th><th>Fahrzeuge</th><th style="text-align:right">Brutto</th><th>Aktionen</th>' +
+    _th('angebote','Datum','datum') + _th('angebote','Kunde','kunde') +
+    '<th>Fahrzeuge</th>' + _th('angebote','Brutto','brutto') + '<th>Aktionen</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table>';
 
   el.querySelectorAll('button[data-action]').forEach(function(btn) {
