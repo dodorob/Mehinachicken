@@ -1,6 +1,28 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Georgia,serif;background:#f5f5f2;color:#1a1a1a;min-height:100vh}
-:root{--accent:#1D9E75;--al:#E1F5EE;--ad:#0F6E56;--danger:#E24B4A;--warn:#BA7517;--wbg:#FAEEDA;--card:#fff;--border:#e5e5e0;--t2:#666;--t3:#999}
+:root{--accent:#1D9E75;--al:#E1F5EE;--ad:#0F6E56;--danger:#E24B4A;--warn:#BA7517;--wbg:#FAEEDA;--card:#fff;--border:#e5e5e0;--t2:#666;--t3:#999;--bg:#f5f5f2;--text:#1a1a1a}
+body.dark{--card:#1e1e1e;--border:#333;--t2:#aaa;--t3:#666;--al:#0d3326;--ad:#4dd9a6;--bg:#121212;--text:#e8e8e8;--wbg:#2a1f0a;--accent:#22c48a}
+body.dark{background:var(--bg);color:var(--text)}
+body.dark .sidebar{background:var(--card)}
+body.dark .topbar{background:var(--card)}
+body.dark .btn{background:var(--card);color:var(--text);border-color:var(--border)}
+body.dark .btn:hover{background:#2a2a2a}
+body.dark .metric{background:#2a2a2a}
+body.dark nav a:hover{background:#2a2a2a;color:var(--text)}
+body.dark td{color:var(--text)}
+body.dark tr:hover td{background:#252525}
+body.dark .modal{background:var(--card)}
+body.dark .fg input,.dark .fg select,.dark .fg textarea{background:var(--card);color:var(--text);border-color:var(--border)}
+body.dark .sbar input{background:var(--card);color:var(--text);border-color:var(--border)}
+body.dark .itbl th{background:#2a2a2a}
+body.dark .itbl input{background:var(--card);color:var(--text);border-color:var(--border)}
+body.dark .tcard{background:#2a2a2a}
+body.dark .chip{background:#2a2a2a;color:var(--t2)}
+body.dark .scan-drop{background:#1a1a1a;border-color:#444}
+body.dark .fbtn{background:var(--card);color:var(--text);border-color:var(--border)}
+body.dark .vprev{background:#1a1a1a;border-color:var(--border)}
+body.dark #darkmode-toggle{color:var(--text)}
+body{background:var(--bg,#f5f5f2);color:var(--text,#1a1a1a)}
 .app{display:flex;height:100vh;overflow:hidden}
 .sidebar{width:240px;background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;overflow-y:auto;flex-shrink:0}
 .logo{padding:1.5rem 1.25rem 1rem;border-bottom:1px solid var(--border)}
