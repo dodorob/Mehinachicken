@@ -39,6 +39,12 @@
     <div class="sec">Einstellungen</div>
     <a id="nav-einstellungen"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9881;</span> Einstellungen</a>
   </nav>
+  <div style="padding:.75rem 1.25rem 1rem;border-top:1px solid var(--border)">
+    <button id="darkmode-toggle" onclick="toggleDarkMode()" style="display:flex;align-items:center;gap:8px;width:100%;background:none;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;cursor:pointer;color:var(--text,#1a1a1a);font-family:inherit;transition:background .15s">
+      <span id="darkmode-icon" style="font-size:16px">&#9790;</span>
+      <span id="darkmode-label">Dark Mode</span>
+    </button>
+  </div>
 </aside>
 <div class="main">
 
@@ -814,6 +820,34 @@ document.addEventListener('click', function(e) {
     e.target.showPicker();
   }
 });
+
+function toggleDarkMode() {
+  var isDark = document.body.classList.toggle('dark');
+  localStorage.setItem('darkMode', isDark ? '1' : '0');
+  updateDarkModeButton(isDark);
+}
+
+function updateDarkModeButton(isDark) {
+  var icon = document.getElementById('darkmode-icon');
+  var label = document.getElementById('darkmode-label');
+  var btn = document.getElementById('darkmode-toggle');
+  if (isDark) {
+    icon.innerHTML = '&#9728;';
+    label.textContent = 'Hell Modus';
+    btn.style.background = '#2a2a2a';
+  } else {
+    icon.innerHTML = '&#9790;';
+    label.textContent = 'Dark Mode';
+    btn.style.background = '';
+  }
+}
+
+(function() {
+  if (localStorage.getItem('darkMode') === '1') {
+    document.body.classList.add('dark');
+    updateDarkModeButton(true);
+  }
+})();
 </script>
 
 </body>
