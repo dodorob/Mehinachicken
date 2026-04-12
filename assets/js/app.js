@@ -1271,6 +1271,7 @@ function initForm() {
   var tlD = document.getElementById('tl-datum'); if(tlD) tlD.value = now;
   var tlB = document.getElementById('tl-betrag'); if(tlB) tlB.value = '';
   var tlN = document.getElementById('tl-notizen'); if(tlN) tlN.value = '';
+  setERMode('eingang');
   // Wire up toggle buttons (re-wire after SP)
   wireFormButtons();
   // Always refresh displayed numbers from DB
@@ -1288,8 +1289,6 @@ function wireFormButtons() {
   if (arBtn) {
     arBtn.onclick = function(){ setTyp('ausgang'); };
     erBtn.onclick = function(){ setTyp('eingang'); };
-    var tlBtn2 = document.getElementById('toggle-tageslosung');
-    if (tlBtn2) tlBtn2.onclick = function(){ setTyp('tageslosung'); };
     bankBtn.onclick = function(){ setPay('bank'); };
     kassaBtn.onclick = function(){ setPay('kassa'); };
     var barBtn2 = document.getElementById('toggle-bar');
@@ -1307,10 +1306,6 @@ function wireFormButtons() {
     };
     partnerSel.onchange = function(){ fillPD(); };
   }
-  var btnTLSave = document.getElementById('btn-tl-save');
-  if (btnTLSave) btnTLSave.onclick = function(){ saveTageslosung(); };
-  var btnTLReset = document.getElementById('btn-tl-reset');
-  if (btnTLReset) btnTLReset.onclick = function(){ resetTageslosungForm(); };
   var btnNewP = document.getElementById('btn-new-partner-inline');
   if (btnNewP) btnNewP.onclick = function(){ openInlineKundeModal(); };
   var btnBottom = document.getElementById('btn-save-inv-bottom');
@@ -1347,51 +1342,60 @@ function setTyp(typ) {
   document.getElementById('typ').value = typ;
   var arBtn = document.getElementById('toggle-ar');
   var erBtn = document.getElementById('toggle-er');
-  var tlBtn = document.getElementById('toggle-tageslosung');
   if (!arBtn) return;
-  // Reset all toggle buttons
-  arBtn.style.background = '#f0f0ec'; arBtn.style.color = 'var(--t2)';
-  erBtn.style.background = '#f0f0ec'; erBtn.style.color = 'var(--t2)';
-  if (tlBtn) { tlBtn.style.background = '#f0f0ec'; tlBtn.style.color = 'var(--t2)'; }
   if (typ === 'ausgang') {
     arBtn.style.background = 'var(--accent)'; arBtn.style.color = '#fff';
+    erBtn.style.background = '#f0f0ec'; erBtn.style.color = 'var(--t2)';
     document.getElementById('typ-label').textContent = 'Ausgangsrechnung';
     document.getElementById('partner-card-title').textContent = 'Kunde';
     document.getElementById('plbl').textContent = 'Bestehenden Kunden wählen';
     document.getElementById('btn-new-partner-inline').textContent = '+ Neuen Kunden anlegen';
-  } else if (typ === 'tageslosung') {
-    if (tlBtn) { tlBtn.style.background = 'var(--accent)'; tlBtn.style.color = '#fff'; }
-    document.getElementById('typ-label').textContent = 'Tageslosung (Kassa → Bank)';
   } else {
     erBtn.style.background = 'var(--accent)'; erBtn.style.color = '#fff';
+    arBtn.style.background = '#f0f0ec'; arBtn.style.color = 'var(--t2)';
     document.getElementById('typ-label').textContent = 'Eingangsrechnung';
     document.getElementById('partner-card-title').textContent = 'Lieferant';
     document.getElementById('plbl').textContent = 'Bestehenden Lieferanten wählen';
     document.getElementById('btn-new-partner-inline').textContent = '+ Neuen Lieferanten anlegen';
   }
-  if (typ !== 'tageslosung') updateFT();
-  // Show/hide forms
+  updateFT();
+  // Show/hide AR vs ER form
   var arForm = document.getElementById('ar-form');
   var erForm = document.getElementById('er-form');
-  var tlForm = document.getElementById('tageslosung-form');
   var saveBtn = document.getElementById('btn-save-inv');
   var rnrLabel = document.getElementById('rnr-label');
-  if (arForm) arForm.style.display = 'none';
-  if (erForm) erForm.style.display = 'none';
-  if (tlForm) tlForm.style.display = 'none';
-  if (typ === 'ausgang') {
-    if (arForm) arForm.style.display = 'block';
-    if (saveBtn) saveBtn.style.display = '';
-    if (rnrLabel) rnrLabel.textContent = 'Rechnungsnummer (AR)';
-  } else if (typ === 'tageslosung') {
-    if (tlForm) tlForm.style.display = 'block';
-    if (saveBtn) saveBtn.style.display = 'none';
-    if (rnrLabel) rnrLabel.textContent = '';
+  if (arForm && erForm) {
+    if (typ === 'ausgang') {
+      arForm.style.display = 'block';
+      erForm.style.display = 'none';
+      if (saveBtn) saveBtn.style.display = '';
+      if (rnrLabel) rnrLabel.textContent = 'Rechnungsnummer (AR)';
+    } else {
+      arForm.style.display = 'none';
+      erForm.style.display = 'block';
+      if (saveBtn) saveBtn.style.display = 'none';
+      if (rnrLabel) rnrLabel.textContent = 'Rechnungsnummer (ER)';
+      wireERForm();
+    }
+  }
+}
+
+function setERMode(mode) {
+  var eingangFields = document.getElementById('er-eingang-fields');
+  var tageslosungFields = document.getElementById('er-tageslosung-fields');
+  var btnEingang = document.getElementById('er-mode-eingang');
+  var btnTageslosung = document.getElementById('er-mode-tageslosung');
+  if (!eingangFields || !tageslosungFields) return;
+  if (mode === 'tageslosung') {
+    eingangFields.style.display = 'none';
+    tageslosungFields.style.display = 'block';
+    if (btnEingang) { btnEingang.style.background = '#f0f0ec'; btnEingang.style.color = 'var(--t2)'; }
+    if (btnTageslosung) { btnTageslosung.style.background = 'var(--accent)'; btnTageslosung.style.color = '#fff'; }
   } else {
-    if (erForm) erForm.style.display = 'block';
-    if (saveBtn) saveBtn.style.display = 'none';
-    if (rnrLabel) rnrLabel.textContent = 'Rechnungsnummer (ER)';
-    wireERForm();
+    eingangFields.style.display = 'block';
+    tageslosungFields.style.display = 'none';
+    if (btnEingang) { btnEingang.style.background = 'var(--accent)'; btnEingang.style.color = '#fff'; }
+    if (btnTageslosung) { btnTageslosung.style.background = '#f0f0ec'; btnTageslosung.style.color = 'var(--t2)'; }
   }
 }
 
@@ -1444,6 +1448,11 @@ function wireERForm() {
       }
     });
   }
+  // Tageslosung save/reset buttons
+  var btnTLSave = document.getElementById('btn-tl-save');
+  if (btnTLSave && !btnTLSave._wired) { btnTLSave._wired = true; btnTLSave.onclick = function(){ saveTageslosung(); }; }
+  var btnTLReset = document.getElementById('btn-tl-reset');
+  if (btnTLReset && !btnTLReset._wired) { btnTLReset._wired = true; btnTLReset.onclick = function(){ resetTageslosungForm(); }; }
 }
 
 function handleERFile(file) {
@@ -1616,8 +1625,9 @@ function resetERForm() {
   // Reset items
   window.erItemsData = [{desc:'', netto:0, ust_pct:20, ust_amt:0}];
   renderERItems();
-  // Reset Gutschrift toggle
+  // Reset Gutschrift toggle and ER mode
   setERTyp('rechnung');
+  setERMode('eingang');
 }
 
 function saveTageslosung() {
