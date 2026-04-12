@@ -12,5 +12,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_, payload) => callback(payload);
     ipcRenderer.on('update-status', handler);
     return () => ipcRenderer.removeListener('update-status', handler);
-  }
+  },
+  saveBackup: (jsonData) => ipcRenderer.invoke('save-backup', jsonData),
+  listBackups: () => ipcRenderer.invoke('list-backups'),
+  loadBackup: (filePath) => ipcRenderer.invoke('load-backup', filePath),
 });
