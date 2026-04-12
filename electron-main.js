@@ -14,6 +14,21 @@ try {
   console.warn('dotenv is unavailable; .env files will not be loaded.', error);
 }
 
+// ----------------------------------------------------------------
+// Database & Config
+// ----------------------------------------------------------------
+let BuchProDB = null;
+let AppConfig = null;
+try {
+  BuchProDB = require('./database.js');
+  AppConfig = require('./app-config.js');
+} catch (e) {
+  console.warn('DB modules unavailable:', e.message);
+}
+
+let buchProDB  = null;
+let appConfig  = null;
+
 function loadUpdateTokenFromEnvFiles() {
   if (!dotenv) {
     return;
@@ -252,7 +267,220 @@ ipcMain.handle('load-backup', async (event, filePath) => {
   }
 });
 
+// ----------------------------------------------------------------
+// DB helper: build the full init-data response
+// ----------------------------------------------------------------
+function buildInitResponse() {
+  const data     = buchProDB.loadAll();
+  const settings = buchProDB.getAllSettings();
+  const beschHist  = buchProDB.getBeschHist();
+  const fixkosten  = buchProDB.getFixkosten();
+  const posBadges  = buchProDB.getPosBadges();
+  return {
+    needsSetup: false,
+    dbMissing:  false,
+    dbPath:     buchProDB.dbPath,
+    data,
+    settings,
+    beschHist,
+    fixkosten,
+    posBadges,
+    isEmpty: buchProDB.isEmpty(),
+  };
+}
+
+// ----------------------------------------------------------------
+// DB IPC handlers
+// ----------------------------------------------------------------
+
+ipcMain.handle('db-get-init-data', async (event) => {
+  if (!BuchProDB || !AppConfig) {
+    return { needsSetup: false, noDb: true };
+  }
+
+  const savedPath = appConfig.get('dbPath');
+
+  if (!savedPath) {
+    return { needsSetup: true };
+  }
+
+  if (!fs.existsSync(savedPath)) {
+    return { needsSetup: false, dbMissing: true, dbPath: savedPath };
+  }
+
+  try {
+    buchProDB.open(savedPath);
+    return buildInitResponse();
+  } catch (e) {
+    return { needsSetup: false, dbMissing: true, dbPath: savedPath, error: e.message };
+  }
+});
+
+ipcMain.handle('db-create-new', async (event) => {
+  if (!buchProDB || !appConfig) {
+    return { error: 'Datenbank-Modul nicht verfügbar. Bitte führen Sie "npm install" im Programmordner aus und starten Sie die App neu.' };
+  }
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showSaveDialog(win, {
+    title: 'Neue Datenbank erstellen',
+    defaultPath: path.join(app.getPath('documents'), 'Mehinachicken.sqlite'),
+    filters: [{ name: 'SQLite-Datenbank', extensions: ['sqlite', 'db'] }],
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+
+  try {
+    buchProDB.open(result.filePath);
+    appConfig.set('dbPath', result.filePath);
+    return buildInitResponse();
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('db-open-existing', async (event) => {
+  if (!buchProDB || !appConfig) {
+    return { error: 'Datenbank-Modul nicht verfügbar. Bitte führen Sie "npm install" im Programmordner aus und starten Sie die App neu.' };
+  }
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(win, {
+    title: 'Datenbank öffnen',
+    filters: [{ name: 'SQLite-Datenbank', extensions: ['sqlite', 'db'] }],
+    properties: ['openFile'],
+  });
+  if (result.canceled || !result.filePaths.length) return { canceled: true };
+
+  const filePath = result.filePaths[0];
+  try {
+    buchProDB.open(filePath);
+    appConfig.set('dbPath', filePath);
+    return buildInitResponse();
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('db-switch', async (event) => {
+  if (!buchProDB || !appConfig) {
+    return { error: 'Datenbank-Modul nicht verfügbar. Bitte führen Sie "npm install" im Programmordner aus und starten Sie die App neu.' };
+  }
+  // Opens a file picker and switches to that DB
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(win, {
+    title: 'Andere Datenbank öffnen',
+    filters: [{ name: 'SQLite-Datenbank', extensions: ['sqlite', 'db'] }],
+    properties: ['openFile'],
+  });
+  if (result.canceled || !result.filePaths.length) return { canceled: true };
+
+  const filePath = result.filePaths[0];
+  try {
+    buchProDB.open(filePath);
+    appConfig.set('dbPath', filePath);
+    return buildInitResponse();
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('db-create-switch', async (event) => {
+  if (!buchProDB || !appConfig) {
+    return { error: 'Datenbank-Modul nicht verfügbar. Bitte führen Sie "npm install" im Programmordner aus und starten Sie die App neu.' };
+  }
+  // Creates a new DB and switches to it
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showSaveDialog(win, {
+    title: 'Neue Datenbank erstellen',
+    defaultPath: path.join(app.getPath('documents'), 'Mehinachicken.sqlite'),
+    filters: [{ name: 'SQLite-Datenbank', extensions: ['sqlite', 'db'] }],
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+
+  try {
+    buchProDB.open(result.filePath);
+    appConfig.set('dbPath', result.filePath);
+    return buildInitResponse();
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('db-get-path', async () => {
+  return buchProDB && buchProDB.dbPath ? buchProDB.dbPath : null;
+});
+
+ipcMain.handle('db-save-all', async (event, data) => {
+  if (!buchProDB) return { ok: false };
+  try {
+    buchProDB.saveAll(data);
+    return { ok: true };
+  } catch (e) {
+    console.error('db-save-all error:', e);
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('db-save-setting', async (event, key, value) => {
+  if (!buchProDB) return { ok: false };
+  try {
+    buchProDB.setSetting(key, value);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('db-save-besch-hist', async (event, terms) => {
+  if (!buchProDB) return { ok: false };
+  try {
+    buchProDB.saveBeschHist(terms);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('db-save-fixkosten', async (event, list) => {
+  if (!buchProDB) return { ok: false };
+  try {
+    buchProDB.saveFixkosten(list);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('db-save-pos-badges', async (event, labels) => {
+  if (!buchProDB) return { ok: false };
+  try {
+    buchProDB.savePosBadges(labels);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('db-migrate-localstorage', async (event, lsData) => {
+  if (!buchProDB) return { ok: false };
+  try {
+    buchProDB.migrateFromLocalStorage(lsData);
+    return { ok: true };
+  } catch (e) {
+    console.error('db-migrate-localstorage error:', e);
+    return { ok: false, error: e.message };
+  }
+});
+
+// ----------------------------------------------------------------
+
 app.whenReady().then(() => {
+  // Init app config and DB module instances
+  if (AppConfig) {
+    appConfig = new AppConfig(app.getPath('userData'));
+  }
+  if (BuchProDB) {
+    buchProDB = new BuchProDB();
+  }
+
   loadUpdateTokenFromEnvFiles();
   createWindow();
   setupAutoUpdates();
@@ -268,4 +496,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  if (buchProDB) buchProDB.close();
 });
