@@ -1141,8 +1141,10 @@ function renderTable(typ) {
   var s      = (document.getElementById('s-'+typ)||{value:''}).value.toLowerCase();
   var von    = (document.getElementById('f-'+typ+'-von')||{value:''}).value;
   var bis    = (document.getElementById('f-'+typ+'-bis')||{value:''}).value;
-  var minB   = parseFloat((document.getElementById('f-'+typ+'-min')||{value:''}).value)||0;
-  var maxB   = parseFloat((document.getElementById('f-'+typ+'-max')||{value:''}).value)||Infinity;
+  var minBStr = (document.getElementById('f-'+typ+'-min')||{value:''}).value;
+  var minB    = minBStr !== '' ? parseFloat(minBStr) : -Infinity;
+  var maxBStr = (document.getElementById('f-'+typ+'-max')||{value:''}).value;
+  var maxB    = maxBStr !== '' ? parseFloat(maxBStr) : Infinity;
   var status = (document.getElementById('f-'+typ+'-status')||{value:''}).value;
   var invs = d.invoices.filter(function(i){ return i.typ === typ; });
   if (s)      invs = invs.filter(function(i){ return (i.nummer+(i.partner_name||'')).toLowerCase().indexOf(s)!==-1; });
