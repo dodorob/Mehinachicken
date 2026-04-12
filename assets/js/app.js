@@ -233,8 +233,10 @@ function brutto(inv) {
   if (inv.typ === 'eingang' && inv.er_brutto != null && inv.er_brutto > 0) return inv.er_brutto;
   var b = (inv.items || []).reduce(function(s,it){
     var base = it.menge * it.preis * (1 + it.ust/100);
-    var extra = it.extraBetrag ? it.extraBetrag * (1 + (it.extraUst!=null?it.extraUst:20)/100) : 0;
-    return s + base + extra;
+    var extras = (it.extras || []).reduce(function(es,ex){
+      return es + (ex.betrag || 0) * (1 + (ex.ust != null ? ex.ust : 20)/100);
+    }, 0);
+    return s + base + extras;
   }, 0);
   return b + (inv.materialkosten || 0) * 1.2;
 }
@@ -242,7 +244,8 @@ function brutto(inv) {
 function netto(inv) {
   if (inv.typ === 'eingang' && inv.er_netto != null && inv.er_netto > 0) return inv.er_netto;
   return (inv.items || []).reduce(function(s,it){
-    return s + it.menge * it.preis + (it.extraBetrag || 0);
+    var extras = (it.extras || []).reduce(function(es,ex){ return es + (ex.betrag || 0); }, 0);
+    return s + it.menge * it.preis + extras;
   }, 0);
 }
 
@@ -250,8 +253,10 @@ function vatAmt(inv) {
   if (inv.typ === 'eingang' && inv.er_ust != null && inv.er_ust > 0) return inv.er_ust;
   var items_vat = (inv.items || []).reduce(function(s,it){
     var base = it.menge * it.preis * it.ust/100;
-    var extra = it.extraBetrag ? it.extraBetrag * (it.extraUst!=null?it.extraUst:20)/100 : 0;
-    return s + base + extra;
+    var extras = (it.extras || []).reduce(function(es,ex){
+      return es + (ex.betrag || 0) * (ex.ust != null ? ex.ust : 20)/100;
+    }, 0);
+    return s + base + extras;
   }, 0);
   return items_vat + (inv.materialkosten || 0) * 0.2;
 }
