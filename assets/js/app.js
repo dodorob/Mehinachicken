@@ -301,29 +301,26 @@ function savePDFToFolder(doc, filename, folderPath, fallback) {
 }
 
 function nextNum(typ) {
-  var raw = localStorage.getItem('buchpro_v1');
-  var d = raw ? JSON.parse(raw) : {};
+  var d = getDB();
   if (!d.counters) d.counters = {};
-  if (!d.counters.ausgang)        d.counters.ausgang        = 1;
-  if (!d.counters.lfd_bank)       d.counters.lfd_bank       = 1;
-  if (!d.counters.lfd_kassa)      d.counters.lfd_kassa      = 1;
+  if (!d.counters.ausgang)   d.counters.ausgang   = 1;
+  if (!d.counters.lfd_bank)  d.counters.lfd_bank  = 1;
+  if (!d.counters.lfd_kassa) d.counters.lfd_kassa = 1;
 
   var za = (document.getElementById('zahlungsart')||{value:'bank'}).value;
   var lfdKey = za === 'kassa' ? 'lfd_kassa' : 'lfd_bank';
 
   if (typ === 'ausgang') {
     var num = d.counters.ausgang;
-    var lfd = d.counters[lfdKey];
     d.counters.ausgang = num + 1;
-    d.counters[lfdKey] = lfd + 1;
+    d.counters[lfdKey] = (d.counters[lfdKey] || 1) + 1;
     if (za === 'kassa') d.counters.kassenbeleg = (d.counters.kassenbeleg || 1) + 1;
-    localStorage.setItem('buchpro_v1', JSON.stringify(d));
+    saveDB(d);
     return String(num).padStart(2, '0');
   } else {
     // ER: no AR number, but lfd still increments
-    var lfd2 = d.counters[lfdKey];
-    d.counters[lfdKey] = lfd2 + 1;
-    localStorage.setItem('buchpro_v1', JSON.stringify(d));
+    d.counters[lfdKey] = (d.counters[lfdKey] || 1) + 1;
+    saveDB(d);
     return '';
   }
 }
@@ -1824,16 +1821,12 @@ function saveER() {
   var totalUst    = Math.round(items.reduce(function(s,it){ return s+it.ust_amt; }, 0) * 100) / 100;
   var totalBrutto = Math.round((totalNetto + totalUst) * 100) / 100;
 
-  // Increment counter
-  var raw2 = localStorage.getItem('buchpro_v1');
-  var dd = raw2 ? JSON.parse(raw2) : {};
-  if (!dd.counters) dd.counters = {};
-  var zaER = (document.getElementById('zahlungsart')||{value:'bank'}).value;
-  var lfdKeyER = zaER==='kassa'?'lfd_kassa':'lfd_bank';
-  dd.counters[lfdKeyER] = (dd.counters[lfdKeyER]||1) + 1;
-  localStorage.setItem('buchpro_v1', JSON.stringify(dd));
-
   var d = getDB();
+  if (!d.counters) d.counters = {};
+  var zaER = (document.getElementById('zahlungsart')||{value:'bank'}).value;
+  var lfdKeyER = zaER === 'kassa' ? 'lfd_kassa' : 'lfd_bank';
+  d.counters[lfdKeyER] = (d.counters[lfdKeyER] || 1) + 1;
+
   var inv = {
     id: uid(), typ: 'eingang', nummer: '',
     lfd_nr: (document.getElementById('lfd-nr')||{value:''}).value.replace('lfd. ','').trim(),
@@ -1889,14 +1882,11 @@ function saveTageslosung() {
   if (!betrag || betrag <= 0) { alert('Bitte einen Betrag eingeben'); return; }
   if (!datum) { alert('Bitte ein Datum eingeben'); return; }
 
-  // Increment lfd counter (Tageslosung always uses bank counter)
-  var raw2 = localStorage.getItem('buchpro_v1');
-  var dd = raw2 ? JSON.parse(raw2) : {};
-  if (!dd.counters) dd.counters = {};
-  dd.counters['lfd_bank'] = (dd.counters['lfd_bank']||1) + 1;
-  localStorage.setItem('buchpro_v1', JSON.stringify(dd));
-
   var d = getDB();
+  if (!d.counters) d.counters = {};
+  // Tageslosung always uses bank counter
+  d.counters['lfd_bank'] = (d.counters['lfd_bank'] || 1) + 1;
+
   var inv = {
     id: uid(), typ: 'eingang', nummer: '',
     lfd_nr: (document.getElementById('lfd-nr')||{value:''}).value.replace('lfd. ','').trim(),
@@ -1968,8 +1958,7 @@ function setPay(pay) {
 function refreshNumbers() {
   var typ = document.getElementById('typ') ? document.getElementById('typ').value : 'ausgang';
   var za = (document.getElementById('zahlungsart')||{value:'bank'}).value;
-  var raw = localStorage.getItem('buchpro_v1');
-  var db = raw ? JSON.parse(raw) : {};
+  var db = getDB();
   if (!db.counters) db.counters = {};
   var rnrEl  = document.getElementById('rnr');
   var rnrWrap = rnrEl ? rnrEl.closest('.fg') : null;
