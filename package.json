@@ -5,11 +5,13 @@
   "main": "electron-main.js",
   "private": true,
   "scripts": {
+    "postinstall": "electron-rebuild -f -w better-sqlite3",
     "build:win": "electron-builder --win nsis"
   },
   "devDependencies": {
     "electron": "^32.2.0",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "electron-rebuild": "^3.2.9"
   },
   "build": {
     "appId": "com.mehinachicken.app",
@@ -18,7 +20,10 @@
       "index.html",
       "assets/**/*",
       "electron-main.js",
-      "preload.js"
+      "preload.js",
+      "database.js",
+      "app-config.js",
+      "node_modules/**/*"
     ],
     "directories": {
       "output": "dist"
@@ -49,7 +54,8 @@
   },
   "dependencies": {
     "electron-updater": "^6.3.9",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "better-sqlite3": "^11.0.0"
   },
   "repository": {
     "type": "git",

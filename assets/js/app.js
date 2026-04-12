@@ -8,6 +8,16 @@ var updateStatusUnsubscribe = null;
 var updateUiWired = false;
 
 // ================================================================
+// DB CACHE – replaces direct localStorage access in Electron mode
+// ================================================================
+var _dbCache        = null;   // main data (invoices, kunden, etc.)
+var _settingsCache  = {};     // all settings
+var _beschHistCache = [];     // description autocomplete history
+var _fixkostenCache = [];     // fixed costs
+var _posBadgesCache = null;   // position badges (null = use default)
+var _dbInitialized  = false;
+
+// ================================================================
 // BACKUP
 // ================================================================
 var BACKUP_KEYS = [
@@ -18,11 +28,19 @@ var BACKUP_KEYS = [
 ];
 
 function createBackupObject() {
-  var backup = { _meta: { app: 'BuchPro', version: 1, created: new Date().toISOString(), keys: BACKUP_KEYS } };
+  var backup = { _meta: { app: 'BuchPro', version: 2, created: new Date().toISOString(), keys: BACKUP_KEYS } };
+  // Main data
+  backup['buchpro_v1'] = JSON.stringify(_dbCache || {});
+  // Settings (all BACKUP_KEYS except the special ones handled separately)
+  var skipKeys = { 'buchpro_v1': true, 'buchpro_beschreibung_hist': true, 'bp_pos_badges': true, 'bp_fixkosten': true };
   BACKUP_KEYS.forEach(function(key) {
-    var val = localStorage.getItem(key);
+    if (skipKeys[key]) return;
+    var val = getSetting(key);
     if (val !== null) backup[key] = val;
   });
+  backup['buchpro_beschreibung_hist'] = JSON.stringify(_beschHistCache);
+  backup['bp_fixkosten'] = JSON.stringify(_fixkostenCache);
+  if (_posBadgesCache) backup['bp_pos_badges'] = JSON.stringify(_posBadgesCache);
   return backup;
 }
 
@@ -39,8 +57,23 @@ function exportAllData() {
 function importBackupData(backup) {
   var keys = (backup._meta && backup._meta.keys) ? backup._meta.keys : BACKUP_KEYS;
   var restored = 0;
+  keys.forEach(function(key) { if (backup[key] !== undefined) restored++; });
+
+  if (window.electronAPI && window.electronAPI.db) {
+    // Electron / SQLite mode: migrate everything to the DB
+    var lsData = {};
+    keys.forEach(function(key) { if (backup[key] !== undefined) lsData[key] = backup[key]; });
+    // Also carry over the history key which may not be in BACKUP_KEYS of older backups
+    if (backup['buchpro_beschreibung_hist']) lsData['buchpro_beschreibung_hist'] = backup['buchpro_beschreibung_hist'];
+    window.electronAPI.db.migrateFromLocalStorage(lsData).then(function() {
+      location.reload();
+    }).catch(function(e) { alert('Fehler beim Importieren: ' + e.message); });
+    return restored; // reload is handled async above; callers must not also reload
+  }
+
+  // Browser / localStorage fallback
   keys.forEach(function(key) {
-    if (backup[key] !== undefined) { localStorage.setItem(key, backup[key]); restored++; }
+    if (backup[key] !== undefined) { localStorage.setItem(key, backup[key]); }
   });
   return restored;
 }
@@ -60,7 +93,10 @@ function importAllData(file) {
         info.style.display = 'block';
         info.textContent = '\u2713 ' + restored + ' Eintr\u00e4ge wiederhergestellt. Seite wird neu geladen\u2026';
       }
-      setTimeout(function() { location.reload(); }, 2000);
+      // In Electron/DB mode importBackupData already triggers reload; skip double reload
+      if (!window.electronAPI || !window.electronAPI.db) {
+        setTimeout(function() { location.reload(); }, 2000);
+      }
     } catch(ex) {
       alert('Fehler beim Importieren: ' + ex.message);
     }
@@ -108,8 +144,13 @@ function renderBackupList() {
           try {
             var backup = JSON.parse(res.data);
             var restored = importBackupData(backup);
-            alert('\u2713 ' + restored + ' Eintr\u00e4ge wiederhergestellt. Die Seite wird neu geladen.');
-            location.reload();
+            // In Electron/DB mode importBackupData reloads async; just show a brief message
+            if (window.electronAPI && window.electronAPI.db) {
+              alert('\u2713 ' + restored + ' Eintr\u00e4ge werden wiederhergestellt\u2026');
+            } else {
+              alert('\u2713 ' + restored + ' Eintr\u00e4ge wiederhergestellt. Die Seite wird neu geladen.');
+              location.reload();
+            }
           } catch(ex) { alert('Fehler beim Lesen der Backup-Datei: ' + ex.message); }
         });
       });
@@ -118,6 +159,8 @@ function renderBackupList() {
 }
 
 function getPosBadges() {
+  if (_posBadgesCache !== null) return _posBadgesCache.slice();
+  // Fallback: read from localStorage (browser mode or before DB init)
   try {
     var v = localStorage.getItem(POS_BADGES_KEY);
     if (v) { var a = JSON.parse(v); if (Array.isArray(a) && a.length) return a; }
@@ -125,47 +168,89 @@ function getPosBadges() {
   return POS_BADGES_DEFAULT.slice();
 }
 function savePosBadges(arr) {
-  localStorage.setItem(POS_BADGES_KEY, JSON.stringify(arr));
+  _posBadgesCache = arr;
+  if (window.electronAPI && window.electronAPI.db) {
+    window.electronAPI.db.savePosBadges(arr).catch(function(e){ console.warn('savePosBadges error:', e); });
+  } else {
+    localStorage.setItem(POS_BADGES_KEY, JSON.stringify(arr));
+  }
 }
 
 function loadDB() {
+  if (_dbCache) return _dbCache;
+  // Fallback to localStorage (browser mode or before DB init)
   try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
   catch(e) { return {}; }
 }
 
 function getDB() {
   var d = loadDB();
-  if (!d.invoices)   d.invoices   = [];
-  if (!d.kunden)     d.kunden     = [];
-  if (!d.lieferanten)d.lieferanten= [];
-  if (!d.zahlungen)  d.zahlungen  = [];
-  if (!d.fahrzeuge)  d.fahrzeuge  = [];
-  if (!d.counters)   d.counters   = {ausgang:1, eingang:1, fortlaufend:1};
-  // Migration: ensure fortlaufend exists
+  if (!d.invoices)    d.invoices    = [];
+  if (!d.kunden)      d.kunden      = [];
+  if (!d.lieferanten) d.lieferanten = [];
+  if (!d.zahlungen)   d.zahlungen   = [];
+  if (!d.fahrzeuge)   d.fahrzeuge   = [];
+  if (!d.counters)    d.counters    = {ausgang:1, eingang:1, fortlaufend:1};
+  // Migration: ensure counters exist
   if (!d.counters.fortlaufend) d.counters.fortlaufend = d.invoices.length + 1;
   if (!d.counters.kassenbeleg) d.counters.kassenbeleg = 1;
-  // Migration: ensure ausgang counter is at least invoice count + 1
+  if (!d.counters.lfd_bank)    d.counters.lfd_bank    = 1;
+  if (!d.counters.lfd_kassa)   d.counters.lfd_kassa   = 1;
   if (!d.counters.ausgang) {
     var arCount = d.invoices.filter(function(i){ return i.typ==='ausgang'; }).length;
     d.counters.ausgang = arCount + 1;
   }
-  if (!d.vorlage)    d.vorlage    = dfV();
+  if (!d.vorlage)       d.vorlage       = dfV();
   if (!d.todos)         d.todos         = [];
   if (!d.todos_archiv)  d.todos_archiv  = [];
+  if (!d.kostenvoranschlaege) d.kostenvoranschlaege = [];
+  _dbCache = d;
   return d;
 }
 
 function saveDB(d) {
-  localStorage.setItem(STORE_KEY, JSON.stringify(d));
+  _dbCache = d;
+  if (window.electronAPI && window.electronAPI.db) {
+    window.electronAPI.db.saveAll(d).catch(function(e){ console.warn('saveDB error:', e); });
+  } else {
+    localStorage.setItem(STORE_KEY, JSON.stringify(d));
+  }
 }
 
 // Beschreibung autocomplete history
 var HIST_KEY = 'buchpro_beschreibung_hist';
 function loadBeschHist() {
+  if (_dbInitialized) return _beschHistCache.slice();
+  // Fallback (browser mode / pre-init)
   try { return JSON.parse(localStorage.getItem(HIST_KEY)) || []; } catch(e) { return []; }
 }
 function saveBeschHist(terms) {
-  localStorage.setItem(HIST_KEY, JSON.stringify(terms));
+  _beschHistCache = terms;
+  if (window.electronAPI && window.electronAPI.db) {
+    window.electronAPI.db.saveBeschHist(terms).catch(function(e){ console.warn('saveBeschHist error:', e); });
+  } else {
+    localStorage.setItem(HIST_KEY, JSON.stringify(terms));
+  }
+}
+
+// ----------------------------------------------------------------
+// Settings helpers – thin wrapper over _settingsCache / localStorage
+// ----------------------------------------------------------------
+function getSetting(key) {
+  if (window.electronAPI && window.electronAPI.db) {
+    var v = _settingsCache[key];
+    return (v !== undefined) ? v : null;
+  }
+  return localStorage.getItem(key);
+}
+
+function setSetting(key, value) {
+  _settingsCache[key] = value;
+  if (window.electronAPI && window.electronAPI.db) {
+    window.electronAPI.db.saveSetting(key, value).catch(function(e){ console.warn('setSetting error:', e); });
+  } else {
+    localStorage.setItem(key, value);
+  }
 }
 function addToBeschHist(text) {
   if (!text || text.trim().length < 2) return;
@@ -817,21 +902,21 @@ function initEinstellungen() {
   };
 
   var vlEl = document.getElementById('todo-vorlauf');
-  if (vlEl) vlEl.value = localStorage.getItem('bp_todo_vorlauf') || '7';
+  if (vlEl) vlEl.value = getSetting('bp_todo_vorlauf') || '7';
   var vlBtn = document.getElementById('btn-todo-vorlauf-save');
   if (vlBtn) vlBtn.onclick = function(){
     var v = parseInt((document.getElementById('todo-vorlauf')||{value:'7'}).value) || 7;
-    localStorage.setItem('bp_todo_vorlauf', String(v));
+    setSetting('bp_todo_vorlauf', String(v));
     var info = document.getElementById('todo-vorlauf-info');
     if (info) { info.textContent = '✓ Gespeichert: ' + v + ' Tage'; setTimeout(function(){ info.textContent = ''; }, 2000); }
   };
 
   var rvEl = document.getElementById('rech-vorlauf');
-  if (rvEl) rvEl.value = localStorage.getItem('bp_rech_vorlauf') || '3';
+  if (rvEl) rvEl.value = getSetting('bp_rech_vorlauf') || '3';
   var rvBtn = document.getElementById('btn-rech-vorlauf-save');
   if (rvBtn) rvBtn.onclick = function(){
     var v = parseInt((document.getElementById('rech-vorlauf')||{value:'3'}).value) || 3;
-    localStorage.setItem('bp_rech_vorlauf', String(v));
+    setSetting('bp_rech_vorlauf', String(v));
     var info = document.getElementById('rech-vorlauf-info');
     if (info) { info.textContent = '✓ Gespeichert: ' + v + ' Tage'; setTimeout(function(){ info.textContent = ''; }, 2000); }
   };
@@ -868,14 +953,54 @@ function initEinstellungen() {
   }
 
   renderBackupList();
+
+  // DB settings wiring (Electron only)
+  (function() {
+    var dbPathEl = document.getElementById('db-current-path');
+    var btnSwitch = document.getElementById('btn-db-switch');
+    var btnCreate = document.getElementById('btn-db-create');
+    if (!window.electronAPI || !window.electronAPI.db) return;
+    if (dbPathEl) {
+      window.electronAPI.db.getPath().then(function(p) {
+        dbPathEl.textContent = p || '—';
+      });
+    }
+    if (btnSwitch) {
+      btnSwitch.onclick = function() {
+        window.electronAPI.db.switchDb().then(function(result) {
+          if (result.canceled) return;
+          if (result.error) { alert('Fehler: ' + result.error); return; }
+          _loadCachesFromResult(result);
+          location.reload();
+        });
+      };
+    }
+    if (btnCreate) {
+      btnCreate.onclick = function() {
+        window.electronAPI.db.createSwitch().then(function(result) {
+          if (result.canceled) return;
+          if (result.error) { alert('Fehler: ' + result.error); return; }
+          _loadCachesFromResult(result);
+          location.reload();
+        });
+      };
+    }
+  })();
 }
 
 function loadFixkosten() {
+  if (_dbInitialized) return _fixkostenCache.slice();
+  // Fallback
   try { return JSON.parse(localStorage.getItem('bp_fixkosten') || '[]'); } catch(e){ return []; }
 }
 
 function saveFixkosten(list) {
-  localStorage.setItem('bp_fixkosten', JSON.stringify(list));
+  _fixkostenCache = list;
+  if (window.electronAPI && window.electronAPI.db) {
+    window.electronAPI.db.saveFixkosten(list).catch(function(e){ console.warn('saveFixkosten error:', e); });
+  } else {
+    localStorage.setItem('bp_fixkosten', JSON.stringify(list));
+  }
 }
 
 function getFixkostenTotal(monat) {
@@ -1203,7 +1328,7 @@ function renderDash() {
   c2._c = new Chart(c2, {type:'doughnut', data:{labels:['USt. eingenommen','USt. bezahlt'], datasets:[{data:[vC,vP], backgroundColor:['#1D9E75','#F09595']}]}, options:{plugins:{legend:{labels:{font:{size:11}}}}}});
 
   var rec = document.getElementById('d-recent');
-  var rechVorlauf = parseInt(localStorage.getItem('bp_rech_vorlauf') || '3');
+  var rechVorlauf = parseInt(getSetting('bp_rech_vorlauf') || '3');
   var in3 = new Date(now.getTime() + rechVorlauf*86400000);
   var due3 = d.invoices.filter(function(i){
     return i.status === 'offen' && i.faellig && new Date(i.faellig) <= in3;
@@ -1231,7 +1356,7 @@ function renderDash() {
   // Fällige Todos
   var todosEl = document.getElementById('d-todos');
   if (todosEl) {
-    var vorlauf = parseInt(localStorage.getItem('bp_todo_vorlauf') || '7');
+    var vorlauf = parseInt(getSetting('bp_todo_vorlauf') || '7');
     var inV = new Date(now.getTime() + vorlauf*86400000);
     var dueTodos = (d.todos || []).filter(function(t){
       return !t.erledigt && t.faellig && new Date(t.faellig) <= inV;
@@ -1383,7 +1508,7 @@ function initForm() {
   // Set AR as default
   setTyp('ausgang');
   // Init ER dates
-  var zahlungsziel = parseInt(localStorage.getItem('bp_zahlungsziel') || '14');
+  var zahlungsziel = parseInt(getSetting('bp_zahlungsziel') || '14');
   var erDue = new Date(Date.now() + zahlungsziel * 86400000).toISOString().split('T')[0];
   var erD = document.getElementById('er-datum'); if(erD) erD.value = now;
   var erF = document.getElementById('er-faellig'); if(erF) erF.value = erDue;
@@ -1566,7 +1691,7 @@ function wireERForm() {
   if (erDatumEl && !erDatumEl._faelligWired) {
     erDatumEl._faelligWired = true;
     erDatumEl.addEventListener('change', function() {
-      var zahlungsziel = parseInt(localStorage.getItem('bp_zahlungsziel') || '14');
+      var zahlungsziel = parseInt(getSetting('bp_zahlungsziel') || '14');
       var nd = new Date(this.value);
       if (!isNaN(nd)) {
         nd.setDate(nd.getDate() + zahlungsziel);
@@ -1741,7 +1866,7 @@ function saveER() {
 
 function resetERForm() {
   var now = new Date().toISOString().split('T')[0];
-  var zahlungsziel = parseInt(localStorage.getItem('bp_zahlungsziel') || '14');
+  var zahlungsziel = parseInt(getSetting('bp_zahlungsziel') || '14');
   var due = new Date(Date.now() + zahlungsziel * 86400000).toISOString().split('T')[0];
   ['er-datum','er-faellig'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=id==='er-datum'?now:due; });
   ['er-notizen','er-lief-name','er-liefnr'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; });
@@ -2377,7 +2502,7 @@ function genPDF(id) {
   var d = getDB(), inv = d.invoices.find(function(i){ return i.id===id; });
   if (!inv) return;
   if (inv.typ === 'eingang' && inv.file_b64) {
-    var erPath = localStorage.getItem('bp_path_er');
+    var erPath = getSetting('bp_path_er');
     if (erPath && window.electronAPI && window.electronAPI.savePdfToPath) {
       var erFilename = (inv.file_name || ('ER_' + (inv.partner_name || 'Rechnung').replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_') + '_' + (inv.datum || '') + '.pdf'));
       var erB64 = inv.file_b64.indexOf(',') !== -1 ? inv.file_b64.split(',')[1] : inv.file_b64;
@@ -2654,8 +2779,8 @@ function genPDFData(inv) {
   if (fnKz) filename += '_' + fnKz;
   filename += '.pdf';
   var arPath = inv.zahlungsart === 'kassa'
-    ? (localStorage.getItem('bp_path_ar_kassa') || localStorage.getItem('bp_path_ar'))
-    : (localStorage.getItem('bp_path_ar_bank')  || localStorage.getItem('bp_path_ar'));
+    ? (getSetting('bp_path_ar_kassa') || getSetting('bp_path_ar'))
+    : (getSetting('bp_path_ar_bank')  || getSetting('bp_path_ar'));
   savePDFToFolder(doc, filename, arPath, function(){ openPDF(doc, filename); });
 }
 
@@ -4226,16 +4351,16 @@ function initPathSettings() {
   var arKassaEl = document.getElementById('path-ar-kassa');
   var erEl      = document.getElementById('path-er');
   var kvEl      = document.getElementById('path-kv');
-  if (arBankEl)  arBankEl.value  = localStorage.getItem('bp_path_ar_bank')  || localStorage.getItem('bp_path_ar') || '';
-  if (arKassaEl) arKassaEl.value = localStorage.getItem('bp_path_ar_kassa') || localStorage.getItem('bp_path_ar') || '';
-  if (erEl) erEl.value = localStorage.getItem('bp_path_er') || '';
-  if (kvEl) kvEl.value = localStorage.getItem('bp_path_kv') || '';
+  if (arBankEl)  arBankEl.value  = getSetting('bp_path_ar_bank')  || getSetting('bp_path_ar') || '';
+  if (arKassaEl) arKassaEl.value = getSetting('bp_path_ar_kassa') || getSetting('bp_path_ar') || '';
+  if (erEl) erEl.value = getSetting('bp_path_er') || '';
+  if (kvEl) kvEl.value = getSetting('bp_path_kv') || '';
 
   function savePath(inputId, key, infoId) {
     var el = document.getElementById(inputId);
     if (!el) return;
     var v = el.value.trim();
-    localStorage.setItem(key, v);
+    setSetting(key, v);
     var info = document.getElementById(infoId);
     if (info) { info.textContent = '✓ Gespeichert: ' + v; setTimeout(function(){ info.textContent = ''; }, 2500); }
   }
@@ -4550,8 +4675,8 @@ async function handleScan(file) {
     status.innerHTML = '<img src="' + dataUrl + '" class="scan-preview"><div style="text-align:center;margin-top:1rem"><span class="spinner"></span><span style="font-family:sans-serif;font-size:13px;color:#666">Claude analysiert die Zulassungsbescheinigung...</span></div>';
 
     var base64 = dataUrl.split(',')[1];
-    var apiKey = localStorage.getItem('bp_apikey') || '';
-    var useProxy = localStorage.getItem('bp_proxy') === '1';
+    var apiKey = getSetting('bp_apikey') || '';
+    var useProxy = getSetting('bp_proxy') === '1';
     var endpoint = useProxy ? 'http://localhost:3742/api' : 'https://api.anthropic.com/v1/messages';
     var headers = {'Content-Type': 'application/json'};
     if (!useProxy && apiKey) {
@@ -4630,8 +4755,8 @@ function createFromScan() {
 document.getElementById('nav-einstellungen').addEventListener('click', function(){ SP('einstellungen'); });
 
 function initSettings() {
-  var key = localStorage.getItem('bp_apikey') || '';
-  var proxy = localStorage.getItem('bp_proxy') === '1';
+  var key = getSetting('bp_apikey') || '';
+  var proxy = getSetting('bp_proxy') === '1';
   document.getElementById('api-key-input').value = key;
   document.getElementById('api-method').value = proxy ? 'proxy' : 'direct';
   toggleApiMethod();
@@ -4648,8 +4773,8 @@ document.getElementById('api-method').addEventListener('change', toggleApiMethod
 document.getElementById('btn-save-api').addEventListener('click', function(){
   var method = document.getElementById('api-method').value;
   var key    = document.getElementById('api-key-input').value.trim();
-  localStorage.setItem('bp_proxy',  method === 'proxy' ? '1' : '0');
-  localStorage.setItem('bp_apikey', key);
+  setSetting('bp_proxy',  method === 'proxy' ? '1' : '0');
+  setSetting('bp_apikey', key);
   var el = document.getElementById('api-test-result');
   el.innerHTML = '<div class="alert success">&#10003; Gespeichert!</div>';
   setTimeout(function(){ el.innerHTML=''; }, 2000);
@@ -4659,8 +4784,8 @@ document.getElementById('btn-test-api').addEventListener('click', async function
   var el = document.getElementById('api-test-result');
   el.innerHTML = '<div class="alert info"><span class="spinner"></span>Teste Verbindung...</div>';
   try {
-    var apiKey  = localStorage.getItem('bp_apikey') || '';
-    var useProxy = localStorage.getItem('bp_proxy') === '1';
+    var apiKey  = getSetting('bp_apikey') || '';
+    var useProxy = getSetting('bp_proxy') === '1';
     var endpoint = useProxy ? 'http://localhost:3742/api' : 'https://api.anthropic.com/v1/messages';
     var headers = {'Content-Type': 'application/json'};
     if (!useProxy && apiKey) { headers['x-api-key'] = apiKey; headers['anthropic-version'] = '2023-06-01'; }
@@ -4804,7 +4929,238 @@ function loadMalgunFont() {
   }
 }
 
-window.onload = function(){ loadMalgunFont(); renderDash(); autoSaveBackup(); };
+// ----------------------------------------------------------------
+// DB initialisation helpers
+// ----------------------------------------------------------------
+
+function _loadCachesFromResult(result) {
+  var d = result.data || {};
+  _dbCache = {
+    invoices:            d.invoices            || [],
+    kunden:              d.kunden              || [],
+    lieferanten:         d.lieferanten         || [],
+    zahlungen:           d.zahlungen           || [],
+    fahrzeuge:           d.fahrzeuge           || [],
+    todos:               d.todos               || [],
+    todos_archiv:        d.todos_archiv        || [],
+    kostenvoranschlaege: d.kostenvoranschlaege || [],
+    counters: d.counters || {ausgang:1, eingang:1, fortlaufend:1, kassenbeleg:1, lfd_bank:1, lfd_kassa:1},
+    vorlage:             d.vorlage             || null,
+  };
+  _settingsCache  = result.settings  || {};
+  _beschHistCache = result.beschHist || [];
+  _fixkostenCache = result.fixkosten || [];
+  _posBadgesCache = result.posBadges || null;
+
+  // Keep dark mode in localStorage for instant rendering on next start
+  if (_settingsCache.darkMode !== undefined) {
+    try { localStorage.setItem('darkMode', _settingsCache.darkMode); } catch(_) {}
+    if (_settingsCache.darkMode === '1') {
+      document.body.classList.add('dark');
+      if (typeof updateDarkModeButton === 'function') updateDarkModeButton(true);
+    } else {
+      document.body.classList.remove('dark');
+      if (typeof updateDarkModeButton === 'function') updateDarkModeButton(false);
+    }
+  }
+}
+
+function _showDbOverlay(html) {
+  var ov = document.getElementById('db-setup-overlay');
+  if (ov) { ov.innerHTML = html; ov.style.display = 'flex'; }
+}
+
+function _hideDbOverlay() {
+  var ov = document.getElementById('db-setup-overlay');
+  if (ov) ov.style.display = 'none';
+}
+
+function showDbSetupModal() {
+  return new Promise(function(resolve) {
+    _showDbOverlay(
+      '<div class="db-setup-box">' +
+        '<h2 style="margin:0 0 12px 0;font-size:20px">Willkommen bei Mehinachicken</h2>' +
+        '<p style="font-family:sans-serif;font-size:13px;color:#555;margin-bottom:24px">' +
+          'Keine Datenbank gefunden. Bitte erstellen oder öffnen Sie eine Datenbank.' +
+        '</p>' +
+        '<div style="display:flex;flex-direction:column;gap:12px">' +
+          '<button id="btn-db-new" class="btn primary" style="padding:12px 20px;font-size:14px">&#43; Neue Datenbank erstellen</button>' +
+          '<button id="btn-db-open" class="btn" style="padding:12px 20px;font-size:14px">&#128193; Bestehende Datenbank öffnen</button>' +
+        '</div>' +
+        '<div id="db-setup-error" style="margin-top:14px;color:#e00;font-size:12px;font-family:sans-serif"></div>' +
+      '</div>'
+    );
+
+    function handleResult(result) {
+      if (result.canceled) return;
+      if (result.error) {
+        var errEl = document.getElementById('db-setup-error');
+        if (errEl) errEl.textContent = 'Fehler: ' + result.error;
+        return;
+      }
+      _hideDbOverlay();
+      resolve(result);
+    }
+
+    document.getElementById('btn-db-new').onclick = function() {
+      window.electronAPI.db.createNew().then(handleResult);
+    };
+    document.getElementById('btn-db-open').onclick = function() {
+      window.electronAPI.db.openExisting().then(handleResult);
+    };
+  });
+}
+
+function showDbMissingModal(missingPath) {
+  return new Promise(function(resolve) {
+    _showDbOverlay(
+      '<div class="db-setup-box">' +
+        '<h2 style="margin:0 0 12px 0;font-size:18px">Datenbank nicht gefunden</h2>' +
+        '<p style="font-family:sans-serif;font-size:13px;color:#555;margin-bottom:8px">' +
+          'Die zuletzt verwendete Datenbank wurde nicht gefunden:' +
+        '</p>' +
+        '<div style="font-family:monospace;font-size:11px;background:#f5f5f5;padding:8px 10px;border-radius:6px;word-break:break-all;margin-bottom:20px;color:#333">' +
+          (missingPath || '—') +
+        '</div>' +
+        '<div style="display:flex;flex-direction:column;gap:12px">' +
+          '<button id="btn-db-new" class="btn primary" style="padding:12px 20px;font-size:14px">&#43; Neue Datenbank erstellen</button>' +
+          '<button id="btn-db-open" class="btn" style="padding:12px 20px;font-size:14px">&#128193; Andere Datenbank öffnen</button>' +
+        '</div>' +
+        '<div id="db-setup-error" style="margin-top:14px;color:#e00;font-size:12px;font-family:sans-serif"></div>' +
+      '</div>'
+    );
+
+    function handleResult(result) {
+      if (result.canceled) return;
+      if (result.error) {
+        var errEl = document.getElementById('db-setup-error');
+        if (errEl) errEl.textContent = 'Fehler: ' + result.error;
+        return;
+      }
+      _hideDbOverlay();
+      resolve(result);
+    }
+
+    document.getElementById('btn-db-new').onclick = function() {
+      window.electronAPI.db.createNew().then(handleResult);
+    };
+    document.getElementById('btn-db-open').onclick = function() {
+      window.electronAPI.db.openExisting().then(handleResult);
+    };
+  });
+}
+
+function offerLocalStorageMigration() {
+  return new Promise(function(resolve) {
+    _showDbOverlay(
+      '<div class="db-setup-box">' +
+        '<h2 style="margin:0 0 12px 0;font-size:18px">Bestehende Daten gefunden</h2>' +
+        '<p style="font-family:sans-serif;font-size:13px;color:#555;margin-bottom:20px">' +
+          'Im Browser-Speicher wurden vorhandene Daten gefunden. ' +
+          'Möchten Sie diese in die neue Datenbank migrieren?' +
+        '</p>' +
+        '<div style="display:flex;gap:12px;flex-wrap:wrap">' +
+          '<button id="btn-migrate-yes" class="btn primary" style="padding:12px 20px;font-size:14px">Ja, jetzt migrieren</button>' +
+          '<button id="btn-migrate-no" class="btn" style="padding:12px 20px;font-size:14px">Nein, leer starten</button>' +
+        '</div>' +
+        '<div id="db-migrate-status" style="margin-top:14px;font-size:12px;font-family:sans-serif"></div>' +
+      '</div>'
+    );
+
+    document.getElementById('btn-migrate-yes').onclick = function() {
+      var statusEl = document.getElementById('db-migrate-status');
+      if (statusEl) statusEl.textContent = 'Migration läuft…';
+
+      // Collect all localStorage keys
+      var lsData = {};
+      var allKeys = [
+        'buchpro_v1', 'buchpro_beschreibung_hist', 'bp_pos_badges',
+        'bp_todo_vorlauf', 'bp_rech_vorlauf', 'bp_fixkosten', 'bp_zahlungsziel',
+        'bp_path_ar_bank', 'bp_path_ar_kassa', 'bp_path_ar', 'bp_path_er', 'bp_path_kv',
+        'bp_apikey', 'bp_proxy', 'darkMode'
+      ];
+      allKeys.forEach(function(k) {
+        var v = localStorage.getItem(k);
+        if (v !== null) lsData[k] = v;
+      });
+
+      window.electronAPI.db.migrateFromLocalStorage(lsData).then(function(res) {
+        if (!res.ok) {
+          if (statusEl) statusEl.textContent = 'Fehler: ' + (res.error || 'Unbekannt');
+          return;
+        }
+        // Clear localStorage migration data to avoid re-offering next time
+        allKeys.forEach(function(k) { try { localStorage.removeItem(k); } catch(_) {} });
+        _hideDbOverlay();
+        resolve(true);
+        location.reload();
+      }).catch(function(e) {
+        if (statusEl) statusEl.textContent = 'Fehler: ' + e.message;
+      });
+    };
+
+    document.getElementById('btn-migrate-no').onclick = function() {
+      _hideDbOverlay();
+      resolve(false);
+    };
+  });
+}
+
+async function initDatabase() {
+  if (!window.electronAPI || !window.electronAPI.db) {
+    // Browser mode – use localStorage directly
+    try { _dbCache = JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch(_) { _dbCache = {}; }
+    try { _beschHistCache = JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); } catch(_) { _beschHistCache = []; }
+    try { _fixkostenCache = JSON.parse(localStorage.getItem('bp_fixkosten') || '[]'); } catch(_) { _fixkostenCache = []; }
+    try {
+      var pb = localStorage.getItem(POS_BADGES_KEY);
+      if (pb) { var pba = JSON.parse(pb); if (Array.isArray(pba) && pba.length) _posBadgesCache = pba; }
+    } catch(_) {}
+    _dbInitialized = true;
+    return;
+  }
+
+  // Snapshot localStorage before anything changes (for migration offer)
+  var lsV1 = localStorage.getItem(STORE_KEY);
+
+  var result;
+  try {
+    result = await window.electronAPI.db.getInitData();
+  } catch(e) {
+    console.error('DB init failed, falling back to localStorage:', e);
+    try { _dbCache = JSON.parse(lsV1 || '{}'); } catch(_) { _dbCache = {}; }
+    _dbInitialized = true;
+    return;
+  }
+
+  if (result.noDb) {
+    // better-sqlite3 not available in this build; fall back gracefully
+    try { _dbCache = JSON.parse(lsV1 || '{}'); } catch(_) { _dbCache = {}; }
+    _dbInitialized = true;
+    return;
+  }
+
+  if (result.needsSetup) {
+    result = await showDbSetupModal();
+  } else if (result.dbMissing) {
+    result = await showDbMissingModal(result.dbPath);
+  }
+
+  _loadCachesFromResult(result);
+  _dbInitialized = true;
+
+  // Offer to migrate existing localStorage data into the fresh DB
+  if (lsV1 && result.isEmpty) {
+    await offerLocalStorageMigration();
+  }
+}
+
+window.onload = async function() {
+  await initDatabase();
+  loadMalgunFont();
+  renderDash();
+  autoSaveBackup();
+};
 
 var _motTimer = null;
 var _motCanvas = null;
@@ -5448,7 +5804,7 @@ function genKVPDF(kv) {
 
   var kvName = (kv.partner_name || '').replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
   var kvFilename = 'Kostenvoranschlag' + (kvName ? '_' + kvName : '') + (kv.datum ? '_' + kv.datum : '') + '.pdf';
-  var kvPath = localStorage.getItem('bp_path_kv');
+  var kvPath = getSetting('bp_path_kv');
   savePDFToFolder(doc, kvFilename, kvPath, function(){ openPDF(doc, kvFilename); });
 }
 
