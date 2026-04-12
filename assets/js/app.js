@@ -7,6 +7,116 @@ var POS_BADGES_DEFAULT = ['Links','Rechts','Vorne','Hinten'];
 var updateStatusUnsubscribe = null;
 var updateUiWired = false;
 
+// ================================================================
+// BACKUP
+// ================================================================
+var BACKUP_KEYS = [
+  'buchpro_v1', 'buchpro_beschreibung_hist', 'bp_pos_badges',
+  'bp_todo_vorlauf', 'bp_rech_vorlauf', 'bp_fixkosten', 'bp_zahlungsziel',
+  'bp_path_ar_bank', 'bp_path_ar_kassa', 'bp_path_ar', 'bp_path_er', 'bp_path_kv',
+  'bp_apikey', 'bp_proxy', 'darkMode'
+];
+
+function createBackupObject() {
+  var backup = { _meta: { app: 'BuchPro', version: 1, created: new Date().toISOString(), keys: BACKUP_KEYS } };
+  BACKUP_KEYS.forEach(function(key) {
+    var val = localStorage.getItem(key);
+    if (val !== null) backup[key] = val;
+  });
+  return backup;
+}
+
+function exportAllData() {
+  var backup = createBackupObject();
+  var json = JSON.stringify(backup, null, 2);
+  var ts = new Date().toISOString().slice(0, 10);
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+  a.download = 'buchpro_backup_' + ts + '.json';
+  a.click();
+}
+
+function importBackupData(backup) {
+  var keys = (backup._meta && backup._meta.keys) ? backup._meta.keys : BACKUP_KEYS;
+  var restored = 0;
+  keys.forEach(function(key) {
+    if (backup[key] !== undefined) { localStorage.setItem(key, backup[key]); restored++; }
+  });
+  return restored;
+}
+
+function importAllData(file) {
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var backup = JSON.parse(e.target.result);
+      if (!backup.buchpro_v1 && !backup._meta) {
+        alert('Ungültige Backup-Datei: buchpro_v1 nicht gefunden.');
+        return;
+      }
+      var restored = importBackupData(backup);
+      var info = document.getElementById('data-import-info');
+      if (info) {
+        info.style.display = 'block';
+        info.textContent = '\u2713 ' + restored + ' Eintr\u00e4ge wiederhergestellt. Seite wird neu geladen\u2026';
+      }
+      setTimeout(function() { location.reload(); }, 2000);
+    } catch(ex) {
+      alert('Fehler beim Importieren: ' + ex.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function autoSaveBackup() {
+  if (!window.electronAPI || !window.electronAPI.saveBackup) return;
+  var json = JSON.stringify(createBackupObject());
+  window.electronAPI.saveBackup(json).then(function(result) {
+    if (!result.success) console.warn('Auto-Backup fehlgeschlagen:', result.error);
+  }).catch(function(err) { console.warn('Auto-Backup fehlgeschlagen:', err); });
+}
+
+function renderBackupList() {
+  var el = document.getElementById('backup-list');
+  if (!el) return;
+  if (!window.electronAPI || !window.electronAPI.listBackups) {
+    el.innerHTML = '<span style="color:var(--t3);font-size:12px">Automatische Backups sind nur in der Desktop-App verf\u00fcgbar.</span>';
+    return;
+  }
+  window.electronAPI.listBackups().then(function(result) {
+    if (!result.success || !result.files.length) {
+      el.innerHTML = '<span style="color:var(--t3);font-size:12px">Noch keine automatischen Backups vorhanden.</span>';
+      return;
+    }
+    var rows = result.files.slice(0, 10).map(function(f) {
+      var dt = new Date(f.mtime);
+      var label = dt.toLocaleDateString('de-AT') + ' ' + dt.toLocaleTimeString('de-AT', {hour:'2-digit',minute:'2-digit'});
+      var kb = (f.size / 1024).toFixed(1) + '\u00a0KB';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">' +
+        '<span style="font-size:13px;flex:1;font-family:sans-serif">' + label + ' &mdash; ' + kb + '</span>' +
+        '<button class="btn" style="padding:3px 10px;font-size:11px" data-path="' + esc(f.path) + '">&#8593; Wiederherstellen</button>' +
+        '</div>';
+    }).join('');
+    var dirNote = result.dir ? '<div style="font-size:10px;color:var(--t3);margin-top:6px">Speicherort: ' + esc(result.dir) + '</div>' : '';
+    el.innerHTML = rows + dirNote;
+    el.querySelectorAll('button[data-path]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var fp = this.dataset.path;
+        if (!confirm('Daten aus diesem Backup wiederherstellen? Aktuelle Daten werden \u00fcberschrieben.')) return;
+        window.electronAPI.loadBackup(fp).then(function(res) {
+          if (!res.success) { alert('Fehler: ' + res.error); return; }
+          try {
+            var backup = JSON.parse(res.data);
+            var restored = importBackupData(backup);
+            alert('\u2713 ' + restored + ' Eintr\u00e4ge wiederhergestellt. Die Seite wird neu geladen.');
+            location.reload();
+          } catch(ex) { alert('Fehler beim Lesen der Backup-Datei: ' + ex.message); }
+        });
+      });
+    });
+  });
+}
+
 function getPosBadges() {
   try {
     var v = localStorage.getItem(POS_BADGES_KEY);
@@ -741,6 +851,23 @@ function initEinstellungen() {
     var info = document.getElementById('fixkosten-info');
     if(info){ info.textContent='✓ Gespeichert'; setTimeout(function(){ info.textContent=''; }, 2000); }
   };
+
+  // Daten export / import / backup
+  var btnExportData = document.getElementById('btn-export-data');
+  if (btnExportData) btnExportData.onclick = exportAllData;
+
+  var btnImportData = document.getElementById('btn-import-data');
+  var importFileEl  = document.getElementById('import-file');
+  if (btnImportData && importFileEl) {
+    btnImportData.onclick = function() { importFileEl.click(); };
+    importFileEl.onchange = function(e) {
+      var file = e.target.files && e.target.files[0];
+      if (file) importAllData(file);
+      importFileEl.value = '';
+    };
+  }
+
+  renderBackupList();
 }
 
 function loadFixkosten() {
@@ -4677,7 +4804,7 @@ function loadMalgunFont() {
   }
 }
 
-window.onload = function(){ loadMalgunFont(); renderDash(); };
+window.onload = function(){ loadMalgunFont(); renderDash(); autoSaveBackup(); };
 
 var _motTimer = null;
 var _motCanvas = null;
