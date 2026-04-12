@@ -317,6 +317,9 @@ ipcMain.handle('db-get-init-data', async (event) => {
 });
 
 ipcMain.handle('db-create-new', async (event) => {
+  if (!buchProDB || !appConfig) {
+    return { error: 'Datenbank-Modul nicht verfügbar. Bitte führen Sie "npm install" im Programmordner aus und starten Sie die App neu.' };
+  }
   const win = BrowserWindow.fromWebContents(event.sender);
   const result = await dialog.showSaveDialog(win, {
     title: 'Neue Datenbank erstellen',
@@ -335,6 +338,9 @@ ipcMain.handle('db-create-new', async (event) => {
 });
 
 ipcMain.handle('db-open-existing', async (event) => {
+  if (!buchProDB || !appConfig) {
+    return { error: 'Datenbank-Modul nicht verfügbar. Bitte führen Sie "npm install" im Programmordner aus und starten Sie die App neu.' };
+  }
   const win = BrowserWindow.fromWebContents(event.sender);
   const result = await dialog.showOpenDialog(win, {
     title: 'Datenbank öffnen',
@@ -354,6 +360,9 @@ ipcMain.handle('db-open-existing', async (event) => {
 });
 
 ipcMain.handle('db-switch', async (event) => {
+  if (!buchProDB || !appConfig) {
+    return { error: 'Datenbank-Modul nicht verfügbar. Bitte führen Sie "npm install" im Programmordner aus und starten Sie die App neu.' };
+  }
   // Opens a file picker and switches to that DB
   const win = BrowserWindow.fromWebContents(event.sender);
   const result = await dialog.showOpenDialog(win, {
@@ -374,6 +383,9 @@ ipcMain.handle('db-switch', async (event) => {
 });
 
 ipcMain.handle('db-create-switch', async (event) => {
+  if (!buchProDB || !appConfig) {
+    return { error: 'Datenbank-Modul nicht verfügbar. Bitte führen Sie "npm install" im Programmordner aus und starten Sie die App neu.' };
+  }
   // Creates a new DB and switches to it
   const win = BrowserWindow.fromWebContents(event.sender);
   const result = await dialog.showSaveDialog(win, {

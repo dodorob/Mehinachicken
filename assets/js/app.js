@@ -5134,10 +5134,40 @@ async function initDatabase() {
   }
 
   if (result.noDb) {
-    // better-sqlite3 not available in this build; fall back gracefully
+    // better-sqlite3 not available – load all data from localStorage and warn user
     try { _dbCache = JSON.parse(lsV1 || '{}'); } catch(_) { _dbCache = {}; }
+    try { _beschHistCache = JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); } catch(_) { _beschHistCache = []; }
+    try { _fixkostenCache = JSON.parse(localStorage.getItem('bp_fixkosten') || '[]'); } catch(_) { _fixkostenCache = []; }
+    ['bp_todo_vorlauf','bp_rech_vorlauf','bp_zahlungsziel','bp_path_ar_bank','bp_path_ar_kassa',
+     'bp_path_ar','bp_path_er','bp_path_kv','bp_apikey','bp_proxy','darkMode'].forEach(function(k) {
+      var v = localStorage.getItem(k); if (v !== null) _settingsCache[k] = v;
+    });
+    try {
+      var pb = localStorage.getItem(POS_BADGES_KEY);
+      if (pb) { var pba = JSON.parse(pb); if (Array.isArray(pba) && pba.length) _posBadgesCache = pba; }
+    } catch(_) {}
     _dbInitialized = true;
-    return;
+
+    // Show a non-blocking warning banner so the user knows SQLite isn't active
+    _showDbOverlay(
+      '<div class="db-setup-box" style="max-width:500px">' +
+        '<h2 style="margin:0 0 10px 0;font-size:18px;color:#c00">&#9888; Datenbankmodul nicht verfügbar</h2>' +
+        '<p style="font-family:sans-serif;font-size:13px;color:#555;margin-bottom:14px">' +
+          'Das SQLite-Modul konnte nicht geladen werden (natives Modul fehlt oder ist nicht kompatibel).<br><br>' +
+          'Die App läuft im eingeschränkten Modus mit localStorage. Daten werden <strong>nicht dauerhaft in einer Datenbankdatei</strong> gespeichert.' +
+        '</p>' +
+        '<p style="font-family:monospace;font-size:12px;background:#f5f5f5;padding:8px 10px;border-radius:6px;margin-bottom:18px;color:#333">' +
+          'Lösung: npm install&nbsp;&nbsp;(im Programmordner ausführen)' +
+        '</p>' +
+        '<button id="btn-db-nomod-ok" class="btn primary" style="width:100%;padding:10px">Trotzdem starten</button>' +
+      '</div>'
+    );
+    return new Promise(function(resolve) {
+      document.getElementById('btn-db-nomod-ok').onclick = function() {
+        _hideDbOverlay();
+        resolve();
+      };
+    });
   }
 
   if (result.needsSetup) {

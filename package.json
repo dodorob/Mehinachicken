@@ -6,6 +6,7 @@
   "private": true,
   "scripts": {
     "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
     "build:win": "electron-builder --win nsis"
   },
   "devDependencies": {
