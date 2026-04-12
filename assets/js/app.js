@@ -1229,7 +1229,7 @@ function initForm() {
   var erF = document.getElementById('er-faellig'); if(erF) erF.value = erDue;
   var erPct = document.getElementById('er-ust-pct'); if(erPct) erPct.value = '20';
   updateFT();
-  itemsData = [{titel:'Sprenglerarb.: ',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0}];
+  itemsData = [{titel:'Sprenglerarb.: ',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0,extras:[]}];
   renderItems();
   // Wire up toggle buttons (re-wire after SP)
   wireFormButtons();
@@ -1653,7 +1653,7 @@ function calcMat() { renderSum(); }
 
 function addItem(type) {
   var defaultTitel = (document.getElementById('typ') && document.getElementById('typ').value === 'ausgang') ? 'Sprenglerarb.: ' : '';
-  itemsData.push({titel:defaultTitel,desc:'',menge:1,preis:0,ust:20,type:type||'stunden',djevad_h:0,helmut_h:0,fz_marke:'',fz_kz:''});
+  itemsData.push({titel:defaultTitel,desc:'',menge:1,preis:0,ust:20,type:type||'stunden',djevad_h:0,helmut_h:0,fz_marke:'',fz_kz:'',extras:[]});
   renderItems();
 }
 
@@ -1743,21 +1743,30 @@ function renderItems() {
           '<td></td>' +
           '<td style="text-align:right;font-family:sans-serif;font-size:12px;color:#333;white-space:nowrap;padding:0 8px 8px;vertical-align:bottom">' + fmt(lineTotal) + '</td>' +
       '</tr>' +
+      (it.extras||[]).map(function(ex, j) {
+        return '<tr style="' + bg + '">' +
+          '<td colspan="2" style="padding:0 8px 4px">' +
+            '<input type="text" class="item-extra-label" data-i="' + i + '" data-j="' + j + '" value="' + esc(ex.label||'') + '" placeholder="Sonstige Bezeichnung..." style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif">' +
+          '</td>' +
+          '<td style="padding:0 8px 4px">' +
+            '<input type="number" class="item-extra-betrag" data-i="' + i + '" data-j="' + j + '" value="' + (ex.betrag||'') + '" placeholder="€" min="0" step="0.01" style="width:100%">' +
+          '</td>' +
+          '<td style="padding:0 8px 4px">' +
+            '<div style="position:relative;display:flex;align-items:center">' +
+            '<input type="number" class="item-extra-ust" data-i="' + i + '" data-j="' + j + '" value="' + (ex.ust!=null?ex.ust:20) + '" min="0" max="100" style="width:100%;padding-right:20px">' +
+            '<span style="position:absolute;right:7px;font-family:sans-serif;font-size:12px;color:#999;pointer-events:none">%</span>' +
+            '</div>' +
+          '</td>' +
+          '<td style="padding:0 8px 4px;text-align:center">' +
+            '<button type="button" onclick="removeItemExtra(' + i + ',' + j + ')" style="padding:1px 7px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;font-size:13px;color:#888;line-height:1.4">×</button>' +
+          '</td>' +
+          '<td style="text-align:right;font-family:sans-serif;font-size:12px;color:#333;white-space:nowrap;padding:0 8px 4px;vertical-align:bottom">' + (ex.betrag ? fmt(ex.betrag*(1+(ex.ust!=null?ex.ust:20)/100)) : '') + '</td>' +
+        '</tr>';
+      }).join('') +
       '<tr style="' + bg + '">' +
-        '<td colspan="2" style="padding:0 8px 4px">' +
-          '<input type="text" class="item-extra-label" data-i="' + i + '" value="' + esc(it.extraLabel||'') + '" placeholder="Sonstige Bezeichnung..." style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif">' +
+        '<td colspan="7" style="padding:0 8px 4px">' +
+          '<button type="button" onclick="addItemExtra(' + i + ')" style="font-size:11px;padding:2px 10px;border-radius:4px;border:1px solid #aaa;background:#fff;color:#555;cursor:pointer;font-family:sans-serif">+ Sonstige Bezeichnung</button>' +
         '</td>' +
-        '<td style="padding:0 8px 4px">' +
-          '<input type="number" class="item-extra-betrag" data-i="' + i + '" value="' + (it.extraBetrag||'') + '" placeholder="€" min="0" step="0.01" style="width:100%">' +
-        '</td>' +
-        '<td style="padding:0 8px 4px">' +
-          '<div style="position:relative;display:flex;align-items:center">' +
-          '<input type="number" class="item-extra-ust" data-i="' + i + '" value="' + (it.extraUst!=null?it.extraUst:20) + '" min="0" max="100" style="width:100%;padding-right:20px">' +
-          '<span style="position:absolute;right:7px;font-family:sans-serif;font-size:12px;color:#999;pointer-events:none">%</span>' +
-          '</div>' +
-        '</td>' +
-        '<td></td>' +
-        '<td style="text-align:right;font-family:sans-serif;font-size:12px;color:#333;white-space:nowrap;padding:0 8px 4px;vertical-align:bottom">' + (it.extraBetrag ? fmt(it.extraBetrag*(1+(it.extraUst!=null?it.extraUst:20)/100)) : '') + '</td>' +
       '</tr>' +
       '<tr style="' + bg + '">' +
         '<td colspan="7" style="padding:0 8px 4px">' +
@@ -1869,13 +1878,13 @@ function renderItems() {
     el.addEventListener('click', function(){ removeItem(parseInt(this.dataset.i)); });
   });
   document.querySelectorAll('.item-extra-label').forEach(function(el){
-    el.addEventListener('input', function(){ updateItemExtra(parseInt(this.dataset.i), 'extraLabel', this.value); });
+    el.addEventListener('input', function(){ updateItemExtra(parseInt(this.dataset.i), parseInt(this.dataset.j), 'label', this.value); });
   });
   document.querySelectorAll('.item-extra-betrag').forEach(function(el){
-    el.addEventListener('input', function(){ updateItemExtra(parseInt(this.dataset.i), 'extraBetrag', this.value); });
+    el.addEventListener('input', function(){ updateItemExtra(parseInt(this.dataset.i), parseInt(this.dataset.j), 'betrag', this.value); });
   });
   document.querySelectorAll('.item-extra-ust').forEach(function(el){
-    el.addEventListener('input', function(){ updateItemExtra(parseInt(this.dataset.i), 'extraUst', this.value); });
+    el.addEventListener('input', function(){ updateItemExtra(parseInt(this.dataset.i), parseInt(this.dataset.j), 'ust', this.value); });
   });
   document.querySelectorAll('.item-djevad-h').forEach(function(el){
     el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'djevad_h', this.value); });
@@ -1912,10 +1921,10 @@ function renderItems() {
 
 function renderSum() {
   var nStunden = itemsData.reduce(function(s,it){ return s + it.menge*it.preis; }, 0);
-  var nExtra   = itemsData.reduce(function(s,it){ return s + (it.extraBetrag||0); }, 0);
+  var nExtra   = itemsData.reduce(function(s,it){ return s + (it.extras||[]).reduce(function(s2,e){ return s2+(e.betrag||0); },0); }, 0);
   var n = nStunden + nExtra;
   var v = itemsData.reduce(function(s,it){
-    return s + it.menge*it.preis*it.ust/100 + (it.extraBetrag||0)*(it.extraUst!=null?it.extraUst:20)/100;
+    return s + it.menge*it.preis*it.ust/100 + (it.extras||[]).reduce(function(s2,e){ return s2+(e.betrag||0)*(e.ust!=null?e.ust:20)/100; },0);
   }, 0);
 
   // Materialkosten: 6% vom NETTO
@@ -2046,7 +2055,7 @@ function saveInvoice() {
     kassa_typ: (document.getElementById('zahlungsart').value === 'kassa')
       ? ((document.getElementById('kassa-typ')||{value:'bar'}).value || 'bar')
       : '',
-    items: itemsData.map(function(it){ return Object.assign({}, it); }),
+    items: itemsData.map(function(it){ var c=Object.assign({},it); if(it.extras) c.extras=it.extras.map(function(e){return Object.assign({},e);}); return c; }),
     materialkosten: matVal,
     mat_auto: !!(document.getElementById('mat-auto') && document.getElementById('mat-auto').checked),
     erstellt: new Date().toISOString()
@@ -2226,7 +2235,7 @@ function genPDFData(inv) {
     group.items.forEach(function(it) {
       if (it.titel && it.titel.trim()) rows.push({type:'titel', it:it});
       rows.push({type:'stunden', it:it});
-      if (it.extraLabel && it.extraLabel.trim() && it.extraBetrag) rows.push({type:'extra', it:it});
+      (it.extras||[]).forEach(function(e){ if(e.label&&e.label.trim()&&e.betrag) rows.push({type:'extra',it:it,extra:e}); });
     });
     // KZ liegt immer auf Zeile 2 (Index 1) – Arbeitsstunden darf dort nicht stehen
     if (group.car.kz && rows.length > 0 && rows[0].type === 'titel') {
@@ -2280,8 +2289,9 @@ function genPDFData(inv) {
         doc.setFont('times','normal');
         doc.text('€ ' + numFmt(lt), xR - 2, rowY, {align:'right'});
       } else if (row.type === 'extra') {
-        var et = row.it.extraBetrag * (1 + (row.it.extraUst!=null?row.it.extraUst:20)/100);
-        doc.text((row.it.extraLabel||'').trim(), colFzEnd + 2, rowY);
+        var ex = row.extra;
+        var et = ex.betrag * (1 + (ex.ust!=null?ex.ust:20)/100);
+        doc.text((ex.label||'').trim(), colFzEnd + 2, rowY);
         doc.setFont('times','normal');
         doc.text('€ ' + numFmt(et), xR - 2, rowY, {align:'right'});
       }
@@ -3612,8 +3622,22 @@ function editInv(id) {
     if (kbEl2) kbEl2.value = inv.kassenbeleg_nr;
     if (kbRow2) kbRow2.style.display = '';
   }
-  itemsData = (inv.items||[]).map(function(it){ return Object.assign({},it); });
-  if (!itemsData.length) itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20}];
+  itemsData = (inv.items||[]).map(function(it){
+    var copy = Object.assign({},it);
+    // Migrate old single-extra fields to extras array
+    if (!copy.extras) {
+      if (copy.extraLabel || copy.extraBetrag) {
+        copy.extras = [{label:copy.extraLabel||'',betrag:copy.extraBetrag||0,ust:copy.extraUst!=null?copy.extraUst:20}];
+      } else {
+        copy.extras = [];
+      }
+      delete copy.extraLabel; delete copy.extraBetrag; delete copy.extraUst;
+    } else {
+      copy.extras = copy.extras.map(function(e){ return Object.assign({},e); });
+    }
+    return copy;
+  });
+  if (!itemsData.length) itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20,extras:[]}];
   renderItems();
   if (inv.materialkosten > 0) {
     if (inv.mat_auto) {
@@ -4451,14 +4475,28 @@ function editFz(id) {
   });
 }
 
-function updateItemExtra(i, field, value) {
-  if (field === 'extraLabel') {
-    itemsData[i].extraLabel = value;
+function updateItemExtra(i, j, field, value) {
+  if (!itemsData[i].extras) itemsData[i].extras = [];
+  if (!itemsData[i].extras[j]) itemsData[i].extras[j] = {label:'',betrag:0,ust:20};
+  if (field === 'label') {
+    itemsData[i].extras[j].label = value;
     // No renderItems - keeps focus in the field
   } else {
-    itemsData[i][field] = parseFloat(value) || 0;
+    itemsData[i].extras[j][field] = parseFloat(value) || 0;
     renderSum();
   }
+}
+
+function addItemExtra(i) {
+  if (!itemsData[i].extras) itemsData[i].extras = [];
+  itemsData[i].extras.push({label:'',betrag:0,ust:20});
+  renderItems();
+}
+
+function removeItemExtra(i, j) {
+  if (!itemsData[i].extras) return;
+  itemsData[i].extras.splice(j, 1);
+  renderItems();
 }
 
 var _malgunFontB64 = null;
