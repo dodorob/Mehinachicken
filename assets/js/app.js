@@ -853,7 +853,7 @@ function renderStatistik() {
 
   var curInvs = invForMonth(curM, curY);
   var arInvs  = curInvs.filter(function(i){ return i.typ==='ausgang'; });
-  var erInvs  = curInvs.filter(function(i){ return i.typ==='eingang'; });
+  var erInvs  = curInvs.filter(function(i){ return i.typ==='eingang' && !i.is_tageslosung; });
 
   var umsatz   = arInvs.reduce(function(s,i){ return s+brutto(i); }, 0);
   var ausgaben = erInvs.reduce(function(s,i){ return s+brutto(i); }, 0);
@@ -878,7 +878,7 @@ function renderStatistik() {
     var mo = mm.getMonth(), yo = mm.getFullYear();
     var mi = invForMonth(mo, yo);
     var um = mi.filter(function(i){return i.typ==='ausgang';}).reduce(function(s,i){return s+brutto(i);},0);
-    var au = mi.filter(function(i){return i.typ==='eingang';}).reduce(function(s,i){return s+brutto(i);},0);
+    var au = mi.filter(function(i){return i.typ==='eingang'&&!i.is_tageslosung;}).reduce(function(s,i){return s+brutto(i);},0);
     labels.push(MONTHS[mo]+' '+yo);
     dataUM.push(Math.round(um*100)/100);
     dataAUS.push(Math.round(au*100)/100);
@@ -1037,10 +1037,10 @@ function renderDash() {
   var tI=0, tE=0, vC=0, vP=0, mI=0, mE=0;
   d.invoices.forEach(function(inv){
     var b = brutto(inv), v = vatAmt(inv);
-    if (inv.typ === 'ausgang') { tI+=b; vC+=v; } else { tE+=b; vP+=v; }
+    if (inv.typ === 'ausgang') { tI+=b; vC+=v; } else if (!inv.is_tageslosung) { tE+=b; vP+=v; }
     var id = new Date(inv.datum);
     if (id.getMonth()===m && id.getFullYear()===y) {
-      if (inv.typ==='ausgang') mI+=b; else mE+=b;
+      if (inv.typ==='ausgang') mI+=b; else if (!inv.is_tageslosung) mE+=b;
     }
   });
   document.getElementById('d-metrics').innerHTML =
@@ -1062,7 +1062,7 @@ function renderDash() {
     d.invoices.forEach(function(inv){
       var id = new Date(inv.datum);
       if (id.getMonth()===dm.getMonth() && id.getFullYear()===dm.getFullYear()) {
-        if (inv.typ==='ausgang') ii+=brutto(inv); else ee+=brutto(inv);
+        if (inv.typ==='ausgang') ii+=brutto(inv); else if (!inv.is_tageslosung) ee+=brutto(inv);
       }
     });
     iD.push(ii); eD.push(ee);
@@ -1169,10 +1169,12 @@ function renderTable(typ) {
   if (!invs.length) { el.innerHTML = '<div class="empty">Keine Rechnungen</div>'; return; }
   var rows = invs.map(function(inv){
     var gutschriftBadge = (typ==='eingang' && inv.is_gutschrift) ? ' <span class="badge" style="background:#6366f1;color:#fff;font-size:10px">Gutschrift</span>' : '';
+    var tageslosungBadge = (typ==='eingang' && inv.is_tageslosung) ? ' <span class="badge" style="background:#f59e0b;color:#fff;font-size:10px">Tageslosung</span>' : '';
+    var partnerCell = inv.is_tageslosung ? 'Tageslosung' : (inv.partner_name||'-');
     return '<tr>' +
       '<td class="mono" style="color:var(--t3);font-size:11px">'+(inv.lfd_nr||'')+'</td>' +
       (typ==='ausgang'?'<td class="mono">' + (inv.nummer||'—') + '</td>':'') +
-      '<td>' + (inv.partner_name||'-') + gutschriftBadge + '</td>' +
+      '<td>' + partnerCell + gutschriftBadge + tageslosungBadge + '</td>' +
       '<td>' + fmtD(inv.datum) + '</td>' +
       '<td>' + fmtD(inv.faellig) + '</td>' +
       '<td>' + fmt(netto(inv)) + '</td>' +
@@ -1265,6 +1267,10 @@ function initForm() {
   window.erItemsData = [{desc:'', netto:0, ust_pct:20, ust_amt:0}];
   renderERItems();
   setERTyp('rechnung');
+  // Init Tageslosung form
+  var tlD = document.getElementById('tl-datum'); if(tlD) tlD.value = now;
+  var tlB = document.getElementById('tl-betrag'); if(tlB) tlB.value = '';
+  var tlN = document.getElementById('tl-notizen'); if(tlN) tlN.value = '';
   // Wire up toggle buttons (re-wire after SP)
   wireFormButtons();
   // Always refresh displayed numbers from DB
@@ -1282,6 +1288,8 @@ function wireFormButtons() {
   if (arBtn) {
     arBtn.onclick = function(){ setTyp('ausgang'); };
     erBtn.onclick = function(){ setTyp('eingang'); };
+    var tlBtn2 = document.getElementById('toggle-tageslosung');
+    if (tlBtn2) tlBtn2.onclick = function(){ setTyp('tageslosung'); };
     bankBtn.onclick = function(){ setPay('bank'); };
     kassaBtn.onclick = function(){ setPay('kassa'); };
     var barBtn2 = document.getElementById('toggle-bar');
@@ -1299,6 +1307,10 @@ function wireFormButtons() {
     };
     partnerSel.onchange = function(){ fillPD(); };
   }
+  var btnTLSave = document.getElementById('btn-tl-save');
+  if (btnTLSave) btnTLSave.onclick = function(){ saveTageslosung(); };
+  var btnTLReset = document.getElementById('btn-tl-reset');
+  if (btnTLReset) btnTLReset.onclick = function(){ resetTageslosungForm(); };
   var btnNewP = document.getElementById('btn-new-partner-inline');
   if (btnNewP) btnNewP.onclick = function(){ openInlineKundeModal(); };
   var btnBottom = document.getElementById('btn-save-inv-bottom');
@@ -1335,41 +1347,51 @@ function setTyp(typ) {
   document.getElementById('typ').value = typ;
   var arBtn = document.getElementById('toggle-ar');
   var erBtn = document.getElementById('toggle-er');
+  var tlBtn = document.getElementById('toggle-tageslosung');
   if (!arBtn) return;
+  // Reset all toggle buttons
+  arBtn.style.background = '#f0f0ec'; arBtn.style.color = 'var(--t2)';
+  erBtn.style.background = '#f0f0ec'; erBtn.style.color = 'var(--t2)';
+  if (tlBtn) { tlBtn.style.background = '#f0f0ec'; tlBtn.style.color = 'var(--t2)'; }
   if (typ === 'ausgang') {
     arBtn.style.background = 'var(--accent)'; arBtn.style.color = '#fff';
-    erBtn.style.background = '#f0f0ec'; erBtn.style.color = 'var(--t2)';
     document.getElementById('typ-label').textContent = 'Ausgangsrechnung';
     document.getElementById('partner-card-title').textContent = 'Kunde';
     document.getElementById('plbl').textContent = 'Bestehenden Kunden wählen';
     document.getElementById('btn-new-partner-inline').textContent = '+ Neuen Kunden anlegen';
+  } else if (typ === 'tageslosung') {
+    if (tlBtn) { tlBtn.style.background = 'var(--accent)'; tlBtn.style.color = '#fff'; }
+    document.getElementById('typ-label').textContent = 'Tageslosung (Kassa → Bank)';
   } else {
     erBtn.style.background = 'var(--accent)'; erBtn.style.color = '#fff';
-    arBtn.style.background = '#f0f0ec'; arBtn.style.color = 'var(--t2)';
     document.getElementById('typ-label').textContent = 'Eingangsrechnung';
     document.getElementById('partner-card-title').textContent = 'Lieferant';
     document.getElementById('plbl').textContent = 'Bestehenden Lieferanten wählen';
     document.getElementById('btn-new-partner-inline').textContent = '+ Neuen Lieferanten anlegen';
   }
-  updateFT();
-  // Show/hide AR vs ER form
+  if (typ !== 'tageslosung') updateFT();
+  // Show/hide forms
   var arForm = document.getElementById('ar-form');
   var erForm = document.getElementById('er-form');
+  var tlForm = document.getElementById('tageslosung-form');
   var saveBtn = document.getElementById('btn-save-inv');
   var rnrLabel = document.getElementById('rnr-label');
-  if (arForm && erForm) {
-    if (typ === 'ausgang') {
-      arForm.style.display = 'block';
-      erForm.style.display = 'none';
-      if (saveBtn) saveBtn.style.display = '';
-      if (rnrLabel) rnrLabel.textContent = 'Rechnungsnummer (AR)';
-    } else {
-      arForm.style.display = 'none';
-      erForm.style.display = 'block';
-      if (saveBtn) saveBtn.style.display = 'none';
-      if (rnrLabel) rnrLabel.textContent = 'Rechnungsnummer (ER)';
-      wireERForm();
-    }
+  if (arForm) arForm.style.display = 'none';
+  if (erForm) erForm.style.display = 'none';
+  if (tlForm) tlForm.style.display = 'none';
+  if (typ === 'ausgang') {
+    if (arForm) arForm.style.display = 'block';
+    if (saveBtn) saveBtn.style.display = '';
+    if (rnrLabel) rnrLabel.textContent = 'Rechnungsnummer (AR)';
+  } else if (typ === 'tageslosung') {
+    if (tlForm) tlForm.style.display = 'block';
+    if (saveBtn) saveBtn.style.display = 'none';
+    if (rnrLabel) rnrLabel.textContent = '';
+  } else {
+    if (erForm) erForm.style.display = 'block';
+    if (saveBtn) saveBtn.style.display = 'none';
+    if (rnrLabel) rnrLabel.textContent = 'Rechnungsnummer (ER)';
+    wireERForm();
   }
 }
 
@@ -1596,6 +1618,53 @@ function resetERForm() {
   renderERItems();
   // Reset Gutschrift toggle
   setERTyp('rechnung');
+}
+
+function saveTageslosung() {
+  var datum   = (document.getElementById('tl-datum')||{value:''}).value;
+  var betrag  = parseFloat((document.getElementById('tl-betrag')||{value:'0'}).value) || 0;
+  var notizen = (document.getElementById('tl-notizen')||{value:''}).value.trim();
+  if (!betrag || betrag <= 0) { alert('Bitte einen Betrag eingeben'); return; }
+  if (!datum) { alert('Bitte ein Datum eingeben'); return; }
+
+  // Increment lfd counter (Tageslosung always uses bank counter)
+  var raw2 = localStorage.getItem('buchpro_v1');
+  var dd = raw2 ? JSON.parse(raw2) : {};
+  if (!dd.counters) dd.counters = {};
+  dd.counters['lfd_bank'] = (dd.counters['lfd_bank']||1) + 1;
+  localStorage.setItem('buchpro_v1', JSON.stringify(dd));
+
+  var d = getDB();
+  var inv = {
+    id: uid(), typ: 'eingang', nummer: '',
+    lfd_nr: (document.getElementById('lfd-nr')||{value:''}).value.replace('lfd. ','').trim(),
+    zahlungsart: 'bank',
+    partner_name: 'Tageslosung', partner_info: '',
+    datum: datum, faellig: datum, status: 'bezahlt', notizen: notizen,
+    er_liefnr: '', is_gutschrift: false, is_tageslosung: true,
+    er_items: [{desc: 'Tageslosung (Kassa → Bank)', netto: betrag, ust_pct: 0, ust_amt: 0}],
+    er_netto: betrag, er_ust: 0, er_brutto: betrag, er_ust_pct: 0,
+    items: [{titel: 'Tageslosung', desc: '', menge: 1, preis: betrag, ust: 0}],
+    materialkosten: 0, mat_auto: false,
+    file_b64: null, file_name: null, file_type: null,
+    erstellt: new Date().toISOString()
+  };
+
+  d.invoices.push(inv);
+  saveDB(d);
+  refreshNumbers();
+
+  document.getElementById('f-alerts').innerHTML = '<div class="alert success">&#10003; Tageslosung gespeichert!</div>';
+  resetTageslosungForm();
+  refreshNumbers();
+  setTimeout(function(){ SP('eingang'); }, 1200);
+}
+
+function resetTageslosungForm() {
+  var now = new Date().toISOString().split('T')[0];
+  var tlD = document.getElementById('tl-datum'); if(tlD) tlD.value = now;
+  var tlB = document.getElementById('tl-betrag'); if(tlB) tlB.value = '';
+  var tlN = document.getElementById('tl-notizen'); if(tlN) tlN.value = '';
 }
 
 function setKassaTyp(typ) {
@@ -3739,9 +3808,9 @@ function renderFin() {
   var tI=0,tE=0,vC=0,vP=0,mVC=0,mVP=0;
   d.invoices.forEach(function(inv){
     var b=brutto(inv), v=vatAmt(inv);
-    if(inv.typ==='ausgang'){tI+=b;vC+=v;}else{tE+=b;vP+=v;}
+    if(inv.typ==='ausgang'){tI+=b;vC+=v;}else if(!inv.is_tageslosung){tE+=b;vP+=v;}
     var id=new Date(inv.datum);
-    if(id.getMonth()===m&&id.getFullYear()===y){if(inv.typ==='ausgang')mVC+=v;else mVP+=v;}
+    if(id.getMonth()===m&&id.getFullYear()===y){if(inv.typ==='ausgang')mVC+=v;else if(!inv.is_tageslosung)mVP+=v;}
   });
   document.getElementById('fin-metrics').innerHTML =
     '<div class="metric green"><div class="lbl">Einnahmen</div><div class="val">' + fmt(tI) + '</div></div>' +
@@ -3758,7 +3827,7 @@ function renderFin() {
   for (var i=5;i>=0;i--) {
     var dm=new Date(y,m-i,1); m6.push(MONTHS[dm.getMonth()].substr(0,3));
     var ii=0,ee=0;
-    d.invoices.forEach(function(inv){ var id=new Date(inv.datum); if(id.getMonth()===dm.getMonth()&&id.getFullYear()===dm.getFullYear()){if(inv.typ==='ausgang')ii+=brutto(inv);else ee+=brutto(inv);}});
+    d.invoices.forEach(function(inv){ var id=new Date(inv.datum); if(id.getMonth()===dm.getMonth()&&id.getFullYear()===dm.getFullYear()){if(inv.typ==='ausgang')ii+=brutto(inv);else if(!inv.is_tageslosung)ee+=brutto(inv);}});
     iD.push(ii); eD.push(ee);
   }
   var cm = document.getElementById('cMonat');
