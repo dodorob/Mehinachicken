@@ -233,37 +233,48 @@
           <div class="fg"><label>Status</label><select id="er-status"><option value="offen">Offen</option><option value="bezahlt">Bezahlt</option></select></div>
           <div class="fg"><label>Rechnungsnummer des Lieferanten</label><input type="text" id="er-liefnr" placeholder="z.B. 2024-0815"></div>
         </div>
+        <div class="fr c2" style="margin-top:0.75rem">
+          <div class="fg">
+            <label>Belegart</label>
+            <div style="display:flex;gap:6px">
+              <button type="button" id="er-typ-rechnung" class="btn" style="background:var(--accent);color:#fff;padding:6px 14px;font-size:13px" onclick="setERTyp('rechnung')">Eingangsrechnung</button>
+              <button type="button" id="er-typ-gutschrift" class="btn" style="padding:6px 14px;font-size:13px" onclick="setERTyp('gutschrift')">Gutschrift (Rücküberweisung)</button>
+            </div>
+            <input type="hidden" id="er-is-gutschrift" value="0">
+          </div>
+        </div>
       </div>
 
       <!-- Beträge -->
       <div class="card">
-        <h3>Beträge</h3>
-        <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin-bottom:1rem">Tragen Sie Brutto oder Netto ein — der Rest wird automatisch berechnet.</p>
-        <div class="fr c2">
-          <div class="fg"><label>USt.-Satz (%)</label>
-            <div style="display:flex;gap:8px;align-items:center">
-              <input type="number" id="er-ust-pct" value="20" min="0" max="100" style="width:80px">
-              <span style="font-family:sans-serif;font-size:13px;color:var(--t2)">%</span>
-            </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+          <h3 style="margin:0">Beträge</h3>
+          <button type="button" class="btn" id="btn-er-add-item" style="font-size:12px;padding:5px 12px">+ Position hinzufügen</button>
+        </div>
+        <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin-bottom:0.75rem">Mehrere Positionen mit verschiedenen Steuersätzen möglich. Netto eingeben — USt. und Brutto werden automatisch berechnet.</p>
+        <!-- Column headers -->
+        <div style="display:grid;grid-template-columns:1fr 130px 90px 130px 32px;gap:6px;margin-bottom:4px;font-family:sans-serif;font-size:11px;color:var(--t3);font-weight:600;padding:0 2px">
+          <span>Beschreibung</span><span>Netto (€) *</span><span>USt. %</span><span>USt. (€)</span><span></span>
+        </div>
+        <!-- Dynamic item rows -->
+        <div id="er-items-container"></div>
+        <!-- Totals -->
+        <div id="er-totals" style="margin-top:10px;padding:10px 12px;background:#f5f5f2;border-radius:8px;font-family:sans-serif;font-size:13px;display:none">
+          <div style="display:grid;grid-template-columns:1fr 130px 90px 130px 32px;gap:6px">
+            <span style="font-weight:600;color:var(--t2)">Gesamt</span>
+            <span id="er-total-netto" style="font-weight:600">€ 0,00</span>
+            <span></span>
+            <span id="er-total-ust" style="font-weight:600">€ 0,00</span>
+            <span></span>
+          </div>
+          <div style="margin-top:6px;padding-top:6px;border-top:1px solid #ddd;display:flex;justify-content:space-between;align-items:center">
+            <span style="font-weight:700">Brutto gesamt:</span>
+            <span id="er-total-brutto" style="font-weight:700;font-size:15px;color:var(--accent)">€ 0,00</span>
           </div>
         </div>
-        <div class="fr c2">
-          <div class="fg">
-            <label>Nettobetrag (€) <span style="color:var(--danger);font-size:11px">*Pflichtfeld</span></label>
-            <input type="number" id="er-netto" min="0" step="0.01" placeholder="z.B. 100.00" required>
-          </div>
-          <div class="fg">
-            <label>USt.-Betrag (€) <span style="color:var(--t3);font-size:11px">automatisch berechnet</span></label>
-            <input type="number" id="er-ust-amt" min="0" step="0.01" placeholder="wird berechnet">
-          </div>
+        <div id="er-gutschrift-hint" style="display:none;margin-top:8px;padding:8px 12px;background:#fff3cd;border-radius:8px;font-family:sans-serif;font-size:12px;color:#856404">
+          &#9888; Gutschrift: Dieser Betrag wird als Rücküberweisung gewertet und reduziert Ihre Ausgaben.
         </div>
-        <div class="fr c2">
-          <div class="fg">
-            <label>Bruttobetrag (€) <span style="color:var(--t3);font-size:11px">automatisch berechnet</span></label>
-            <input type="number" id="er-brutto" min="0" step="0.01" placeholder="wird berechnet">
-          </div>
-        </div>
-        <div id="er-betrag-info" style="font-family:sans-serif;font-size:12px;color:var(--t2);margin-top:8px;background:#f5f5f2;padding:8px 12px;border-radius:8px;display:none"></div>
       </div>
 
       <div class="card"><div class="fg"><label>Notizen</label><textarea id="er-notizen"></textarea></div></div>

@@ -230,7 +230,15 @@ function fmtD(s) {
 }
 
 function brutto(inv) {
-  if (inv.typ === 'eingang' && inv.er_brutto != null && inv.er_brutto > 0) return inv.er_brutto;
+  if (inv.typ === 'eingang') {
+    var sign = inv.is_gutschrift ? -1 : 1;
+    // Multi-item ER: sum from er_items if present
+    if (inv.er_items && inv.er_items.length) {
+      var tot = inv.er_items.reduce(function(s,it){ return s + (it.netto||0) + (it.ust_amt||0); }, 0);
+      return sign * Math.round(tot * 100) / 100;
+    }
+    if (inv.er_brutto != null && inv.er_brutto > 0) return sign * inv.er_brutto;
+  }
   var b = (inv.items || []).reduce(function(s,it){
     var base = it.menge * it.preis * (1 + it.ust/100);
     var extras = (it.extras || []).reduce(function(es,ex){
@@ -242,7 +250,14 @@ function brutto(inv) {
 }
 
 function netto(inv) {
-  if (inv.typ === 'eingang' && inv.er_netto != null && inv.er_netto > 0) return inv.er_netto;
+  if (inv.typ === 'eingang') {
+    var sign = inv.is_gutschrift ? -1 : 1;
+    if (inv.er_items && inv.er_items.length) {
+      var tot = inv.er_items.reduce(function(s,it){ return s + (it.netto||0); }, 0);
+      return sign * Math.round(tot * 100) / 100;
+    }
+    if (inv.er_netto != null && inv.er_netto > 0) return sign * inv.er_netto;
+  }
   return (inv.items || []).reduce(function(s,it){
     var extras = (it.extras || []).reduce(function(es,ex){ return es + (ex.betrag || 0); }, 0);
     return s + it.menge * it.preis + extras;
@@ -250,7 +265,14 @@ function netto(inv) {
 }
 
 function vatAmt(inv) {
-  if (inv.typ === 'eingang' && inv.er_ust != null && inv.er_ust > 0) return inv.er_ust;
+  if (inv.typ === 'eingang') {
+    var sign = inv.is_gutschrift ? -1 : 1;
+    if (inv.er_items && inv.er_items.length) {
+      var tot = inv.er_items.reduce(function(s,it){ return s + (it.ust_amt||0); }, 0);
+      return sign * Math.round(tot * 100) / 100;
+    }
+    if (inv.er_ust != null && inv.er_ust > 0) return sign * inv.er_ust;
+  }
   var items_vat = (inv.items || []).reduce(function(s,it){
     var base = it.menge * it.preis * it.ust/100;
     var extras = (it.extras || []).reduce(function(es,ex){
@@ -1144,10 +1166,11 @@ function renderTable(typ) {
   var el = document.getElementById('tbl-'+typ);
   if (!invs.length) { el.innerHTML = '<div class="empty">Keine Rechnungen</div>'; return; }
   var rows = invs.map(function(inv){
+    var gutschriftBadge = (typ==='eingang' && inv.is_gutschrift) ? ' <span class="badge" style="background:#6366f1;color:#fff;font-size:10px">Gutschrift</span>' : '';
     return '<tr>' +
       '<td class="mono" style="color:var(--t3);font-size:11px">'+(inv.lfd_nr||'')+'</td>' +
       (typ==='ausgang'?'<td class="mono">' + (inv.nummer||'—') + '</td>':'') +
-      '<td>' + (inv.partner_name||'-') + '</td>' +
+      '<td>' + (inv.partner_name||'-') + gutschriftBadge + '</td>' +
       '<td>' + fmtD(inv.datum) + '</td>' +
       '<td>' + fmtD(inv.faellig) + '</td>' +
       '<td>' + fmt(netto(inv)) + '</td>' +
@@ -1229,13 +1252,17 @@ function initForm() {
   // Set AR as default
   setTyp('ausgang');
   // Init ER dates
-  var erDue = new Date(Date.now()+14*86400000).toISOString().split('T')[0];
+  var zahlungsziel = parseInt(localStorage.getItem('bp_zahlungsziel') || '14');
+  var erDue = new Date(Date.now() + zahlungsziel * 86400000).toISOString().split('T')[0];
   var erD = document.getElementById('er-datum'); if(erD) erD.value = now;
   var erF = document.getElementById('er-faellig'); if(erF) erF.value = erDue;
-  var erPct = document.getElementById('er-ust-pct'); if(erPct) erPct.value = '20';
   updateFT();
   itemsData = [{titel:'Sprenglerarb.: ',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0,extras:[]}];
   renderItems();
+  // Init ER multi-item form
+  window.erItemsData = [{desc:'', netto:0, ust_pct:20, ust_amt:0}];
+  renderERItems();
+  setERTyp('rechnung');
   // Wire up toggle buttons (re-wire after SP)
   wireFormButtons();
   // Always refresh displayed numbers from DB
@@ -1356,16 +1383,9 @@ function wireERForm() {
     drop.addEventListener('drop', function(e){ e.preventDefault(); drop.style.borderColor=''; handleERFile(e.dataTransfer.files[0]); });
     fileIn.addEventListener('change', function(){ handleERFile(this.files[0]); });
   }
-  // Auto-calculate amounts
-  // All fields trigger info update
-  var erNetto  = document.getElementById('er-netto');
-  var erPct    = document.getElementById('er-ust-pct');
-  var erUstAmt = document.getElementById('er-ust-amt');
-  var erBrutto = document.getElementById('er-brutto');
-  if (erNetto)  erNetto.oninput  = calcERAmounts;
-  if (erPct)    erPct.oninput    = calcERAmounts;
-  if (erUstAmt) erUstAmt.oninput = updateERInfo;
-  if (erBrutto) erBrutto.oninput = updateERInfo;
+  // Wire ER multi-item add button
+  var btnERAdd = document.getElementById('btn-er-add-item');
+  if (btnERAdd) btnERAdd.onclick = function(){ addERItem(); };
   // Save button
   var saveBtn = document.getElementById('btn-er-save');
   if (saveBtn) saveBtn.onclick = function(){ saveER(); };
@@ -1417,62 +1437,109 @@ function handleERFile(file) {
   reader.readAsDataURL(file);
 }
 
-function calcERAmounts() {
-  var pct  = parseFloat(document.getElementById('er-ust-pct').value) || 20;
-  var nt   = parseFloat(document.getElementById('er-netto').value)   || 0;
-  var info = document.getElementById('er-betrag-info');
-  var r    = pct / 100;
+// ================================================================
+// ER MULTI-ITEM & GUTSCHRIFT
+// ================================================================
+window.erItemsData = [{desc:'', netto:0, ust_pct:20, ust_amt:0}];
 
-  if (nt > 0) {
-    // Always calculate USt and Brutto from Netto
-    var calcUa = Math.round(nt * r * 100) / 100;
-    var calcBr = Math.round((nt + calcUa) * 100) / 100;
-    // Set calculated values — user can then override them
-    document.getElementById('er-ust-amt').value = calcUa.toFixed(2);
-    document.getElementById('er-brutto').value  = calcBr.toFixed(2);
-    if (info) {
-      info.style.display = 'block';
-      info.textContent = 'Netto: ' + fmt(nt) + '  |  USt. (' + pct + '%): ' + fmt(calcUa) + '  |  Brutto: ' + fmt(calcBr);
-    }
-  } else {
-    document.getElementById('er-ust-amt').value = '';
-    document.getElementById('er-brutto').value  = '';
-    if (info) info.style.display = 'none';
+function setERTyp(typ) {
+  var isGutschrift = typ === 'gutschrift';
+  var hidEl = document.getElementById('er-is-gutschrift');
+  if (hidEl) hidEl.value = isGutschrift ? '1' : '0';
+  var btnR = document.getElementById('er-typ-rechnung');
+  var btnG = document.getElementById('er-typ-gutschrift');
+  if (btnR) { btnR.style.background = isGutschrift ? '' : 'var(--accent)'; btnR.style.color = isGutschrift ? '' : '#fff'; }
+  if (btnG) { btnG.style.background = isGutschrift ? 'var(--accent)' : ''; btnG.style.color = isGutschrift ? '#fff' : ''; }
+  var hint = document.getElementById('er-gutschrift-hint');
+  if (hint) hint.style.display = isGutschrift ? 'block' : 'none';
+}
+
+function renderERItems() {
+  var container = document.getElementById('er-items-container');
+  if (!container) return;
+  var html = window.erItemsData.map(function(item, i) {
+    return '<div style="display:grid;grid-template-columns:1fr 130px 90px 130px 32px;gap:6px;margin-bottom:6px;align-items:center">' +
+      '<input type="text" placeholder="Beschreibung (optional)" value="'+esc(item.desc||'')+'" style="padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px" oninput="erItemsData['+i+'].desc=this.value">' +
+      '<input type="number" placeholder="0,00" value="'+(item.netto||'')+'" min="0" step="0.01" style="padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px" oninput="erItemsData['+i+'].netto=parseFloat(this.value)||0;calcERRow('+i+')">' +
+      '<input type="number" value="'+(item.ust_pct!=null?item.ust_pct:20)+'" min="0" max="100" step="1" style="padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px" oninput="erItemsData['+i+'].ust_pct=parseFloat(this.value)||0;calcERRow('+i+')">' +
+      '<input type="number" placeholder="0,00" value="'+(item.ust_amt||'')+'" min="0" step="0.01" style="padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;background:#f9f9f7" oninput="erItemsData['+i+'].ust_amt=parseFloat(this.value)||0;calcERTotals()">' +
+      '<button type="button" class="btn danger" style="padding:4px 8px;font-size:13px;line-height:1" onclick="removeERItem('+i+')" '+(window.erItemsData.length<=1?'disabled':'')+'>&#215;</button>' +
+    '</div>';
+  }).join('');
+  container.innerHTML = html;
+  calcERTotals();
+}
+
+function calcERRow(i) {
+  var item = window.erItemsData[i];
+  if (!item) return;
+  item.ust_amt = Math.round(item.netto * (item.ust_pct / 100) * 100) / 100;
+  // Update only the USt field of this row without full re-render
+  var inputs = document.querySelectorAll('#er-items-container > div');
+  if (inputs[i]) {
+    var ustField = inputs[i].querySelectorAll('input')[3];
+    if (ustField) ustField.value = item.ust_amt ? item.ust_amt.toFixed(2) : '';
+  }
+  calcERTotals();
+}
+
+function calcERTotals() {
+  var totalNetto = 0, totalUst = 0;
+  window.erItemsData.forEach(function(it){
+    totalNetto += it.netto || 0;
+    totalUst   += it.ust_amt || 0;
+  });
+  totalNetto = Math.round(totalNetto * 100) / 100;
+  totalUst   = Math.round(totalUst   * 100) / 100;
+  var totalBrutto = Math.round((totalNetto + totalUst) * 100) / 100;
+  var totEl = document.getElementById('er-totals');
+  if (totEl) {
+    totEl.style.display = totalNetto || totalUst ? 'block' : 'none';
+    var tn = document.getElementById('er-total-netto');
+    var tu = document.getElementById('er-total-ust');
+    var tb = document.getElementById('er-total-brutto');
+    if (tn) tn.textContent = fmt(totalNetto);
+    if (tu) tu.textContent = fmt(totalUst);
+    if (tb) tb.textContent = fmt(totalBrutto);
   }
 }
 
-function updateERInfo() {
-  // Called when USt or Brutto is manually edited - just update the info display
-  var nt  = parseFloat(document.getElementById('er-netto').value)   || 0;
-  var ua  = parseFloat(document.getElementById('er-ust-amt').value) || 0;
-  var br  = parseFloat(document.getElementById('er-brutto').value)  || 0;
-  var pct = parseFloat(document.getElementById('er-ust-pct').value) || 20;
-  var info = document.getElementById('er-betrag-info');
-  if (info && (nt || ua || br)) {
-    info.style.display = 'block';
-    info.textContent = 'Netto: ' + fmt(nt) + '  |  USt. (' + pct + '%): ' + fmt(ua) + '  |  Brutto: ' + fmt(br);
-  }
+function addERItem() {
+  window.erItemsData.push({desc:'', netto:0, ust_pct:20, ust_amt:0});
+  renderERItems();
+}
+
+function removeERItem(i) {
+  if (window.erItemsData.length <= 1) return;
+  window.erItemsData.splice(i, 1);
+  renderERItems();
 }
 
 function saveER() {
-  var nr = '';  // ER haben keine Rechnungsnummer
   var lief = document.getElementById('er-lief-name').value.trim() ||
     (function(){ var s=document.getElementById('er-partner'); return s&&s.selectedIndex>0?s.options[s.selectedIndex].text:''; })();
-  var netto  = parseFloat(document.getElementById('er-netto').value)   || 0;
-  var ust    = parseFloat(document.getElementById('er-ust-amt').value) || 0;
-  var brutto = parseFloat(document.getElementById('er-brutto').value)  || 0;
-  var pct    = parseFloat(document.getElementById('er-ust-pct').value) || 20;
-  var datum  = document.getElementById('er-datum').value;
-  var faellig= document.getElementById('er-faellig').value;
-  var status = document.getElementById('er-status').value;
-  var notizen= document.getElementById('er-notizen').value;
+  var datum   = document.getElementById('er-datum').value;
+  var faellig = document.getElementById('er-faellig').value;
+  var status  = document.getElementById('er-status').value;
+  var notizen = document.getElementById('er-notizen').value;
+  var isGutschrift = (document.getElementById('er-is-gutschrift')||{value:'0'}).value === '1';
 
-  if (!netto) { alert('Bitte Nettobetrag eingeben'); return; }
-  // If USt or Brutto not filled, calculate from Netto
-  if (!ust)    ust    = Math.round(netto * pct/100 * 100) / 100;
-  if (!brutto) brutto = Math.round((netto + ust) * 100) / 100;
+  // Collect items and validate
+  var items = window.erItemsData.filter(function(it){ return (it.netto||0) > 0; });
+  if (!items.length) { alert('Bitte mindestens einen Nettobetrag eingeben'); return; }
 
-  // ER: fortlaufend still increments for internal tracking
+  // Ensure ust_amt is calculated
+  items = items.map(function(it){
+    var ust = it.ust_amt != null ? it.ust_amt : Math.round((it.netto||0) * (it.ust_pct||0) / 100 * 100) / 100;
+    return {desc: it.desc||'', netto: it.netto||0, ust_pct: it.ust_pct!=null?it.ust_pct:20, ust_amt: ust};
+  });
+
+  // Calculate totals
+  var totalNetto  = Math.round(items.reduce(function(s,it){ return s+it.netto; }, 0) * 100) / 100;
+  var totalUst    = Math.round(items.reduce(function(s,it){ return s+it.ust_amt; }, 0) * 100) / 100;
+  var totalBrutto = Math.round((totalNetto + totalUst) * 100) / 100;
+
+  // Increment counter
   var raw2 = localStorage.getItem('buchpro_v1');
   var dd = raw2 ? JSON.parse(raw2) : {};
   if (!dd.counters) dd.counters = {};
@@ -1481,17 +1548,19 @@ function saveER() {
   dd.counters[lfdKeyER] = (dd.counters[lfdKeyER]||1) + 1;
   localStorage.setItem('buchpro_v1', JSON.stringify(dd));
 
-  // Read FRESH from localStorage AFTER nextNum incremented the counter
   var d = getDB();
   var inv = {
-    id: uid(), typ: 'eingang', nummer: nr,
+    id: uid(), typ: 'eingang', nummer: '',
     lfd_nr: (document.getElementById('lfd-nr')||{value:''}).value.replace('lfd. ','').trim(),
     zahlungsart: document.getElementById('zahlungsart').value,
     partner_name: lief, partner_info: lief,
     datum: datum, faellig: faellig, status: status, notizen: notizen,
     er_liefnr: (document.getElementById('er-liefnr')||{}).value || '',
-    items: [{titel:'Eingangsrechnung', desc:'', menge:1, preis:netto, ust:pct}],
-    er_netto: netto, er_ust: ust, er_brutto: brutto, er_ust_pct: pct,
+    is_gutschrift: isGutschrift,
+    er_items: items,
+    er_netto: totalNetto, er_ust: totalUst, er_brutto: totalBrutto,
+    er_ust_pct: items.length === 1 ? items[0].ust_pct : null,
+    items: items.map(function(it){ return {titel: it.desc||'Eingangsrechnung', desc:'', menge:1, preis:it.netto, ust:it.ust_pct}; }),
     materialkosten: 0, mat_auto: false,
     file_b64: window._erFileB64 || null,
     file_name: window._erFileName || null,
@@ -1503,7 +1572,8 @@ function saveER() {
   saveDB(d);
   refreshNumbers();
 
-  document.getElementById('f-alerts').innerHTML = '<div class="alert success">&#10003; Eingangsrechnung gespeichert!</div>';
+  var typLabel = isGutschrift ? 'Gutschrift' : 'Eingangsrechnung';
+  document.getElementById('f-alerts').innerHTML = '<div class="alert success">&#10003; '+typLabel+' gespeichert!</div>';
   resetERForm();
   refreshNumbers();
   setTimeout(function(){ SP('eingang'); }, 1200);
@@ -1511,15 +1581,19 @@ function saveER() {
 
 function resetERForm() {
   var now = new Date().toISOString().split('T')[0];
-  var due = new Date(Date.now()+14*86400000).toISOString().split('T')[0];
+  var zahlungsziel = parseInt(localStorage.getItem('bp_zahlungsziel') || '14');
+  var due = new Date(Date.now() + zahlungsziel * 86400000).toISOString().split('T')[0];
   ['er-datum','er-faellig'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=id==='er-datum'?now:due; });
-  ['er-netto','er-ust-amt','er-brutto','er-notizen','er-lief-name','er-liefnr'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; });
-  var ep = document.getElementById('er-ust-pct'); if(ep) ep.value='20';
+  ['er-notizen','er-lief-name','er-liefnr'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; });
   var es = document.getElementById('er-status'); if(es) es.value='offen';
   var ep2 = document.getElementById('er-partner'); if(ep2) ep2.value='';
-  var info = document.getElementById('er-betrag-info'); if(info) info.style.display='none';
   var prev = document.getElementById('er-upload-preview'); if(prev) prev.textContent='';
-  window._erFile = null; window._erFileB64 = null; window._erFileName = null;
+  window._erFile = null; window._erFileB64 = null; window._erFileName = null; window._erFileType = null;
+  // Reset items
+  window.erItemsData = [{desc:'', netto:0, ust_pct:20, ust_amt:0}];
+  renderERItems();
+  // Reset Gutschrift toggle
+  setERTyp('rechnung');
 }
 
 function setKassaTyp(typ) {
