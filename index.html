@@ -818,13 +818,19 @@
     </div>
 
     <div class="card">
-      <h3>Daten</h3>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn" id="btn-export-data">&#8595; Alle Daten exportieren (JSON)</button>
-        <button class="btn" id="btn-import-data">&#8593; Daten importieren (JSON)</button>
+      <h3>Daten-Backup</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn primary" id="btn-export-data">&#8595; Backup exportieren (JSON)</button>
+        <button class="btn" id="btn-import-data">&#8593; Backup importieren (JSON)</button>
         <input type="file" id="import-file" accept=".json" style="display:none">
       </div>
-      <div id="data-import-info" style="font-family:sans-serif;font-size:12px;color:var(--accent);margin-top:8px;display:none"></div>
+      <div id="data-import-info" style="font-family:sans-serif;font-size:12px;color:var(--accent);margin-top:4px;display:none"></div>
+      <div style="font-family:sans-serif;font-size:12px;color:var(--t3);margin:6px 0 10px 0">
+        Exportiert alle Daten (Rechnungen, Kunden, Einstellungen&nbsp;&hellip;) als JSON-Datei.
+        Beim jedem App-Start wird automatisch ein Backup gespeichert.
+      </div>
+      <h4 style="margin:0 0 6px 0;font-size:13px;font-family:sans-serif;color:var(--t2)">Automatische Backups</h4>
+      <div id="backup-list" style="font-family:sans-serif;font-size:13px;color:var(--t2)">Lade&nbsp;&hellip;</div>
     </div>
   </div>
 </div>

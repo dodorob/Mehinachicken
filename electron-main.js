@@ -194,6 +194,64 @@ ipcMain.handle('open-pdf', async (event, filePath) => {
   }
 });
 
+ipcMain.handle('save-backup', async (event, jsonData) => {
+  try {
+    const backupDir = path.join(app.getPath('userData'), 'backups');
+    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+
+    const now = new Date();
+    const ts = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const filename = `buchpro_backup_${ts}.json`;
+    const fullPath = path.join(backupDir, filename);
+
+    fs.writeFileSync(fullPath, jsonData, 'utf8');
+
+    // Keep only the last 30 backups
+    const files = fs.readdirSync(backupDir)
+      .filter(f => f.startsWith('buchpro_backup_') && f.endsWith('.json'))
+      .sort();
+    if (files.length > 30) {
+      files.slice(0, files.length - 30).forEach(f => {
+        try { fs.unlinkSync(path.join(backupDir, f)); } catch (_) {}
+      });
+    }
+
+    return { success: true, path: fullPath, filename };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('list-backups', async () => {
+  try {
+    const backupDir = path.join(app.getPath('userData'), 'backups');
+    if (!fs.existsSync(backupDir)) return { success: true, files: [] };
+
+    const files = fs.readdirSync(backupDir)
+      .filter(f => f.startsWith('buchpro_backup_') && f.endsWith('.json'))
+      .sort()
+      .reverse()
+      .map(f => {
+        const fp = path.join(backupDir, f);
+        const stat = fs.statSync(fp);
+        return { filename: f, path: fp, size: stat.size, mtime: stat.mtime.toISOString() };
+      });
+
+    return { success: true, files, dir: backupDir };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('load-backup', async (event, filePath) => {
+  try {
+    const data = fs.readFileSync(filePath, 'utf8');
+    return { success: true, data };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 app.whenReady().then(() => {
   loadUpdateTokenFromEnvFiles();
   createWindow();
