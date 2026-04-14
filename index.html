@@ -92,10 +92,11 @@
       <div style="display:flex;gap:1.5rem;align-items:flex-start;flex-wrap:wrap">
         <div>
           <div style="font-size:12px;font-family:sans-serif;color:var(--t2);font-weight:500;margin-bottom:8px">Rechnungstyp</div>
-          <div style="display:flex;border:1px solid var(--border);border-radius:10px;overflow:hidden;font-family:sans-serif">
+          <div style="display:inline-flex;border:1px solid var(--border);border-radius:10px;overflow:hidden;font-family:sans-serif">
             <button id="toggle-ar" style="padding:10px 20px;font-size:13px;border:none;cursor:pointer;background:var(--accent);color:#fff;font-weight:500">AR</button>
             <button id="toggle-er" style="padding:10px 20px;font-size:13px;border:none;cursor:pointer;background:#f0f0ec;color:var(--t2)">ER</button>
           </div>
+          <button id="toggle-sammel" style="margin-top:6px;padding:8px 14px;font-size:12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;background:#f0f0ec;color:var(--t2);font-family:sans-serif">&#128221; Sammelrechnung</button>
           <div style="font-size:11px;color:var(--t3);font-family:sans-serif;margin-top:5px" id="typ-label">Ausgangsrechnung</div>
           <input type="hidden" id="typ" value="ausgang">
         </div>
@@ -150,7 +151,7 @@
       </div>
 
       <!-- Fahrzeug -->
-      <div class="card">
+      <div class="card" id="ar-fz-card">
         <h3>Fahrzeug (optional)</h3>
         <div class="fr c2">
           <div class="fg"><label>Marke / Modell</label><input type="text" id="fz-marke-inv" placeholder="z.B. VW Golf"></div>
@@ -170,8 +171,8 @@
         </div>
       </div>
 
-      <!-- Positionen -->
-      <div class="card">
+      <!-- Positionen (Standard AR) -->
+      <div class="card" id="ar-pos-card">
         <h3>Positionen</h3>
         <div id="f-alerts2"></div>
         <table class="itbl"><tbody id="items-body"></tbody></table>
@@ -193,6 +194,21 @@
         </div>
         <div class="sumblk" id="items-sum" style="margin-top:1rem"></div>
       </div>
+
+      <!-- Sammelrechnung: Fahrzeuge / Positionen -->
+      <div class="card" id="sammel-pos-card" style="display:none">
+        <h3 style="margin:0 0 0.75rem">Fahrzeuge &amp; Positionen</h3>
+        <div style="margin-bottom:0.75rem">
+          <div style="font-size:12px;font-weight:600;color:var(--t2);font-family:sans-serif;margin-bottom:4px">Allgemeine Beschreibung</div>
+          <div class="fg"><textarea id="sammel-beschreibung" placeholder="z.B. Arbeiten im Monat April 2025..." style="min-height:60px;resize:vertical"></textarea></div>
+        </div>
+        <div id="sammel-items-container"></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:8px">
+          <button class="btn" id="btn-add-sammel-item" style="font-size:12px">+ Fahrzeug hinzufügen</button>
+        </div>
+        <div class="sumblk" id="sammel-sum" style="margin-top:1rem"></div>
+      </div>
+
       <div class="card"><div class="fg"><label>Notizen</label><textarea id="notizen"></textarea></div></div>
       <div style="display:flex;justify-content:flex-end;gap:10px;padding-bottom:2rem">
         <button class="btn" id="btn-reset-form-bottom">Zurücksetzen</button>
