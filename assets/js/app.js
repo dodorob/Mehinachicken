@@ -1355,14 +1355,15 @@ function renderDash() {
         : tage === 0 ? '<span style="color:#BA7517;font-weight:600">Heute fällig</span>'
         : '<span style="color:#f59e0b;font-weight:600">in '+tage+' Tag(en)</span>';
       return '<tr>'+
-        '<td class="mono" style="font-size:11px">'+esc(inv.nummer)+'</td>'+
-        '<td>'+(inv.partner_name||'—')+'</td>'+
-        '<td><span class="badge '+(inv.typ==='ausgang'?'green':'red')+'">'+(inv.typ==='ausgang'?'AR':'ER')+'</span></td>'+
-        '<td style="text-align:right">'+fmt(brutto(inv))+'</td>'+
+        '<td class="mono" style="font-size:11px;white-space:nowrap">'+esc(inv.nummer)+'</td>'+
+        '<td style="overflow-wrap:break-word;word-break:break-word">'+(inv.partner_name||'—')+'</td>'+
+        '<td style="white-space:nowrap"><span class="badge '+(inv.typ==='ausgang'?'green':'red')+'">'+(inv.typ==='ausgang'?'AR':'ER')+'</span></td>'+
+        '<td style="text-align:right;white-space:nowrap">'+fmt(brutto(inv))+'</td>'+
         '<td>'+tageStr+'</td>'+
+        '<td style="white-space:nowrap"><button class="btn primary" style="font-size:11px;padding:3px 8px" onclick="dashBezahle(\''+inv.id+'\')">Bezahlen</button></td>'+
       '</tr>';
     }).join('');
-    rec.innerHTML = '<table><thead><tr><th>Nr.</th><th>Partner</th><th>Typ</th><th style="text-align:right">Betrag</th><th>Fälligkeit</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    rec.innerHTML = '<table style="table-layout:fixed;width:100%"><colgroup><col style="width:60px"><col><col style="width:45px"><col style="width:90px"><col style="width:130px"><col style="width:90px"></colgroup><thead><tr><th>Nr.</th><th>Partner</th><th>Typ</th><th style="text-align:right">Betrag</th><th>Fälligkeit</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
   }
 
   // Fällige Todos
@@ -1385,16 +1386,24 @@ function renderDash() {
           : '<span style="color:#f59e0b;font-weight:600">in '+tage+' Tag(en)</span>';
         var wdh = {keine:'–',taeglich:'Täglich',woechentlich:'Wöchentlich',monatlich:'Monatlich',jaehrlich:'Jährlich'};
         return '<tr>'+
-          '<td style="word-break:break-word">'+esc(t.titel)+'</td>'+
+          '<td style="overflow-wrap:break-word;word-break:break-word">'+esc(t.titel)+'</td>'+
           '<td style="white-space:nowrap">'+fmtD(t.faellig)+'</td>'+
-          '<td style="white-space:nowrap">'+tageStr+'</td>'+
-          '<td style="font-size:11px;color:var(--t3);white-space:nowrap">'+(wdh[t.wiederholung]||'–')+'</td>'+
+          '<td>'+tageStr+'</td>'+
           '<td style="white-space:nowrap"><button class="btn primary" style="font-size:11px;padding:3px 10px" onclick="erledigeTodo(\''+t.id+'\')">Erledigt</button></td>'+
         '</tr>';
       }).join('');
-      todosEl.innerHTML = '<table style="table-layout:fixed;width:100%"><thead><tr><th style="width:35%">Titel</th><th style="width:15%">Fällig</th><th style="width:20%">Fälligkeit</th><th style="width:15%">Wiederholung</th><th style="width:15%"></th></tr></thead><tbody>'+trows+'</tbody></table>';
+      todosEl.innerHTML = '<table style="table-layout:fixed;width:100%"><thead><tr><th style="width:38%">Titel</th><th style="width:16%">Fällig</th><th style="width:30%">Fälligkeit</th><th style="width:16%"></th></tr></thead><tbody>'+trows+'</tbody></table>';
     }
   }
+}
+
+function dashBezahle(id) {
+  var d = getDB(), inv = d.invoices.find(function(i){ return i.id===id; });
+  if (!inv) return;
+  inv.status = 'bezahlt';
+  saveDB(d);
+  renderDash();
+  renderTable(inv.typ);
 }
 
 // ================================================================
@@ -1437,9 +1446,9 @@ function renderTable(typ) {
     var sammelBadge = (typ==='ausgang' && inv.is_sammel) ? ' <span class="badge" style="background:#7c3aed;color:#fff;font-size:10px">Sammelrechnung</span>' : '';
     var partnerCell = inv.is_tageslosung ? 'Tageslosung' : (inv.partner_name||'-');
     return '<tr>' +
-      '<td class="mono" style="color:var(--t3);font-size:11px">'+(inv.lfd_nr||'')+'</td>' +
-      (typ==='ausgang'?'<td class="mono">' + (inv.nummer||'—') + '</td>':'') +
-      '<td>' + partnerCell + sammelBadge + gutschriftBadge + tageslosungBadge + '</td>' +
+      '<td class="mono" style="color:var(--t3);font-size:11px;white-space:nowrap">'+(inv.lfd_nr||'')+'</td>' +
+      (typ==='ausgang'?'<td class="mono" style="white-space:nowrap">' + (inv.nummer||'—') + '</td>':'') +
+      '<td style="overflow-wrap:break-word;word-break:break-word">' + partnerCell + sammelBadge + gutschriftBadge + tageslosungBadge + '</td>' +
       '<td>' + fmtD(inv.datum) + '</td>' +
       '<td>' + fmtD(inv.faellig) + '</td>' +
       '<td>' + fmt(netto(inv)) + '</td>' +
@@ -1453,7 +1462,10 @@ function renderTable(typ) {
       '</td>' +
     '</tr>';
   }).join('');
-  var hdr = '<table><thead><tr>' +
+  var cols = typ==='ausgang'
+    ? '<colgroup><col style="width:50px"><col style="width:65px"><col><col style="width:82px"><col style="width:82px"><col style="width:90px"><col style="width:90px"><col style="width:80px"><col style="width:210px"></colgroup>'
+    : '<colgroup><col style="width:50px"><col><col style="width:82px"><col style="width:82px"><col style="width:90px"><col style="width:90px"><col style="width:80px"><col style="width:210px"></colgroup>';
+  var hdr = '<table style="table-layout:fixed;width:100%">' + cols + '<thead><tr>' +
     _th(typ,'Lfd.','lfd') +
     (typ==='ausgang' ? _th(typ,'Nr.','nr') : '') +
     _th(typ,'Partner','partner') + _th(typ,'Datum','datum') + _th(typ,'Fällig','faellig') +
@@ -3186,7 +3198,7 @@ function genPDFData(inv) {
   }
   var firstKz = ((inv.items&&inv.items[0]&&(inv.items[0].fz_kz||'').trim()) || (inv.fz_kz||''));
   var fnKz = firstKz.replace(/[^a-zA-Z0-9]/g,'');
-  var filename = 'RechnungNR.' + fnNr;
+  var filename = 'Rechnung NR.' + fnNr;
   if (fnKunde) filename += '_' + fnKunde;
   if (fnKz) filename += '_' + fnKz;
   filename += '.pdf';
@@ -3448,7 +3460,7 @@ function genSammelPDF(inv) {
   if (!inv.privatkunde && inv.partner_name) {
     fnKunde = inv.partner_name.trim().replace(/\s+/g,'_').replace(/[^a-zA-Z0-9äöüÄÖÜß_\-]/g,'');
   }
-  var filename = 'RechnungNR.' + fnNr;
+  var filename = 'Rechnung NR.' + fnNr;
   if (fnKunde) filename += '_' + fnKunde;
   filename += '.pdf';
   var arPath = inv.zahlungsart === 'kassa'
