@@ -1528,7 +1528,7 @@ function initForm() {
   renderItems();
   // Init Sammelrechnung
   window.isSammel = false;
-  window.sammelItemsData = [{beschreibung:'', fz_marke:'', fz_kz:'', betrag:0, ust:20, arbeitsdaten:[], fahrzeitdaten:[]}];
+  window.sammelItemsData = [{bezeichnungen:[''], fz_marke:'', fz_kz:'', betrag:0, ust:20, arbeitsdaten:[], fahrzeitdaten:[]}];
   var sammelDescEl = document.getElementById('sammel-beschreibung');
   if (sammelDescEl) sammelDescEl.value = '';
   renderSammelItems();
@@ -1621,8 +1621,8 @@ function setTyp(typ) {
   var sammelBtn = document.getElementById('toggle-sammel');
   if (!arBtn) return;
   // Reset AR/ER group buttons
-  arBtn.style.background = '#f0f0ec'; arBtn.style.color = 'var(--t2)';
-  erBtn.style.background = '#f0f0ec'; erBtn.style.color = 'var(--t2)';
+  arBtn.style.background = '#f0f0ec'; arBtn.style.color = 'var(--t2)'; arBtn.style.fontWeight = '';
+  erBtn.style.background = '#f0f0ec'; erBtn.style.color = 'var(--t2)'; erBtn.style.fontWeight = '';
   // Reset Sammelrechnung standalone button
   if (sammelBtn) {
     sammelBtn.style.background = '#f0f0ec';
@@ -1632,7 +1632,7 @@ function setTyp(typ) {
   }
 
   if (typ === 'ausgang') {
-    arBtn.style.background = 'var(--accent)'; arBtn.style.color = '#fff';
+    arBtn.style.background = 'var(--accent)'; arBtn.style.color = '#fff'; arBtn.style.fontWeight = '500';
     document.getElementById('typ-label').textContent = 'Ausgangsrechnung';
     document.getElementById('partner-card-title').textContent = 'Kunde';
     document.getElementById('plbl').textContent = 'Bestehenden Kunden wählen';
@@ -1649,7 +1649,7 @@ function setTyp(typ) {
     document.getElementById('plbl').textContent = 'Bestehenden Kunden wählen';
     document.getElementById('btn-new-partner-inline').textContent = '+ Neuen Kunden anlegen';
   } else {
-    erBtn.style.background = 'var(--accent)'; erBtn.style.color = '#fff';
+    erBtn.style.background = 'var(--accent)'; erBtn.style.color = '#fff'; erBtn.style.fontWeight = '500';
     document.getElementById('typ-label').textContent = 'Eingangsrechnung';
     document.getElementById('partner-card-title').textContent = 'Lieferant';
     document.getElementById('plbl').textContent = 'Bestehenden Lieferanten wählen';
@@ -1679,14 +1679,12 @@ function setTyp(typ) {
 }
 
 function setSammelMode(isSammel) {
-  var fzCard         = document.getElementById('ar-fz-card');
-  var posCard        = document.getElementById('ar-pos-card');
-  var sammelBeschCard = document.getElementById('sammel-besch-card');
-  var sammelPosCard  = document.getElementById('sammel-pos-card');
-  if (fzCard)          fzCard.style.display          = isSammel ? 'none'  : 'block';
-  if (posCard)         posCard.style.display         = isSammel ? 'none'  : 'block';
-  if (sammelBeschCard) sammelBeschCard.style.display = isSammel ? 'block' : 'none';
-  if (sammelPosCard)   sammelPosCard.style.display   = isSammel ? 'block' : 'none';
+  var fzCard        = document.getElementById('ar-fz-card');
+  var posCard       = document.getElementById('ar-pos-card');
+  var sammelPosCard = document.getElementById('sammel-pos-card');
+  if (fzCard)         fzCard.style.display        = isSammel ? 'none'  : 'block';
+  if (posCard)        posCard.style.display        = isSammel ? 'none'  : 'block';
+  if (sammelPosCard)  sammelPosCard.style.display  = isSammel ? 'block' : 'none';
 }
 
 function setERMode(mode) {
@@ -2136,10 +2134,10 @@ function updateItem(i, f, v) {
 // ================================================================
 // SAMMELRECHNUNG POSITIONEN
 // ================================================================
-window.sammelItemsData = [{beschreibung:'', fz_marke:'', fz_kz:'', betrag:0, ust:20, arbeitsdaten:[], fahrzeitdaten:[]}];
+window.sammelItemsData = [{bezeichnungen:[''], fz_marke:'', fz_kz:'', betrag:0, ust:20, arbeitsdaten:[], fahrzeitdaten:[]}];
 
 function addSammelItem() {
-  window.sammelItemsData.push({beschreibung:'', fz_marke:'', fz_kz:'', betrag:0, ust:20, arbeitsdaten:[], fahrzeitdaten:[]});
+  window.sammelItemsData.push({bezeichnungen:[''], fz_marke:'', fz_kz:'', betrag:0, ust:20, arbeitsdaten:[], fahrzeitdaten:[]});
   renderSammelItems();
 }
 
@@ -2150,7 +2148,7 @@ function removeSammelItem(i) {
 }
 
 function updateSammelItem(i, f, v) {
-  if (f === 'beschreibung' || f === 'fz_marke' || f === 'fz_kz') {
+  if (f === 'fz_marke' || f === 'fz_kz') {
     window.sammelItemsData[i][f] = v;
   } else {
     window.sammelItemsData[i][f] = parseFloat(v) || 0;
@@ -2182,6 +2180,18 @@ function removeSammelFahrzeit(i, j) {
   renderSammelItems();
 }
 
+function addSammelBezeichnung(i) {
+  if (!window.sammelItemsData[i].bezeichnungen) window.sammelItemsData[i].bezeichnungen = [''];
+  window.sammelItemsData[i].bezeichnungen.push('');
+  renderSammelItems();
+}
+
+function removeSammelBezeichnung(i, j) {
+  if ((window.sammelItemsData[i].bezeichnungen||[]).length <= 1) return;
+  window.sammelItemsData[i].bezeichnungen.splice(j, 1);
+  renderSammelItems();
+}
+
 function _renderSammelDatumRows(rows, i, type) {
   // type = 'arbeit' or 'fahrzeit'
   if (!rows || !rows.length) {
@@ -2209,22 +2219,35 @@ function renderSammelItems() {
     var brutto_it = (it.betrag||0) * (1 + (it.ust||20)/100);
     var arbHtml   = _renderSammelDatumRows(it.arbeitsdaten||[],   i, 'arbeit');
     var fzHtml    = _renderSammelDatumRows(it.fahrzeitdaten||[], i, 'fahrzeit');
+    var bznArr    = (it.bezeichnungen && it.bezeichnungen.length) ? it.bezeichnungen : (it.beschreibung ? [it.beschreibung] : ['']);
+    var bznHtml   = bznArr.map(function(bz, j) {
+      return '<div style="display:flex;gap:4px;margin-bottom:4px;align-items:center">' +
+        '<input type="text" class="si-besch" data-i="' + i + '" data-j="' + j + '" value="' + esc(bz||'') + '" placeholder="z.B. Ölwechsel, Bremsen, Inspektion..." style="flex:1;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;font-family:inherit">' +
+        (bznArr.length > 1
+          ? '<button type="button" class="si-besch-del" data-i="' + i + '" data-j="' + j + '" style="padding:3px 7px;border:1px solid #ddd;border-radius:5px;background:#fff;color:#888;cursor:pointer;font-size:13px;line-height:1">×</button>'
+          : '') +
+      '</div>';
+    }).join('');
+
     return '<div style="border:1px solid #e0e0d8;border-radius:10px;padding:12px 14px;margin-bottom:10px;background:#fff">' +
 
-      // ── Kopfzeile: KZ + Marke + Löschen ────────────────────────────
+      // ── Kopfzeile: Modell + KZ + Löschen ────────────────────────────
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">' +
-        '<div style="font-size:10px;font-weight:600;color:#888;font-family:sans-serif;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Kennzeichen:</div>' +
-        '<input type="text" class="si-fz-kz" data-i="' + i + '" value="' + esc(it.fz_kz||'') + '" placeholder="z.B. GZ-123AB" style="width:130px;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;font-family:monospace;font-weight:600;letter-spacing:1px">' +
         '<div style="font-size:10px;font-weight:600;color:#888;font-family:sans-serif;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Modell:</div>' +
         '<input type="text" class="si-fz-marke" data-i="' + i + '" value="' + esc(it.fz_marke||'') + '" placeholder="z.B. VW Golf" style="flex:1;min-width:100px;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px">' +
+        '<div style="font-size:10px;font-weight:600;color:#888;font-family:sans-serif;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Kennzeichen:</div>' +
+        '<input type="text" class="si-fz-kz" data-i="' + i + '" value="' + esc(it.fz_kz||'') + '" placeholder="z.B. GZ-123AB" style="width:130px;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;font-family:monospace;font-weight:600;letter-spacing:1px">' +
         '<button type="button" class="btn si-del" data-i="' + i + '" style="padding:4px 8px;font-size:11px;margin-left:auto">&#x2715; Entfernen</button>' +
       '</div>' +
 
-      // ── Sonstige Bezeichnung + Betrag + USt ─────────────────────────
-      '<div style="display:grid;grid-template-columns:1fr 110px 65px;gap:8px;margin-bottom:10px;align-items:end">' +
+      // ── Sonstige Bezeichnungen + Betrag + USt ────────────────────────
+      '<div style="display:grid;grid-template-columns:1fr 110px 65px;gap:8px;margin-bottom:10px;align-items:start">' +
         '<div>' +
-          '<div style="font-size:10px;font-weight:600;color:#888;font-family:sans-serif;margin-bottom:3px">Sonstige Bezeichnung (Notiz für Rechnung/Auftrag)</div>' +
-          '<input type="text" class="si-besch" data-i="' + i + '" value="' + esc(it.beschreibung||'') + '" placeholder="z.B. Ölwechsel, Bremsen, Inspektion..." style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;font-family:inherit">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">' +
+            '<div style="font-size:10px;font-weight:600;color:#888;font-family:sans-serif">Sonstige Bezeichnungen (Notiz für Rechnung/Auftrag)</div>' +
+            '<button type="button" class="si-besch-add" data-i="' + i + '" style="font-size:11px;padding:1px 8px;border-radius:4px;border:1px solid #aaa;background:#fff;color:#555;cursor:pointer;font-family:sans-serif;white-space:nowrap;margin-left:6px">+ Bezeichnung</button>' +
+          '</div>' +
+          bznHtml +
         '</div>' +
         '<div>' +
           '<div style="font-size:10px;font-weight:600;color:#888;font-family:sans-serif;margin-bottom:3px">Netto (€)</div>' +
@@ -2261,6 +2284,25 @@ function renderSammelItems() {
     '</div>';
   }).join('');
   container.innerHTML = cards;
+
+  // ── Bezeichnungen event listeners ─────────────────────────────────
+  container.querySelectorAll('.si-besch').forEach(function(el) {
+    el.addEventListener('input', function() {
+      var i = parseInt(this.dataset.i), j = parseInt(this.dataset.j);
+      if (!window.sammelItemsData[i].bezeichnungen) window.sammelItemsData[i].bezeichnungen = [''];
+      window.sammelItemsData[i].bezeichnungen[j] = this.value;
+    });
+  });
+  container.querySelectorAll('.si-besch-del').forEach(function(el) {
+    el.addEventListener('click', function() {
+      removeSammelBezeichnung(parseInt(this.dataset.i), parseInt(this.dataset.j));
+    });
+  });
+  container.querySelectorAll('.si-besch-add').forEach(function(el) {
+    el.addEventListener('click', function() {
+      addSammelBezeichnung(parseInt(this.dataset.i));
+    });
+  });
 
   // ── Arbeitsdaten event listeners ──────────────────────────────────
   container.querySelectorAll('.si-arbeit-datum').forEach(function(el) {
@@ -2303,9 +2345,6 @@ function renderSammelItems() {
   });
 
   // ── Felder-Listener ───────────────────────────────────────────────
-  container.querySelectorAll('.si-besch').forEach(function(el) {
-    el.addEventListener('input', function() { updateSammelItem(parseInt(this.dataset.i), 'beschreibung', this.value); });
-  });
   container.querySelectorAll('.si-fz-marke').forEach(function(el) {
     el.addEventListener('input', function() { updateSammelItem(parseInt(this.dataset.i), 'fz_marke', this.value); });
   });
@@ -3143,7 +3182,7 @@ function genSammelPDF(inv) {
   var rNr = inv.nummer || '';
   var nrMatch = rNr.match(/(\d+)$/);
   var nrDisplay = nrMatch ? (parseInt(nrMatch[1]) < 10 ? String(parseInt(nrMatch[1])).padStart(2,'0') : String(parseInt(nrMatch[1]))) : rNr;
-  doc.text('Sammelrechnung Nr.: ' + nrDisplay, xL, 100);
+  doc.text('Rechnung Nr.: ' + nrDisplay, xL, 100);
   doc.setFont('times', 'normal');
   doc.setFontSize(10);
 
@@ -3185,35 +3224,18 @@ function genSammelPDF(inv) {
   var items = inv.items || [];
   items.forEach(function(it, idx) {
     var bg = idx % 2 === 0;
-    // Arbeitsstunden-Zusammenfassung als zweite Zeile, falls vorhanden
-    var dzTot  = (it.arbeitsdaten||[]).reduce(function(s,r){ return s+(parseFloat(r.djevad_h)||0); }, 0);
-    var helTot = (it.arbeitsdaten||[]).reduce(function(s,r){ return s+(parseFloat(r.helmut_h)||0); }, 0);
-    var fzDzTot  = (it.fahrzeitdaten||[]).reduce(function(s,r){ return s+(parseFloat(r.djevad_h)||0); }, 0);
-    var fzHelTot = (it.fahrzeitdaten||[]).reduce(function(s,r){ return s+(parseFloat(r.helmut_h)||0); }, 0);
-    var hasExtra = dzTot > 0 || helTot > 0 || fzDzTot > 0 || fzHelTot > 0;
-    var itemRows = hasExtra ? 2 : 1;
-
-    if (!bg) { doc.setFillColor(250, 250, 248); doc.rect(xL, yCur, xR - xL, rowH * itemRows, 'F'); }
-    doc.setFont('times', 'normal'); doc.setFontSize(10);
+    if (!bg) { doc.setFillColor(250, 250, 248); doc.rect(xL, yCur, xR - xL, rowH, 'F'); }
+    doc.setFont('times', 'normal'); doc.setFontSize(10); doc.setTextColor(30, 30, 30);
     var brutto_it = (it.betrag||0) * (1 + (it.ust||20)/100);
+    var bznArr = (it.bezeichnungen && it.bezeichnungen.length) ? it.bezeichnungen : (it.beschreibung ? [it.beschreibung] : []);
+    var beschText = bznArr.filter(Boolean).join(', ');
 
-    // Main row
-    doc.text((it.beschreibung||'').trim(), colBesch + 2, yCur + rowH - 2);
-    doc.text((it.fz_marke||'').trim(),     colFz + 2,    yCur + rowH - 2);
-    doc.text((it.fz_kz||'').trim(),        colKz + 2,    yCur + rowH - 2);
-    doc.text('€ ' + numFmt(brutto_it),     xR - 2,       yCur + rowH - 2, {align:'right'});
+    doc.text(beschText,                  colBesch + 2, yCur + rowH - 2);
+    doc.text((it.fz_marke||'').trim(),   colFz + 2,    yCur + rowH - 2);
+    doc.text((it.fz_kz||'').trim(),      colKz + 2,    yCur + rowH - 2);
+    doc.text('€ ' + numFmt(brutto_it),   xR - 2,       yCur + rowH - 2, {align:'right'});
 
-    // Optional second row: work-hour summary
-    if (hasExtra) {
-      doc.setFontSize(8); doc.setTextColor(100, 100, 100);
-      var stInfo = [];
-      if (dzTot > 0 || helTot > 0) stInfo.push('Arb.: Dž ' + dzTot + 'h / Helm. ' + helTot + 'h');
-      if (fzDzTot > 0 || fzHelTot > 0) stInfo.push('Fahrz.: Dž ' + fzDzTot + 'h / Helm. ' + fzHelTot + 'h');
-      doc.text(stInfo.join('   '), colBesch + 2, yCur + 2*rowH - 2);
-      doc.setFontSize(10); doc.setTextColor(30, 30, 30);
-    }
-
-    yCur += rowH * itemRows;
+    yCur += rowH;
   });
 
   // ── SUMMENZEILEN ──────────────────────────────────────────────────
@@ -3273,7 +3295,7 @@ function genSammelPDF(inv) {
   if (!inv.privatkunde && inv.partner_name) {
     fnKunde = inv.partner_name.trim().replace(/\s+/g,'_').replace(/[^a-zA-Z0-9äöüÄÖÜß_\-]/g,'');
   }
-  var filename = 'SammelrechnungNR.' + fnNr;
+  var filename = 'RechnungNR.' + fnNr;
   if (fnKunde) filename += '_' + fnKunde;
   filename += '.pdf';
   var arPath = inv.zahlungsart === 'kassa'
@@ -3287,8 +3309,13 @@ function genSammelPDF(inv) {
 // ================================================================
 function genSammelArbeitsauftraege(inv) {
   // Generate one Arbeitsauftrag per vehicle position
+  var arPath = inv.zahlungsart === 'kassa'
+    ? (getSetting('bp_path_ar_kassa') || getSetting('bp_path_ar'))
+    : (getSetting('bp_path_ar_bank')  || getSetting('bp_path_ar'));
+  var delayMs = 0;
   (inv.items || []).forEach(function(it, idx) {
-    // Build a fake single-vehicle invoice object that genArbeitsauftragPDF understands
+    var bznArr = (it.bezeichnungen && it.bezeichnungen.length) ? it.bezeichnungen : (it.beschreibung ? [it.beschreibung] : []);
+    var beschrText = bznArr.filter(Boolean).join(', ');
     var fakeInv = {
       nummer:         (inv.nummer || '') + '-' + (idx + 1),
       datum:          inv.datum,
@@ -3297,16 +3324,23 @@ function genSammelArbeitsauftraege(inv) {
       fz_kz:          it.fz_kz || '',
       partner_name:   inv.partner_name || '',
       privatkunde:    inv.privatkunde,
-      notizen:        it.beschreibung || inv.notizen || '',
+      notizen:        beschrText || inv.notizen || '',
       items: [{
-        titel:        it.beschreibung || '',
+        titel:        beschrText,
         djevad_h:     (it.arbeitsdaten||[]).reduce(function(s,r){ return s+(parseFloat(r.djevad_h)||0); }, 0),
         helmut_h:     (it.arbeitsdaten||[]).reduce(function(s,r){ return s+(parseFloat(r.helmut_h)||0); }, 0),
         arbeitsdaten:  it.arbeitsdaten  || [],
         fahrzeitdaten: it.fahrzeitdaten || []
       }]
     };
-    genArbeitsauftragPDF(fakeInv);
+    genArbeitsauftragPDF(fakeInv, (function(ms) {
+      return function(doc, filename) {
+        setTimeout(function() {
+          savePDFToFolder(doc, filename, arPath, function() { openPDF(doc, filename); });
+        }, ms);
+      };
+    })(delayMs));
+    delayMs += 600;
   });
 }
 
@@ -3881,7 +3915,7 @@ function fmtHoursF(h) {
   return fracStr ? whole + ' ' + fracStr : String(whole);
 }
 
-function genArbeitsauftragPDF(inv) {
+function genArbeitsauftragPDF(inv, onDone) {
   if (!inv) return;
   var doc = new window.jspdf.jsPDF({unit:'mm', format:'a5', orientation:'portrait'});
   var mL = 10, pw = 128, y = 12;
@@ -4036,7 +4070,12 @@ function genArbeitsauftragPDF(inv) {
   doc.setLineWidth(0.3); doc.setDrawColor(150,150,150);
   doc.line(mL + 13, notizY + 0.5, mL + pw, notizY + 0.5);
 
-  openPDF(doc, 'Arbeitsauftrag_' + (inv.nummer||'neu') + '.pdf');
+  var aufFilename = 'Arbeitsauftrag_' + (inv.nummer||'neu') + '.pdf';
+  if (typeof onDone === 'function') {
+    onDone(doc, aufFilename);
+  } else {
+    openPDF(doc, aufFilename);
+  }
 }
 
 
@@ -4568,11 +4607,15 @@ function editInv(id) {
     // Restore Sammelrechnung positions
     window.sammelItemsData = (inv.items||[]).map(function(it){
       var c = Object.assign({}, it);
-      c.arbeitsdaten  = (it.arbeitsdaten  || []).map(function(r){ return Object.assign({}, r); });
-      c.fahrzeitdaten = (it.fahrzeitdaten || []).map(function(r){ return Object.assign({}, r); });
+      c.arbeitsdaten   = (it.arbeitsdaten  || []).map(function(r){ return Object.assign({}, r); });
+      c.fahrzeitdaten  = (it.fahrzeitdaten || []).map(function(r){ return Object.assign({}, r); });
+      // Backward compat: migrate old beschreibung string to bezeichnungen array
+      c.bezeichnungen  = (it.bezeichnungen && it.bezeichnungen.length)
+        ? it.bezeichnungen.slice()
+        : (it.beschreibung ? [it.beschreibung] : ['']);
       return c;
     });
-    if (!window.sammelItemsData.length) window.sammelItemsData = [{beschreibung:'', fz_marke:'', fz_kz:'', betrag:0, ust:20, arbeitsdaten:[], fahrzeitdaten:[]}];
+    if (!window.sammelItemsData.length) window.sammelItemsData = [{bezeichnungen:[''], fz_marke:'', fz_kz:'', betrag:0, ust:20, arbeitsdaten:[], fahrzeitdaten:[]}];
     renderSammelItems();
     var sdEl = document.getElementById('sammel-beschreibung');
     if (sdEl) sdEl.value = inv.sammel_beschreibung || '';

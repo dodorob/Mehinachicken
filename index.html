@@ -159,14 +159,6 @@
         </div>
       </div>
 
-      <!-- Sammelrechnung: Allgemeine Beschreibung -->
-      <div class="card" id="sammel-besch-card" style="display:none">
-        <h3>Allgemeine Beschreibung</h3>
-        <div class="fg">
-          <textarea id="sammel-beschreibung" placeholder="z.B. Arbeiten im Monat April 2025..." style="min-height:60px"></textarea>
-        </div>
-      </div>
-
       <!-- Datum -->
       <div class="card">
         <div class="fr c2">
@@ -208,6 +200,10 @@
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
           <h3 style="margin:0">Fahrzeuge &amp; Positionen</h3>
           <button class="btn" id="btn-add-sammel-item" style="font-size:12px">+ Fahrzeug hinzufügen</button>
+        </div>
+        <div style="margin-bottom:0.75rem">
+          <div style="font-size:12px;font-weight:600;color:var(--t2);font-family:sans-serif;margin-bottom:4px">Allgemeine Beschreibung</div>
+          <textarea id="sammel-beschreibung" placeholder="z.B. Arbeiten im Monat April 2025..." style="min-height:60px;width:100%;box-sizing:border-box"></textarea>
         </div>
         <div id="sammel-items-container"></div>
         <div class="sumblk" id="sammel-sum" style="margin-top:1rem"></div>
