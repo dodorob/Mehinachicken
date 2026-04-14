@@ -96,7 +96,7 @@
             <button id="toggle-ar" style="padding:10px 20px;font-size:13px;border:none;cursor:pointer;background:var(--accent);color:#fff;font-weight:500">AR</button>
             <button id="toggle-er" style="padding:10px 20px;font-size:13px;border:none;cursor:pointer;background:#f0f0ec;color:var(--t2)">ER</button>
           </div>
-          <button id="toggle-sammel" style="margin-top:6px;width:100%;padding:8px 14px;font-size:12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;background:#f0f0ec;color:var(--t2);font-family:sans-serif;text-align:left">&#128221; Sammelrechnung</button>
+          <button id="toggle-sammel" style="margin-top:6px;padding:8px 14px;font-size:12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;background:#f0f0ec;color:var(--t2);font-family:sans-serif">&#128221; Sammelrechnung</button>
           <div style="font-size:11px;color:var(--t3);font-family:sans-serif;margin-top:5px" id="typ-label">Ausgangsrechnung</div>
           <input type="hidden" id="typ" value="ausgang">
         </div>
@@ -200,10 +200,12 @@
         <h3 style="margin:0 0 0.75rem">Fahrzeuge &amp; Positionen</h3>
         <div style="margin-bottom:0.75rem">
           <div style="font-size:12px;font-weight:600;color:var(--t2);font-family:sans-serif;margin-bottom:4px">Allgemeine Beschreibung</div>
-          <textarea id="sammel-beschreibung" placeholder="z.B. Arbeiten im Monat April 2025..." style="min-height:60px;width:100%;box-sizing:border-box;font-size:13px;font-family:inherit"></textarea>
+          <div class="fg"><textarea id="sammel-beschreibung" placeholder="z.B. Arbeiten im Monat April 2025..." style="min-height:60px;resize:vertical"></textarea></div>
         </div>
         <div id="sammel-items-container"></div>
-        <button class="btn" id="btn-add-sammel-item" style="font-size:12px;margin-top:8px">+ Fahrzeug hinzufügen</button>
+        <div style="display:flex;justify-content:flex-end;margin-top:8px">
+          <button class="btn" id="btn-add-sammel-item" style="font-size:12px">+ Fahrzeug hinzufügen</button>
+        </div>
         <div class="sumblk" id="sammel-sum" style="margin-top:1rem"></div>
       </div>
 

@@ -3218,9 +3218,8 @@ function genSammelPDF(inv) {
   // ── ALLGEMEINE BESCHREIBUNG ───────────────────────────────────────
   var tY = 113;
   if (inv.sammel_beschreibung && inv.sammel_beschreibung.trim()) {
-    doc.setFont('times', 'italic');
-    doc.text(inv.sammel_beschreibung.trim(), xL, tY);
     doc.setFont('times', 'normal');
+    doc.text(inv.sammel_beschreibung.trim(), xL, tY);
     tY += 8;
   }
 
@@ -3356,7 +3355,6 @@ function genSammelArbeitsauftraege(inv) {
   var arPath = inv.zahlungsart === 'kassa'
     ? (getSetting('bp_path_ar_kassa') || getSetting('bp_path_ar'))
     : (getSetting('bp_path_ar_bank')  || getSetting('bp_path_ar'));
-  var delayMs = 0;
   (inv.items || []).forEach(function(it, idx) {
     var bzList = _normBzn(it);
     var beschrText = bzList.map(function(bz){ return typeof bz === 'string' ? bz : (bz.text||''); }).filter(Boolean).join(', ');
@@ -3377,15 +3375,9 @@ function genSammelArbeitsauftraege(inv) {
         fahrzeitdaten: it.fahrzeitdaten || []
       }]
     };
-    genArbeitsauftragPDF(fakeInv, (function(ms) {
-      return function(doc, filename) {
-        setTimeout(function() {
-          // savePDFToFolder saves & opens via Electron; fallback: doc.save() triggers download
-          savePDFToFolder(doc, filename, arPath, function() { doc.save(filename); });
-        }, ms);
-      };
-    })(delayMs));
-    delayMs += 600;
+    genArbeitsauftragPDF(fakeInv, function(doc, filename) {
+      savePDFToFolder(doc, filename, arPath, function() { doc.save(filename); });
+    });
   });
 }
 
