@@ -1355,14 +1355,15 @@ function renderDash() {
         : tage === 0 ? '<span style="color:#BA7517;font-weight:600">Heute fällig</span>'
         : '<span style="color:#f59e0b;font-weight:600">in '+tage+' Tag(en)</span>';
       return '<tr>'+
-        '<td class="mono" style="font-size:11px">'+esc(inv.nummer)+'</td>'+
-        '<td>'+(inv.partner_name||'—')+'</td>'+
-        '<td><span class="badge '+(inv.typ==='ausgang'?'green':'red')+'">'+(inv.typ==='ausgang'?'AR':'ER')+'</span></td>'+
-        '<td style="text-align:right">'+fmt(brutto(inv))+'</td>'+
+        '<td class="mono" style="font-size:11px;white-space:nowrap">'+esc(inv.nummer)+'</td>'+
+        '<td style="overflow-wrap:break-word;word-break:break-word">'+(inv.partner_name||'—')+'</td>'+
+        '<td style="white-space:nowrap"><span class="badge '+(inv.typ==='ausgang'?'green':'red')+'">'+(inv.typ==='ausgang'?'AR':'ER')+'</span></td>'+
+        '<td style="text-align:right;white-space:nowrap">'+fmt(brutto(inv))+'</td>'+
         '<td>'+tageStr+'</td>'+
+        '<td style="white-space:nowrap"><button class="btn primary" style="font-size:11px;padding:3px 8px" onclick="dashBezahle(\''+inv.id+'\')">Bezahlen</button></td>'+
       '</tr>';
     }).join('');
-    rec.innerHTML = '<table><thead><tr><th>Nr.</th><th>Partner</th><th>Typ</th><th style="text-align:right">Betrag</th><th>Fälligkeit</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    rec.innerHTML = '<table style="table-layout:fixed;width:100%"><colgroup><col style="width:60px"><col><col style="width:45px"><col style="width:90px"><col style="width:130px"><col style="width:90px"></colgroup><thead><tr><th>Nr.</th><th>Partner</th><th>Typ</th><th style="text-align:right">Betrag</th><th>Fälligkeit</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
   }
 
   // Fällige Todos
@@ -1385,16 +1386,24 @@ function renderDash() {
           : '<span style="color:#f59e0b;font-weight:600">in '+tage+' Tag(en)</span>';
         var wdh = {keine:'–',taeglich:'Täglich',woechentlich:'Wöchentlich',monatlich:'Monatlich',jaehrlich:'Jährlich'};
         return '<tr>'+
-          '<td style="word-break:break-word">'+esc(t.titel)+'</td>'+
+          '<td style="overflow-wrap:break-word;word-break:break-word">'+esc(t.titel)+'</td>'+
           '<td style="white-space:nowrap">'+fmtD(t.faellig)+'</td>'+
-          '<td style="white-space:nowrap">'+tageStr+'</td>'+
-          '<td style="font-size:11px;color:var(--t3);white-space:nowrap">'+(wdh[t.wiederholung]||'–')+'</td>'+
+          '<td>'+tageStr+'</td>'+
           '<td style="white-space:nowrap"><button class="btn primary" style="font-size:11px;padding:3px 10px" onclick="erledigeTodo(\''+t.id+'\')">Erledigt</button></td>'+
         '</tr>';
       }).join('');
-      todosEl.innerHTML = '<table style="table-layout:fixed;width:100%"><thead><tr><th style="width:35%">Titel</th><th style="width:15%">Fällig</th><th style="width:20%">Fälligkeit</th><th style="width:15%">Wiederholung</th><th style="width:15%"></th></tr></thead><tbody>'+trows+'</tbody></table>';
+      todosEl.innerHTML = '<table style="table-layout:fixed;width:100%"><thead><tr><th style="width:38%">Titel</th><th style="width:16%">Fällig</th><th style="width:30%">Fälligkeit</th><th style="width:16%"></th></tr></thead><tbody>'+trows+'</tbody></table>';
     }
   }
+}
+
+function dashBezahle(id) {
+  var d = getDB(), inv = d.invoices.find(function(i){ return i.id===id; });
+  if (!inv) return;
+  inv.status = 'bezahlt';
+  saveDB(d);
+  renderDash();
+  renderTable(inv.typ);
 }
 
 // ================================================================
@@ -1411,7 +1420,11 @@ function renderTable(typ) {
   var maxB    = maxBStr !== '' ? parseFloat(maxBStr) : Infinity;
   var status = (document.getElementById('f-'+typ+'-status')||{value:''}).value;
   var invs = d.invoices.filter(function(i){ return i.typ === typ; });
-  if (s)      invs = invs.filter(function(i){ return (i.nummer+(i.partner_name||'')).toLowerCase().indexOf(s)!==-1; });
+  if (s)      invs = invs.filter(function(i){
+    var str = (i.nummer||'') + (i.partner_name||'');
+    if (typ === 'ausgang') str += (i.fz_kz||'') + (i.fz_marke||'');
+    return str.toLowerCase().indexOf(s) !== -1;
+  });
   if (von)    invs = invs.filter(function(i){ return i.datum >= von; });
   if (bis)    invs = invs.filter(function(i){ return i.datum <= bis; });
   if (status) invs = invs.filter(function(i){ return i.status === status; });
@@ -1422,6 +1435,7 @@ function renderTable(typ) {
     if      (sort.col==='lfd')     { va=a.lfd_nr||0;               vb=b.lfd_nr||0; }
     else if (sort.col==='nr')      { va=(a.nummer||'').toLowerCase(); vb=(b.nummer||'').toLowerCase(); }
     else if (sort.col==='partner') { va=(a.partner_name||'').toLowerCase(); vb=(b.partner_name||'').toLowerCase(); }
+    else if (sort.col==='kz')      { va=(a.fz_kz||'').toLowerCase(); vb=(b.fz_kz||'').toLowerCase(); }
     else if (sort.col==='faellig') { va=a.faellig||''; vb=b.faellig||''; }
     else if (sort.col==='netto')   { va=netto(a); vb=netto(b); }
     else if (sort.col==='brutto')  { va=brutto(a); vb=brutto(b); }
@@ -1437,11 +1451,12 @@ function renderTable(typ) {
     var sammelBadge = (typ==='ausgang' && inv.is_sammel) ? ' <span class="badge" style="background:#7c3aed;color:#fff;font-size:10px">Sammelrechnung</span>' : '';
     var partnerCell = inv.is_tageslosung ? 'Tageslosung' : (inv.partner_name||'-');
     return '<tr>' +
-      '<td class="mono" style="color:var(--t3);font-size:11px">'+(inv.lfd_nr||'')+'</td>' +
-      (typ==='ausgang'?'<td class="mono">' + (inv.nummer||'—') + '</td>':'') +
-      '<td>' + partnerCell + sammelBadge + gutschriftBadge + tageslosungBadge + '</td>' +
-      '<td>' + fmtD(inv.datum) + '</td>' +
-      '<td>' + fmtD(inv.faellig) + '</td>' +
+      '<td class="mono" style="color:var(--t3);font-size:11px;white-space:nowrap">'+(inv.lfd_nr||'')+'</td>' +
+      (typ==='ausgang'?'<td class="mono" style="white-space:nowrap">' + (inv.nummer||'—') + '</td>':'') +
+      '<td style="overflow-wrap:break-word;word-break:break-word">' + partnerCell + sammelBadge + gutschriftBadge + tageslosungBadge + '</td>' +
+      (typ==='ausgang'?'<td class="mono" style="font-size:11px;white-space:nowrap;color:var(--t2)">' + esc(inv.fz_kz||'—') + '</td>':'') +
+      '<td style="white-space:nowrap">' + fmtD(inv.datum) + '</td>' +
+      '<td style="white-space:nowrap">' + fmtD(inv.faellig) + '</td>' +
       '<td>' + fmt(netto(inv)) + '</td>' +
       '<td>' + fmt(brutto(inv)) + '</td>' +
       '<td>' + sBadge(inv.status) + '</td>' +
@@ -1453,10 +1468,15 @@ function renderTable(typ) {
       '</td>' +
     '</tr>';
   }).join('');
-  var hdr = '<table><thead><tr>' +
+  var cols = typ==='ausgang'
+    ? '<colgroup><col style="width:50px"><col style="width:65px"><col style="width:130px"><col style="width:72px"><col style="width:82px"><col style="width:82px"><col style="width:90px"><col style="width:90px"><col style="width:80px"><col style="width:210px"></colgroup>'
+    : '<colgroup><col style="width:50px"><col style="width:155px"><col style="width:82px"><col style="width:82px"><col style="width:90px"><col style="width:90px"><col style="width:80px"><col style="width:210px"></colgroup>';
+  var hdr = '<table style="table-layout:fixed;width:100%">' + cols + '<thead><tr>' +
     _th(typ,'Lfd.','lfd') +
     (typ==='ausgang' ? _th(typ,'Nr.','nr') : '') +
-    _th(typ,'Partner','partner') + _th(typ,'Datum','datum') + _th(typ,'Fällig','faellig') +
+    _th(typ,'Partner','partner') +
+    (typ==='ausgang' ? _th(typ,'KZ','kz') : '') +
+    _th(typ,'Datum','datum') + _th(typ,'Fällig','faellig') +
     _th(typ,'Netto','netto') + _th(typ,'Brutto','brutto') + _th(typ,'Status','status') +
     '<th>Aktion</th></tr></thead><tbody>';
   el.innerHTML = hdr + rows + '</tbody></table>';
@@ -2460,7 +2480,7 @@ function renderItems() {
             '<span style="font-family:sans-serif;font-size:12px;font-weight:500;color:#555;background:#f0f0ec;padding:5px 10px;border-radius:6px;border:1px solid #ddd;display:inline-block">Stunden</span>'+
           '</td>' +
           '<td style="padding:0 8px 8px">' +
-            '<input type="number" class="item-menge" data-i="' + i + '" value="' + it.menge + '" min="0" step="0.01" style="width:100%">' +
+            '<input type="number" class="item-menge" data-i="' + i + '" value="' + (it.menge > 0 ? it.menge : '') + '" min="0" step="0.01" placeholder="0" onfocus="if(parseFloat(this.value)===1){this.value=\'\';}" style="width:100%">' +
           '</td>' +
           '<td style="padding:0 8px 8px">' +
             '<input type="number" class="item-preis" list="preis-suggestions" data-i="' + i + '" value="' + (it.preis||'') + '" min="0" step="0.01" placeholder="€" style="width:100%">' +
@@ -2597,10 +2617,12 @@ function renderItems() {
   });
 
   document.querySelectorAll('.item-menge').forEach(function(el){
-    el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'menge', this.value); });
+    el.addEventListener('input',  function(){ updateItem(parseInt(this.dataset.i), 'menge', this.value); });
+    el.addEventListener('change', function(){ updateItem(parseInt(this.dataset.i), 'menge', this.value); });
   });
   document.querySelectorAll('.item-preis').forEach(function(el){
-    el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'preis', this.value); });
+    el.addEventListener('input',  function(){ updateItem(parseInt(this.dataset.i), 'preis', this.value); });
+    el.addEventListener('change', function(){ updateItem(parseInt(this.dataset.i), 'preis', this.value); });
   });
   document.querySelectorAll('.item-ust').forEach(function(el){
     el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'ust', this.value); });
@@ -3041,7 +3063,8 @@ function genPDFData(inv) {
     var rows = [];
     group.items.forEach(function(it) {
       if (it.titel && it.titel.trim()) rows.push({type:'titel', it:it});
-      rows.push({type:'stunden', it:it});
+      // Only add stunden row if both menge and preis are set
+      if (parseFloat(it.menge) > 0 && parseFloat(it.preis) > 0) rows.push({type:'stunden', it:it});
       (it.extras||[]).forEach(function(e){ if(e.label&&e.label.trim()&&e.betrag) rows.push({type:'extra',it:it,extra:e}); });
     });
     // KZ liegt immer auf Zeile 2 (Index 1) – Arbeitsstunden darf dort nicht stehen
@@ -3074,10 +3097,22 @@ function genPDFData(inv) {
   // ── Content-Zeilen ───────────────────────────────────────────────
   var yCur = tY + hdrH;
 
+  var beschMax = colAnz - 8 - (colFzEnd + 2);  // max width for description text (~70mm)
+
   carGroups.forEach(function(group) {
     var car = group.car;
     var subRows = buildSubRows(group);
-    var groupH = subRows.length * rowH;
+
+    // Pre-calculate actual height per sub-row (title may wrap to multiple lines)
+    doc.setFont('times','normal'); doc.setFontSize(10);
+    var rowHeights = subRows.map(function(row) {
+      if (row.type === 'titel') {
+        var lines = doc.splitTextToSize((row.it.titel||'').trim(), beschMax);
+        return Math.max(1, lines.length) * rowH;
+      }
+      return rowH;
+    });
+    var groupH = rowHeights.reduce(function(s, h){ return s + h; }, 0);
 
     if (yCur + groupH > contentBottom) {
       yCur = addPageBreak();
@@ -3088,28 +3123,34 @@ function genPDFData(inv) {
     if (car.marke) doc.text(car.marke, xL + 2, yCur + rowH - 2);
     if (car.kz)    doc.text(car.kz,    xL + 2, yCur + 2*rowH - 2);
 
+    var rY = yCur;
     for (var ri = 0; ri < subRows.length; ri++) {
       var row = subRows[ri];
-      var rowY = yCur + ri * rowH + rowH - 2;
+      var rH = rowHeights[ri];
       doc.setFont('times','normal'); doc.setFontSize(10);
       if (row.type === 'titel') {
-        doc.text((row.it.titel||'').trim(), colFzEnd + 2, rowY);
+        var lines = doc.splitTextToSize((row.it.titel||'').trim(), beschMax);
+        for (var li = 0; li < lines.length; li++) {
+          doc.text(lines[li], colFzEnd + 2, rY + li * rowH + rowH - 2);
+        }
       } else if (row.type === 'stunden') {
         var menge = parseFloat(row.it.menge)||1;
-        doc.text(menge===1?'Arbeitsstunde':'Arbeitsstunden', colFzEnd + 2, rowY);
-        doc.text(String(row.it.menge), colAnz, rowY, {align:'center'});
+        doc.text(menge===1?'Arbeitsstunde':'Arbeitsstunden', colFzEnd + 2, rY + rH - 2);
+        doc.text(String(row.it.menge), colAnz, rY + rH - 2, {align:'center'});
         var lt = row.it.menge * row.it.preis * (1 + row.it.ust/100);
-        doc.setFont('times','normal');
-        doc.text('€ ' + numFmt(lt), xR - 2, rowY, {align:'right'});
+        doc.text('€ ' + numFmt(lt), xR - 2, rY + rH - 2, {align:'right'});
       } else if (row.type === 'extra') {
         var ex = row.extra;
         var et = ex.betrag * (1 + (ex.ust!=null?ex.ust:20)/100);
-        doc.text((ex.label||'').trim(), colFzEnd + 2, rowY);
-        doc.setFont('times','normal');
-        doc.text('€ ' + numFmt(et), xR - 2, rowY, {align:'right'});
+        var exLines = doc.splitTextToSize((ex.label||'').trim(), beschMax);
+        for (var eli = 0; eli < exLines.length; eli++) {
+          doc.text(exLines[eli], colFzEnd + 2, rY + eli * rowH + rowH - 2);
+        }
+        doc.text('€ ' + numFmt(et), xR - 2, rY + rH - 2, {align:'right'});
       }
+      rY += rH;
     }
-    yCur += subRows.length * rowH;
+    yCur += groupH;
   });
 
   // ── Materialkosten-Zeile ─────────────────────────────────────────
@@ -3186,7 +3227,7 @@ function genPDFData(inv) {
   }
   var firstKz = ((inv.items&&inv.items[0]&&(inv.items[0].fz_kz||'').trim()) || (inv.fz_kz||''));
   var fnKz = firstKz.replace(/[^a-zA-Z0-9]/g,'');
-  var filename = 'RechnungNR.' + fnNr;
+  var filename = 'Rechnung NR.' + fnNr;
   if (fnKunde) filename += '_' + fnKunde;
   if (fnKz) filename += '_' + fnKz;
   filename += '.pdf';
@@ -3347,6 +3388,7 @@ function genSammelPDF(inv) {
   var yCur  = tY + hdrH;
   var items = inv.items || [];
   var rowIdx = 0;
+  var sammelBeschMax = xR - 32 - (colBesch + 2);  // max width for description (~64mm)
   items.forEach(function(it) {
     var bzList = _normBzn(it);
     var kz    = (it.fz_kz||'').trim();
@@ -3356,21 +3398,26 @@ function genSammelPDF(inv) {
       var betrag  = typeof bz === 'string' ? 0  : (bz.betrag||0);
       var ust     = typeof bz === 'string' ? 20 : (bz.ust||20);
       var brutto  = betrag * (1 + ust / 100);
-      if (yCur + rowH > contentBottom) {
+      doc.setFont('times', 'normal'); doc.setFontSize(10);
+      var txtLines = doc.splitTextToSize(txt, sammelBeschMax);
+      var actualH = Math.max(1, txtLines.length) * rowH;
+      if (yCur + actualH > contentBottom) {
         yCur = addSammelPageBreak();
         yCur = drawSammelTblHdr(yCur);
         rowIdx = 0;
       }
       if (rowIdx % 2 !== 0) {
         doc.setFillColor(250, 250, 248);
-        doc.rect(xL, yCur, xR - xL, rowH, 'F');
+        doc.rect(xL, yCur, xR - xL, actualH, 'F');
       }
-      doc.setFont('times', 'normal'); doc.setFontSize(10); doc.setTextColor(30, 30, 30);
-      doc.text(kz,                    xL + 2,       yCur + rowH - 2);
-      doc.text(marke,                 colFz + 2,    yCur + rowH - 2);
-      doc.text(txt,                   colBesch + 2, yCur + rowH - 2);
-      doc.text('€ ' + numFmt(brutto), xR - 2,       yCur + rowH - 2, {align:'right'});
-      yCur += rowH;
+      doc.setTextColor(30, 30, 30);
+      doc.text(kz,    xL + 2,    yCur + rowH - 2);
+      doc.text(marke, colFz + 2, yCur + rowH - 2);
+      for (var li = 0; li < txtLines.length; li++) {
+        doc.text(txtLines[li], colBesch + 2, yCur + li * rowH + rowH - 2);
+      }
+      doc.text('€ ' + numFmt(brutto), xR - 2, yCur + rowH - 2, {align:'right'});
+      yCur += actualH;
       rowIdx++;
     });
   });
@@ -3448,7 +3495,7 @@ function genSammelPDF(inv) {
   if (!inv.privatkunde && inv.partner_name) {
     fnKunde = inv.partner_name.trim().replace(/\s+/g,'_').replace(/[^a-zA-Z0-9äöüÄÖÜß_\-]/g,'');
   }
-  var filename = 'RechnungNR.' + fnNr;
+  var filename = 'Rechnung NR.' + fnNr;
   if (fnKunde) filename += '_' + fnKunde;
   filename += '.pdf';
   var arPath = inv.zahlungsart === 'kassa'
@@ -4213,9 +4260,19 @@ function genArbeitsauftragPDF(inv, onDone) {
   doc.setFont('helvetica','normal'); doc.setFontSize(9);
   doc.text('Notiz: ', mL, notizY);
   doc.setFont('helvetica','bold');
-  doc.text(noteStr, mL + 13, notizY);
+  var noteMaxW = pw - 13;
+  var noteLineH = 5;
+  var noteLines = noteStr ? doc.splitTextToSize(noteStr, noteMaxW) : [''];
+  // First line (shares row with "Notiz:" label)
+  if (noteLines[0]) doc.text(noteLines[0], mL + 13, notizY);
   doc.setLineWidth(0.3); doc.setDrawColor(150,150,150);
   doc.line(mL + 13, notizY + 0.5, mL + pw, notizY + 0.5);
+  // Additional wrapped lines — each gets its own full-width underline
+  for (var ni = 1; ni < noteLines.length; ni++) {
+    var contY = notizY + ni * noteLineH;
+    doc.text(noteLines[ni], mL + 13, contY);
+    doc.line(mL, contY + 0.5, mL + pw, contY + 0.5);
+  }
 
   var aufFilename = 'Arbeitsauftrag_' + (inv.nummer||'neu') + '.pdf';
   if (typeof onDone === 'function') {
@@ -4914,9 +4971,9 @@ function renderTodos() {
   el.innerHTML = '<table style="width:100%"><thead><tr>' +
     '<th style="padding:10px 6px;width:20px"></th>' +
     '<th style="padding:10px 8px;text-align:left">Titel</th>' +
-    '<th style="padding:10px 8px;text-align:left">Fällig am</th>' +
+    '<th style="padding:10px 8px;text-align:left;white-space:nowrap">Fällig am</th>' +
     '<th style="padding:10px 8px;text-align:left">Fälligkeit</th>' +
-    '<th style="padding:10px 8px;text-align:left">Wiederholung</th>' +
+    '<th style="padding:10px 8px;text-align:left;white-space:nowrap">Wiederholung</th>' +
     '<th style="padding:10px 8px"></th>' +
   '</tr></thead><tbody id="todos-tbody">'+rows+'</tbody></table>';
 
@@ -6264,12 +6321,14 @@ function renderKVItems() {
   var container = document.getElementById('kv-items-container');
   if (!container) return;
   var badgeStyle = 'font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid #ddd;background:#fff;cursor:pointer;font-family:sans-serif;color:#555';
-  var html = '<table class="itbl" style="width:100%"><thead><tr>' +
+  var html = '<table class="itbl" style="width:100%;table-layout:fixed">' +
+    '<colgroup><col style="width:155px"><col><col style="width:70px"><col style="width:110px"><col style="width:36px"></colgroup>' +
+    '<thead><tr>' +
     '<th style="text-align:left;padding:8px 6px">Fahrzeug (Marke / KZ)</th>' +
     '<th style="text-align:left;padding:8px 6px">Beschreibung</th>' +
-    '<th style="text-align:center;padding:8px 6px;width:70px">Anzahl</th>' +
-    '<th style="text-align:right;padding:8px 6px;width:110px">Betrag (€)</th>' +
-    '<th style="width:36px;padding:8px 6px"></th>' +
+    '<th style="text-align:center;padding:8px 6px">Anzahl</th>' +
+    '<th style="text-align:right;padding:8px 6px">Betrag (€)</th>' +
+    '<th style="padding:8px 6px"></th>' +
     '</tr></thead><tbody>';
   kvItemsData.forEach(function(it, i) {
     html += '<tr>' +
@@ -6277,11 +6336,11 @@ function renderKVItems() {
         '<input type="text" value="' + esc(it.fz_marke || '') + '" data-i="' + i + '" class="kv-fz-marke" placeholder="Marke/Modell" style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;margin-bottom:3px;display:block">' +
         '<input type="text" value="' + esc(it.fz_kz || '') + '" data-i="' + i + '" class="kv-fz-kz" placeholder="Kennzeichen" style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;display:block">' +
       '</td>' +
-      '<td style="padding:4px 4px">' +
+      '<td style="padding:4px 4px;overflow:hidden;min-width:0">' +
         '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">' +
           getPosBadges().map(function(b){ return '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="'+esc(b)+'" style="' + badgeStyle + '">'+esc(b)+'</button>'; }).join('') +
         '</div>' +
-        '<input type="text" value="' + esc(it.beschreibung) + '" data-i="' + i + '" class="kv-beschreibung" placeholder="Details..." style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif">' +
+        '<input type="text" value="' + esc(it.beschreibung) + '" data-i="' + i + '" class="kv-beschreibung" placeholder="Details..." style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif">' +
       '</td>' +
       '<td style="padding:4px 4px"><input type="number" value="' + it.anzahl + '" data-i="' + i + '" class="kv-anzahl" min="1" step="1" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;text-align:center"></td>' +
       '<td style="padding:4px 4px"><input type="number" value="' + (it.betrag || '') + '" data-i="' + i + '" class="kv-betrag" min="0" step="0.01" placeholder="0,00" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;text-align:right"></td>' +
