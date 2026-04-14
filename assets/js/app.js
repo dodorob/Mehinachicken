@@ -514,6 +514,10 @@ function SP(id) {
   var nav = document.getElementById('nav-' + id);
   if (pg)  pg.classList.add('active');
   if (nav) nav.classList.add('active');
+  // Scroll to top on every tab/page switch
+  var mainEl = document.querySelector('.main');
+  if (mainEl) mainEl.scrollTop = 0;
+  window.scrollTo(0, 0);
   if (id === 'dashboard')  { renderDash(); updateBeschDatalist(); }
   if (id === 'ausgang') {
     renderTable('ausgang');
@@ -1386,13 +1390,12 @@ function renderDash() {
           : '<span style="color:#f59e0b;font-weight:600">in '+tage+' Tag(en)</span>';
         var wdh = {keine:'–',taeglich:'Täglich',woechentlich:'Wöchentlich',monatlich:'Monatlich',jaehrlich:'Jährlich'};
         return '<tr>'+
-          '<td style="overflow-wrap:break-word;word-break:break-word">'+esc(t.titel)+'</td>'+
-          '<td style="white-space:nowrap">'+fmtD(t.faellig)+'</td>'+
-          '<td>'+tageStr+'</td>'+
-          '<td style="white-space:nowrap"><button class="btn primary" style="font-size:11px;padding:3px 10px" onclick="erledigeTodo(\''+t.id+'\')">Erledigt</button></td>'+
+          '<td style="overflow-wrap:break-word;word-break:break-word;font-size:12px">'+esc(t.titel)+'</td>'+
+          '<td style="white-space:nowrap;font-size:11px">'+tageStr+'</td>'+
+          '<td style="white-space:nowrap;text-align:center"><button class="btn primary" style="font-size:11px;padding:3px 8px" onclick="erledigeTodo(\''+t.id+'\')">✓</button></td>'+
         '</tr>';
       }).join('');
-      todosEl.innerHTML = '<table style="table-layout:fixed;width:100%"><thead><tr><th style="width:38%">Titel</th><th style="width:16%">Fällig</th><th style="width:30%">Fälligkeit</th><th style="width:16%"></th></tr></thead><tbody>'+trows+'</tbody></table>';
+      todosEl.innerHTML = '<table style="table-layout:fixed;width:100%"><thead><tr><th>Titel</th><th>Fälligkeit</th><th style="width:36px"></th></tr></thead><tbody>'+trows+'</tbody></table>';
     }
   }
 }
@@ -1886,9 +1889,9 @@ function saveER() {
   var notizen = document.getElementById('er-notizen').value;
   var isGutschrift = (document.getElementById('er-is-gutschrift')||{value:'0'}).value === '1';
 
-  // Collect items and validate
-  var items = window.erItemsData.filter(function(it){ return (it.netto||0) > 0; });
-  if (!items.length) { alert('Bitte mindestens einen Nettobetrag eingeben'); return; }
+  // Collect items (include even netto=0 items if they have a description)
+  var items = window.erItemsData.filter(function(it){ return (it.netto||0) > 0 || (it.desc||'').trim(); });
+  if (!items.length) { items = window.erItemsData.slice(); }
 
   // Ensure ust_amt is calculated
   items = items.map(function(it){
@@ -1905,28 +1908,58 @@ function saveER() {
   if (!d.counters) d.counters = {};
   var zaER = (document.getElementById('zahlungsart')||{value:'bank'}).value;
   var lfdKeyER = zaER === 'kassa' ? 'lfd_kassa' : 'lfd_bank';
-  d.counters[lfdKeyER] = (d.counters[lfdKeyER] || 1) + 1;
 
-  var inv = {
-    id: uid(), typ: 'eingang', nummer: '',
-    lfd_nr: (document.getElementById('lfd-nr')||{value:''}).value.replace('lfd. ','').trim(),
-    zahlungsart: document.getElementById('zahlungsart').value,
-    partner_name: lief, partner_info: lief,
-    datum: datum, faellig: faellig, status: status, notizen: notizen,
-    er_liefnr: (document.getElementById('er-liefnr')||{}).value || '',
-    is_gutschrift: isGutschrift,
-    er_items: items,
-    er_netto: totalNetto, er_ust: totalUst, er_brutto: totalBrutto,
-    er_ust_pct: items.length === 1 ? items[0].ust_pct : null,
-    items: items.map(function(it){ return {titel: it.desc||'Eingangsrechnung', desc:'', menge:1, preis:it.netto, ust:it.ust_pct}; }),
-    materialkosten: 0, mat_auto: false,
-    file_b64: window._erFileB64 || null,
-    file_name: window._erFileName || null,
-    file_type: window._erFileType || null,
-    erstellt: new Date().toISOString()
-  };
+  var liefPartnerId = (function(){ var s=document.getElementById('er-partner'); return s&&s.selectedIndex>0?s.options[s.selectedIndex].value:''; })();
 
-  d.invoices.push(inv);
+  var erFileB64 = window._erFileB64 || null;
+  var erFileName = window._erFileName || null;
+  var erFileType = window._erFileType || null;
+
+  if (editId) {
+    // Update existing ER invoice
+    var idx = d.invoices.findIndex(function(i){ return i.id===editId; });
+    if (idx !== -1) {
+      var existing = d.invoices[idx];
+      d.invoices[idx] = Object.assign({}, existing, {
+        partner_name: lief, partner_info: lief,
+        partner_id: liefPartnerId || existing.partner_id || '',
+        datum: datum, faellig: faellig, status: status, notizen: notizen,
+        er_liefnr: (document.getElementById('er-liefnr')||{}).value || '',
+        is_gutschrift: isGutschrift,
+        er_items: items,
+        er_netto: totalNetto, er_ust: totalUst, er_brutto: totalBrutto,
+        er_ust_pct: items.length === 1 ? items[0].ust_pct : null,
+        items: items.map(function(it){ return {titel: it.desc||'Eingangsrechnung', desc:'', menge:1, preis:it.netto, ust:it.ust_pct}; }),
+        file_b64: erFileB64 !== null ? erFileB64 : existing.file_b64,
+        file_name: erFileName !== null ? erFileName : existing.file_name,
+        file_type: erFileType !== null ? erFileType : existing.file_type
+      });
+    }
+    editId = null;
+  } else {
+    d.counters[lfdKeyER] = (d.counters[lfdKeyER] || 1) + 1;
+    var inv = {
+      id: uid(), typ: 'eingang', nummer: '',
+      lfd_nr: (document.getElementById('lfd-nr')||{value:''}).value.replace('lfd. ','').trim(),
+      zahlungsart: zaER,
+      partner_name: lief, partner_info: lief,
+      partner_id: liefPartnerId,
+      datum: datum, faellig: faellig, status: status, notizen: notizen,
+      er_liefnr: (document.getElementById('er-liefnr')||{}).value || '',
+      is_gutschrift: isGutschrift,
+      er_items: items,
+      er_netto: totalNetto, er_ust: totalUst, er_brutto: totalBrutto,
+      er_ust_pct: items.length === 1 ? items[0].ust_pct : null,
+      items: items.map(function(it){ return {titel: it.desc||'Eingangsrechnung', desc:'', menge:1, preis:it.netto, ust:it.ust_pct}; }),
+      materialkosten: 0, mat_auto: false,
+      file_b64: erFileB64,
+      file_name: erFileName,
+      file_type: erFileType,
+      erstellt: new Date().toISOString()
+    };
+    d.invoices.push(inv);
+  }
+
   saveDB(d);
   refreshNumbers();
 
@@ -2011,6 +2044,9 @@ function setKassaTyp(typ) {
   } else {
     if (barBtn) { barBtn.style.background = 'var(--accent)'; barBtn.style.color = '#fff'; }
     if (bankomatBtn) { bankomatBtn.style.background = '#f0f0ec'; bankomatBtn.style.color = 'var(--t2)'; }
+    // Bar-Zahlung → Status sofort auf Bezahlt setzen
+    var statusEl = document.getElementById('status');
+    if (statusEl && !editId) statusEl.value = 'bezahlt';
   }
 }
 
@@ -2142,6 +2178,14 @@ function removeItem(i) {
   if (itemsData.length === 1) return;
   itemsData.splice(i, 1);
   renderItems();
+}
+
+function clearItemStunden(i) {
+  if (!itemsData[i]) return;
+  itemsData[i].menge = 0;
+  itemsData[i].preis = 0;
+  renderItems();
+  renderSum();
 }
 
 function updateItem(i, f, v) {
@@ -2478,6 +2522,7 @@ function renderItems() {
         '<tr style="' + bg + ';border-bottom:2px solid #e0e0d8">' +
           '<td style="padding:0 8px 8px">' +
             '<span style="font-family:sans-serif;font-size:12px;font-weight:500;color:#555;background:#f0f0ec;padding:5px 10px;border-radius:6px;border:1px solid #ddd;display:inline-block">Stunden</span>'+
+            '<button type="button" onclick="clearItemStunden('+i+')" title="Stunden aus Rechnung entfernen" style="margin-left:6px;padding:3px 8px;font-size:11px;border:1px solid #ccc;border-radius:5px;background:#fff;color:#888;cursor:pointer;font-family:sans-serif;line-height:1.4">× entfernen</button>'+
           '</td>' +
           '<td style="padding:0 8px 8px">' +
             '<input type="number" class="item-menge" data-i="' + i + '" value="' + (it.menge > 0 ? it.menge : '') + '" min="0" step="0.01" placeholder="0" onfocus="if(parseFloat(this.value)===1){this.value=\'\';}" style="width:100%">' +
@@ -4542,17 +4587,14 @@ function saveLief() {
   var d = getDB();
   var newL = {id:uid(), name:name, adresse:document.getElementById('l-adr').value, uid:document.getElementById('l-uid').value, email:document.getElementById('l-email').value};
   d.lieferanten.push(newL);
-  saveDB(d); closeModal(); renderLief();
-  // Refresh ER partner dropdown if the ER form is open
+  saveDB(d); closeModal();
+  if (document.getElementById('page-lieferanten') && document.getElementById('page-lieferanten').classList.contains('active')) renderLief();
+  // Always refresh ER partner dropdown (wireERForm re-populates it from fresh DB data)
+  wireERForm();
   var erPartner = document.getElementById('er-partner');
-  if (erPartner) {
-    var d2 = getDB();
-    erPartner.innerHTML = '<option value="">-- Bitte wählen --</option>' +
-      d2.lieferanten.map(function(l){ return '<option value="'+l.id+'">'+esc(l.name)+'</option>'; }).join('');
-    erPartner.value = newL.id;
-    var lnEl = document.getElementById('er-lief-name');
-    if (lnEl) lnEl.value = newL.name;
-  }
+  if (erPartner) erPartner.value = newL.id;
+  var lnEl = document.getElementById('er-lief-name');
+  if (lnEl) lnEl.value = newL.name;
 }
 
 function delLief(id) {
@@ -4827,6 +4869,41 @@ function editInv(id) {
     renderSammelItems();
     var sdEl = document.getElementById('sammel-beschreibung');
     if (sdEl) sdEl.value = inv.sammel_beschreibung || '';
+  } else if (inv.typ === 'eingang') {
+    // Restore ER form fields
+    if (inv.is_tageslosung) {
+      setERMode('tageslosung');
+      var tlD2 = document.getElementById('tl-datum'); if (tlD2) tlD2.value = inv.datum || '';
+      var tlB2 = document.getElementById('tl-betrag'); if (tlB2) tlB2.value = inv.er_brutto || '';
+      var tlN2 = document.getElementById('tl-notizen'); if (tlN2) tlN2.value = inv.notizen || '';
+    } else {
+      setERMode('eingang');
+      var erD2 = document.getElementById('er-datum'); if (erD2) erD2.value = inv.datum || '';
+      var erF2 = document.getElementById('er-faellig'); if (erF2) erF2.value = inv.faellig || '';
+      var erS2 = document.getElementById('er-status'); if (erS2) erS2.value = inv.status || 'offen';
+      var erN2 = document.getElementById('er-notizen'); if (erN2) erN2.value = inv.notizen || '';
+      var erLiefNr2 = document.getElementById('er-liefnr'); if (erLiefNr2) erLiefNr2.value = inv.er_liefnr || '';
+      var erLiefName2 = document.getElementById('er-lief-name'); if (erLiefName2) erLiefName2.value = inv.partner_name || '';
+      var erPart2 = document.getElementById('er-partner');
+      if (erPart2 && inv.partner_id) erPart2.value = inv.partner_id;
+      // Restore ER items
+      if (inv.er_items && inv.er_items.length) {
+        window.erItemsData = inv.er_items.map(function(it){ return Object.assign({}, it); });
+      } else if (inv.er_netto != null) {
+        // Legacy: single-item ER
+        window.erItemsData = [{desc: inv.partner_name || '', netto: inv.er_netto || 0, ust_pct: inv.er_ust_pct != null ? inv.er_ust_pct : 20, ust_amt: inv.er_ust || 0}];
+      }
+      renderERItems();
+      setERTyp(inv.is_gutschrift ? 'gutschrift' : 'rechnung');
+      // Restore uploaded file info if any
+      if (inv.file_b64) {
+        window._erFileB64 = inv.file_b64;
+        window._erFileName = inv.file_name;
+        window._erFileType = inv.file_type;
+        var erPrev2 = document.getElementById('er-upload-preview');
+        if (erPrev2 && inv.file_name) erPrev2.innerHTML = '&#128196; ' + esc(inv.file_name) + ' <span style="color:var(--t3);font-size:11px">— gespeicherte Datei</span>';
+      }
+    }
   } else {
     itemsData = (inv.items||[]).map(function(it){
       var copy = Object.assign({},it);
