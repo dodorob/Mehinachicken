@@ -124,6 +124,9 @@ class BuchProDB {
         sort_order INTEGER DEFAULT 0
       );
     `);
+    // Schema migrations (safe to run multiple times)
+    try { this.db.exec('ALTER TABLE invoices ADD COLUMN is_sammel INTEGER DEFAULT 0'); } catch(_) {}
+    try { this.db.exec('ALTER TABLE invoices ADD COLUMN sammel_beschreibung TEXT'); } catch(_) {}
   }
 
   // ----------------------------------------------------------------
@@ -173,13 +176,15 @@ class BuchProDB {
             partner_id, partner_name, partner_info, datum, leistungsdatum, fz_marke, fz_kz,
             faellig, status, notizen, kassenbeleg_nr, kassa_typ, materialkosten, mat_auto,
             erstellt, er_liefnr, is_gutschrift, is_tageslosung, er_netto, er_ust, er_brutto,
-            er_ust_pct, file_b64, file_name, file_type, items, er_items
+            er_ust_pct, file_b64, file_name, file_type, items, er_items,
+            is_sammel, sammel_beschreibung
           ) VALUES (
             @id, @typ, @nummer, @lfd_nr, @zahlungsart, @privatkunde, @flag_djevad, @flag_helmut,
             @partner_id, @partner_name, @partner_info, @datum, @leistungsdatum, @fz_marke, @fz_kz,
             @faellig, @status, @notizen, @kassenbeleg_nr, @kassa_typ, @materialkosten, @mat_auto,
             @erstellt, @er_liefnr, @is_gutschrift, @is_tageslosung, @er_netto, @er_ust, @er_brutto,
-            @er_ust_pct, @file_b64, @file_name, @file_type, @items, @er_items
+            @er_ust_pct, @file_b64, @file_name, @file_type, @items, @er_items,
+            @is_sammel, @sammel_beschreibung
           )
         `);
         data.invoices.forEach(inv => ins.run(this._invoiceToRow(inv)));
@@ -417,6 +422,8 @@ class BuchProDB {
       file_type:      inv.file_type  || null,
       items:    JSON.stringify(inv.items    || []),
       er_items: JSON.stringify(inv.er_items || []),
+      is_sammel:            inv.is_sammel            ? 1 : 0,
+      sammel_beschreibung:  inv.sammel_beschreibung  || null,
     };
   }
 
@@ -428,6 +435,7 @@ class BuchProDB {
     inv.mat_auto       = !!inv.mat_auto;
     inv.is_gutschrift  = !!inv.is_gutschrift;
     inv.is_tageslosung = !!inv.is_tageslosung;
+    inv.is_sammel      = !!inv.is_sammel;
     inv.items    = JSON.parse(inv.items    || '[]');
     inv.er_items = JSON.parse(inv.er_items || '[]');
     return inv;

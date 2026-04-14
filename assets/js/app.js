@@ -431,6 +431,11 @@ function brutto(inv) {
     }
     if (inv.er_brutto != null && inv.er_brutto > 0) return sign * inv.er_brutto;
   }
+  if (inv.is_sammel) {
+    return (inv.items || []).reduce(function(s,it){
+      return s + (it.betrag||0) * (1 + (it.ust||20)/100);
+    }, 0);
+  }
   var b = (inv.items || []).reduce(function(s,it){
     var base = it.menge * it.preis * (1 + it.ust/100);
     var extras = (it.extras || []).reduce(function(es,ex){
@@ -450,6 +455,9 @@ function netto(inv) {
     }
     if (inv.er_netto != null && inv.er_netto > 0) return sign * inv.er_netto;
   }
+  if (inv.is_sammel) {
+    return (inv.items || []).reduce(function(s,it){ return s + (it.betrag||0); }, 0);
+  }
   return (inv.items || []).reduce(function(s,it){
     var extras = (it.extras || []).reduce(function(es,ex){ return es + (ex.betrag || 0); }, 0);
     return s + it.menge * it.preis + extras;
@@ -464,6 +472,11 @@ function vatAmt(inv) {
       return sign * Math.round(tot * 100) / 100;
     }
     if (inv.er_ust != null && inv.er_ust > 0) return sign * inv.er_ust;
+  }
+  if (inv.is_sammel) {
+    return (inv.items || []).reduce(function(s,it){
+      return s + (it.betrag||0) * (it.ust||20)/100;
+    }, 0);
   }
   var items_vat = (inv.items || []).reduce(function(s,it){
     var base = it.menge * it.preis * it.ust/100;
@@ -1419,11 +1432,12 @@ function renderTable(typ) {
   var rows = invs.map(function(inv){
     var gutschriftBadge = (typ==='eingang' && inv.is_gutschrift) ? ' <span class="badge" style="background:#6366f1;color:#fff;font-size:10px">Gutschrift</span>' : '';
     var tageslosungBadge = (typ==='eingang' && inv.is_tageslosung) ? ' <span class="badge" style="background:#f59e0b;color:#fff;font-size:10px">Tageslosung</span>' : '';
+    var sammelBadge = (typ==='ausgang' && inv.is_sammel) ? ' <span class="badge" style="background:#7c3aed;color:#fff;font-size:10px">Sammelrechnung</span>' : '';
     var partnerCell = inv.is_tageslosung ? 'Tageslosung' : (inv.partner_name||'-');
     return '<tr>' +
       '<td class="mono" style="color:var(--t3);font-size:11px">'+(inv.lfd_nr||'')+'</td>' +
       (typ==='ausgang'?'<td class="mono">' + (inv.nummer||'—') + '</td>':'') +
-      '<td>' + partnerCell + gutschriftBadge + tageslosungBadge + '</td>' +
+      '<td>' + partnerCell + sammelBadge + gutschriftBadge + tageslosungBadge + '</td>' +
       '<td>' + fmtD(inv.datum) + '</td>' +
       '<td>' + fmtD(inv.faellig) + '</td>' +
       '<td>' + fmt(netto(inv)) + '</td>' +
@@ -1512,6 +1526,13 @@ function initForm() {
   updateFT();
   itemsData = [{titel:'Sprenglerarb.: ',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0,extras:[]}];
   renderItems();
+  // Init Sammelrechnung
+  window.isSammel = false;
+  window.sammelItemsData = [{beschreibung:'', fz_marke:'', fz_kz:'', betrag:0, ust:20}];
+  var sammelDescEl = document.getElementById('sammel-beschreibung');
+  if (sammelDescEl) sammelDescEl.value = '';
+  renderSammelItems();
+  setSammelMode(false);
   // Init ER multi-item form
   window.erItemsData = [{desc:'', netto:0, ust_pct:20, ust_amt:0}];
   renderERItems();
@@ -1535,8 +1556,10 @@ function wireFormButtons() {
   var matAuto = document.getElementById('mat-auto');
   var partnerSel = document.getElementById('partner');
 
+  var sammelBtn = document.getElementById('toggle-sammel');
   if (arBtn) {
     arBtn.onclick = function(){ setTyp('ausgang'); };
+    if (sammelBtn) sammelBtn.onclick = function(){ setTyp('sammel'); };
     erBtn.onclick = function(){ setTyp('eingang'); };
     bankBtn.onclick = function(){ setPay('bank'); };
     kassaBtn.onclick = function(){ setPay('kassa'); };
@@ -1557,6 +1580,8 @@ function wireFormButtons() {
   }
   var btnNewP = document.getElementById('btn-new-partner-inline');
   if (btnNewP) btnNewP.onclick = function(){ openInlineKundeModal(); };
+  var btnAddSammel = document.getElementById('btn-add-sammel-item');
+  if (btnAddSammel) btnAddSammel.onclick = function(){ addSammelItem(); };
   var btnBottom = document.getElementById('btn-save-inv-bottom');
   if (btnBottom) btnBottom.onclick = function(){ saveInvoice(); };
   var btnResetBottom = document.getElementById('btn-reset-form-bottom');
@@ -1588,20 +1613,32 @@ function wireFormButtons() {
 }
 
 function setTyp(typ) {
-  document.getElementById('typ').value = typ;
-  var arBtn = document.getElementById('toggle-ar');
-  var erBtn = document.getElementById('toggle-er');
+  // 'sammel' is stored as 'ausgang' + is_sammel flag
+  window.isSammel = (typ === 'sammel');
+  document.getElementById('typ').value = (typ === 'sammel') ? 'ausgang' : typ;
+  var arBtn     = document.getElementById('toggle-ar');
+  var erBtn     = document.getElementById('toggle-er');
+  var sammelBtn = document.getElementById('toggle-sammel');
   if (!arBtn) return;
+  // Reset all type buttons
+  arBtn.style.background     = '#f0f0ec'; arBtn.style.color     = 'var(--t2)';
+  erBtn.style.background     = '#f0f0ec'; erBtn.style.color     = 'var(--t2)';
+  if (sammelBtn) { sammelBtn.style.background = '#f0f0ec'; sammelBtn.style.color = 'var(--t2)'; }
+
   if (typ === 'ausgang') {
     arBtn.style.background = 'var(--accent)'; arBtn.style.color = '#fff';
-    erBtn.style.background = '#f0f0ec'; erBtn.style.color = 'var(--t2)';
     document.getElementById('typ-label').textContent = 'Ausgangsrechnung';
+    document.getElementById('partner-card-title').textContent = 'Kunde';
+    document.getElementById('plbl').textContent = 'Bestehenden Kunden wählen';
+    document.getElementById('btn-new-partner-inline').textContent = '+ Neuen Kunden anlegen';
+  } else if (typ === 'sammel') {
+    if (sammelBtn) { sammelBtn.style.background = 'var(--accent)'; sammelBtn.style.color = '#fff'; }
+    document.getElementById('typ-label').textContent = 'Sammelrechnung';
     document.getElementById('partner-card-title').textContent = 'Kunde';
     document.getElementById('plbl').textContent = 'Bestehenden Kunden wählen';
     document.getElementById('btn-new-partner-inline').textContent = '+ Neuen Kunden anlegen';
   } else {
     erBtn.style.background = 'var(--accent)'; erBtn.style.color = '#fff';
-    arBtn.style.background = '#f0f0ec'; arBtn.style.color = 'var(--t2)';
     document.getElementById('typ-label').textContent = 'Eingangsrechnung';
     document.getElementById('partner-card-title').textContent = 'Lieferant';
     document.getElementById('plbl').textContent = 'Bestehenden Lieferanten wählen';
@@ -1614,7 +1651,7 @@ function setTyp(typ) {
   var saveBtn = document.getElementById('btn-save-inv');
   var rnrLabel = document.getElementById('rnr-label');
   if (arForm && erForm) {
-    if (typ === 'ausgang') {
+    if (typ === 'ausgang' || typ === 'sammel') {
       arForm.style.display = 'block';
       erForm.style.display = 'none';
       if (saveBtn) saveBtn.style.display = '';
@@ -1627,6 +1664,18 @@ function setTyp(typ) {
       wireERForm();
     }
   }
+  setSammelMode(typ === 'sammel');
+}
+
+function setSammelMode(isSammel) {
+  var fzCard         = document.getElementById('ar-fz-card');
+  var posCard        = document.getElementById('ar-pos-card');
+  var sammelBeschCard = document.getElementById('sammel-besch-card');
+  var sammelPosCard  = document.getElementById('sammel-pos-card');
+  if (fzCard)          fzCard.style.display          = isSammel ? 'none'  : 'block';
+  if (posCard)         posCard.style.display         = isSammel ? 'none'  : 'block';
+  if (sammelBeschCard) sammelBeschCard.style.display = isSammel ? 'block' : 'none';
+  if (sammelPosCard)   sammelPosCard.style.display   = isSammel ? 'block' : 'none';
 }
 
 function setERMode(mode) {
@@ -2073,6 +2122,82 @@ function updateItem(i, f, v) {
   renderSum();
 }
 
+// ================================================================
+// SAMMELRECHNUNG POSITIONEN
+// ================================================================
+window.sammelItemsData = [{beschreibung:'', fz_marke:'', fz_kz:'', betrag:0, ust:20}];
+
+function addSammelItem() {
+  window.sammelItemsData.push({beschreibung:'', fz_marke:'', fz_kz:'', betrag:0, ust:20});
+  renderSammelItems();
+}
+
+function removeSammelItem(i) {
+  if (window.sammelItemsData.length === 1) return;
+  window.sammelItemsData.splice(i, 1);
+  renderSammelItems();
+}
+
+function updateSammelItem(i, f, v) {
+  if (f === 'beschreibung' || f === 'fz_marke' || f === 'fz_kz') {
+    window.sammelItemsData[i][f] = v;
+  } else {
+    window.sammelItemsData[i][f] = parseFloat(v) || 0;
+  }
+  renderSammelSum();
+}
+
+function renderSammelItems() {
+  var container = document.getElementById('sammel-items-container');
+  if (!container) return;
+  var rows = window.sammelItemsData.map(function(it, i) {
+    var bg = i % 2 === 1 ? '#fafafa' : '#fff';
+    return '<div style="display:grid;grid-template-columns:2fr 1fr 120px 110px 60px 32px;gap:6px;align-items:center;padding:8px 4px;border-bottom:1px solid #f0f0ec;background:' + bg + '">' +
+      '<input type="text" class="sammel-besch" data-i="' + i + '" value="' + esc(it.beschreibung||'') + '" placeholder="z.B. Ölwechsel, Bremsbeläge..." style="padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;font-family:inherit">' +
+      '<input type="text" class="sammel-fz-marke" data-i="' + i + '" value="' + esc(it.fz_marke||'') + '" placeholder="Marke/Modell" style="padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px">' +
+      '<input type="text" class="sammel-fz-kz" data-i="' + i + '" value="' + esc(it.fz_kz||'') + '" placeholder="z.B. GZ-123AB" style="padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px">' +
+      '<input type="number" class="sammel-betrag" data-i="' + i + '" value="' + (it.betrag||'') + '" min="0" step="0.01" placeholder="0.00" style="padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px">' +
+      '<div style="position:relative;display:flex;align-items:center">' +
+        '<input type="number" class="sammel-ust" data-i="' + i + '" value="' + it.ust + '" min="0" max="100" style="padding:6px 8px;padding-right:18px;border:1px solid #ddd;border-radius:6px;font-size:13px;width:100%">' +
+        '<span style="position:absolute;right:6px;font-family:sans-serif;font-size:11px;color:#aaa;pointer-events:none">%</span>' +
+      '</div>' +
+      '<button type="button" class="btn sammel-del" data-i="' + i + '" style="padding:4px 6px;font-size:11px">&#x2715;</button>' +
+    '</div>';
+  }).join('');
+  container.innerHTML = rows;
+  container.querySelectorAll('.sammel-besch').forEach(function(el) {
+    el.addEventListener('input', function() { updateSammelItem(parseInt(this.dataset.i), 'beschreibung', this.value); });
+  });
+  container.querySelectorAll('.sammel-fz-marke').forEach(function(el) {
+    el.addEventListener('input', function() { updateSammelItem(parseInt(this.dataset.i), 'fz_marke', this.value); });
+  });
+  container.querySelectorAll('.sammel-fz-kz').forEach(function(el) {
+    el.addEventListener('input', function() { updateSammelItem(parseInt(this.dataset.i), 'fz_kz', this.value); });
+  });
+  container.querySelectorAll('.sammel-betrag').forEach(function(el) {
+    el.addEventListener('input', function() { updateSammelItem(parseInt(this.dataset.i), 'betrag', this.value); });
+  });
+  container.querySelectorAll('.sammel-ust').forEach(function(el) {
+    el.addEventListener('change', function() { updateSammelItem(parseInt(this.dataset.i), 'ust', this.value); });
+  });
+  container.querySelectorAll('.sammel-del').forEach(function(el) {
+    el.addEventListener('click', function() { removeSammelItem(parseInt(this.dataset.i)); });
+  });
+  renderSammelSum();
+}
+
+function renderSammelSum() {
+  var el = document.getElementById('sammel-sum');
+  if (!el) return;
+  var nt = window.sammelItemsData.reduce(function(s,it){ return s + (it.betrag||0); }, 0);
+  var va = window.sammelItemsData.reduce(function(s,it){ return s + (it.betrag||0) * (it.ust||20) / 100; }, 0);
+  var br = nt + va;
+  el.innerHTML =
+    '<div style="display:flex;justify-content:space-between;padding:4px 0;font-family:sans-serif;font-size:13px"><span style="color:var(--t2)">Netto gesamt:</span><span>' + fmt(nt) + '</span></div>' +
+    '<div style="display:flex;justify-content:space-between;padding:4px 0;font-family:sans-serif;font-size:13px"><span style="color:var(--t2)">USt.:</span><span>' + fmt(va) + '</span></div>' +
+    '<div style="display:flex;justify-content:space-between;padding:6px 0;font-family:sans-serif;font-size:14px;font-weight:600;border-top:2px solid var(--border)"><span>Gesamt brutto:</span><span>' + fmt(br) + '</span></div>';
+}
+
 function renderItems() {
   var rows = itemsData.map(function(it, i){
     var lineTotal = it.menge * it.preis * (1 + it.ust/100);
@@ -2386,19 +2511,31 @@ function renderSum() {
 }
 
 function saveInvoice() {
-  collectDateRows();  // sync arbeitsdaten/fahrzeitdaten into itemsData before saving
+  var isSammel = !!window.isSammel;
+
+  if (!isSammel) collectDateRows();  // sync arbeitsdaten/fahrzeitdaten into itemsData
+
   var typ  = document.getElementById('typ').value;
   var pi   = document.getElementById('pinfo').value;
   var sel  = document.getElementById('partner');
   var partnerVal = sel ? sel.value : '';
-  var matAuto2 = document.getElementById('mat-auto');
-  var matManEl2 = document.getElementById('mat-manuell');
-  var itemNetto = itemsData.reduce(function(s,it){ return s + it.menge*it.preis; }, 0);
-  var matVal = 0;
-  if (matAuto2 && matAuto2.checked) matVal = Math.round(itemNetto * 0.06 * 100) / 100;
-  else if (matManEl2 && parseFloat(matManEl2.value) > 0) matVal = parseFloat(matManEl2.value);
-  var base = itemsData.reduce(function(s,it){ return s + it.menge*it.preis*(1+it.ust/100); }, 0);
-  var gesamt = base + matVal;
+
+  // Calculate totals depending on type
+  var gesamt;
+  if (isSammel) {
+    gesamt = window.sammelItemsData.reduce(function(s,it){
+      return s + (it.betrag||0) * (1 + (it.ust||20)/100);
+    }, 0);
+  } else {
+    var matAuto2 = document.getElementById('mat-auto');
+    var matManEl2 = document.getElementById('mat-manuell');
+    var itemNetto = itemsData.reduce(function(s,it){ return s + it.menge*it.preis; }, 0);
+    var matVal = 0;
+    if (matAuto2 && matAuto2.checked) matVal = Math.round(itemNetto * 0.06 * 100) / 100;
+    else if (matManEl2 && parseFloat(matManEl2.value) > 0) matVal = parseFloat(matManEl2.value);
+    var base = itemsData.reduce(function(s,it){ return s + it.menge*it.preis*(1+it.ust/100); }, 0);
+    gesamt = base + matVal;
+  }
 
   // Validation: partner required if > 400
   var hasPartner = partnerVal || (pi && pi.trim().length >= 5);
@@ -2445,8 +2582,8 @@ function saveInvoice() {
     partner_info: pi,
     datum: document.getElementById('datum').value,
     leistungsdatum: document.getElementById('leistungsdatum').value,
-    fz_marke: (document.getElementById('fz-marke-inv')||{}).value || '',
-    fz_kz: (document.getElementById('fz-kz-inv')||{}).value || '',
+    fz_marke: '',
+    fz_kz: '',
     faellig: document.getElementById('faellig').value,
     status: document.getElementById('status').value,
     notizen: document.getElementById('notizen').value,
@@ -2456,27 +2593,50 @@ function saveInvoice() {
     kassa_typ: (document.getElementById('zahlungsart').value === 'kassa')
       ? ((document.getElementById('kassa-typ')||{value:'bar'}).value || 'bar')
       : '',
-    items: itemsData.map(function(it){ var c=Object.assign({},it); if(it.extras) c.extras=it.extras.map(function(e){return Object.assign({},e);}); return c; }),
-    materialkosten: matVal,
-    mat_auto: !!(document.getElementById('mat-auto') && document.getElementById('mat-auto').checked),
     erstellt: new Date().toISOString()
   };
-  if (editId) d.invoices = d.invoices.map(function(i){ return i.id===editId ? inv : i; });
-  else d.invoices.push(inv);
-  // Auto-create Fahrzeug if KZ given and not already exists
-  if (inv.fz_kz && inv.fz_kz.trim()) {
-    var kzN = inv.fz_kz.trim().toUpperCase().replace(/\s+/g,'');
-    if (!d.fahrzeuge.some(function(f){ return (f.kennzeichen||'').toUpperCase().replace(/\s+/g,'')==kzN; })) {
-      d.fahrzeuge.push({id:uid(),kundeId:inv.partner_id||'',kundeName:inv.partner_name||'',marke:inv.fz_marke||'',kennzeichen:inv.fz_kz.trim(),vin:'',erstzulassung:'',erstellt:new Date().toISOString()});
+
+  if (isSammel) {
+    inv.is_sammel = true;
+    inv.sammel_beschreibung = (document.getElementById('sammel-beschreibung')||{value:''}).value || '';
+    inv.items = window.sammelItemsData.map(function(it){ return Object.assign({}, it); });
+    inv.materialkosten = 0;
+    inv.mat_auto = false;
+    // Auto-create vehicles for all positions that have a KZ
+    window.sammelItemsData.forEach(function(it) {
+      if (it.fz_kz && it.fz_kz.trim()) {
+        var kzN = it.fz_kz.trim().toUpperCase().replace(/\s+/g,'');
+        if (!d.fahrzeuge.some(function(f){ return (f.kennzeichen||'').toUpperCase().replace(/\s+/g,'')==kzN; })) {
+          d.fahrzeuge.push({id:uid(),kundeId:inv.partner_id||'',kundeName:inv.partner_name||'',marke:it.fz_marke||'',kennzeichen:it.fz_kz.trim(),vin:'',erstzulassung:'',erstellt:new Date().toISOString()});
+        }
+      }
+    });
+  } else {
+    inv.fz_marke = (document.getElementById('fz-marke-inv')||{}).value || '';
+    inv.fz_kz    = (document.getElementById('fz-kz-inv')||{}).value || '';
+    inv.items    = itemsData.map(function(it){ var c=Object.assign({},it); if(it.extras) c.extras=it.extras.map(function(e){return Object.assign({},e);}); return c; });
+    inv.materialkosten = matVal;
+    inv.mat_auto = !!(document.getElementById('mat-auto') && document.getElementById('mat-auto').checked);
+    // Auto-create Fahrzeug if KZ given and not already exists
+    if (inv.fz_kz && inv.fz_kz.trim()) {
+      var kzN2 = inv.fz_kz.trim().toUpperCase().replace(/\s+/g,'');
+      if (!d.fahrzeuge.some(function(f){ return (f.kennzeichen||'').toUpperCase().replace(/\s+/g,'')==kzN2; })) {
+        d.fahrzeuge.push({id:uid(),kundeId:inv.partner_id||'',kundeName:inv.partner_name||'',marke:inv.fz_marke||'',kennzeichen:inv.fz_kz.trim(),vin:'',erstzulassung:'',erstellt:new Date().toISOString()});
+      }
     }
   }
+
+  if (editId) d.invoices = d.invoices.map(function(i){ return i.id===editId ? inv : i; });
+  else d.invoices.push(inv);
   saveDB(d);
   // Save beschreibung history
-  itemsData.forEach(function(it){
-    if (it.titel && it.titel.trim()) addToBeschHist(it.titel);
-  });
+  if (!isSammel) {
+    itemsData.forEach(function(it){
+      if (it.titel && it.titel.trim()) addToBeschHist(it.titel);
+    });
+  }
   genPDFData(inv);
-  if (inv.typ === 'ausgang') genArbeitsauftragPDF(inv);
+  if (inv.typ === 'ausgang' && !inv.is_sammel) genArbeitsauftragPDF(inv);
   document.getElementById('f-alerts').innerHTML = '<div class="alert success">&#10003; Gespeichert & PDF erstellt!</div>';
   refreshNumbers();
   setTimeout(function(){ SP(typ==='ausgang' ? 'ausgang' : 'eingang'); }, 1500);
@@ -2519,6 +2679,7 @@ function genPDF(id) {
 }
 
 function genPDFData(inv) {
+  if (inv.is_sammel) { genSammelPDF(inv); return; }
   var jsPDF = window.jspdf.jsPDF;
   var doc = new jsPDF({unit:'mm', format:'a4'});
 
@@ -2766,6 +2927,193 @@ function genPDFData(inv) {
   var filename = 'RechnungNR.' + fnNr;
   if (fnKunde) filename += '_' + fnKunde;
   if (fnKz) filename += '_' + fnKz;
+  filename += '.pdf';
+  var arPath = inv.zahlungsart === 'kassa'
+    ? (getSetting('bp_path_ar_kassa') || getSetting('bp_path_ar'))
+    : (getSetting('bp_path_ar_bank')  || getSetting('bp_path_ar'));
+  savePDFToFolder(doc, filename, arPath, function(){ openPDF(doc, filename); });
+}
+
+// ================================================================
+// SAMMELRECHNUNG PDF
+// ================================================================
+function genSammelPDF(inv) {
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({unit:'mm', format:'a4'});
+
+  function numFmt(n) {
+    return new Intl.NumberFormat('de-AT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
+  }
+
+  var xL = 25;
+  var xR = 190;
+
+  // ── Georgia Font laden ────────────────────────────────────────────
+  var georgiaFont = 'times';
+  if (_georgiaFontB64) {
+    try {
+      doc.addFileToVFS('georgia.ttf', _georgiaFontB64);
+      doc.addFont('georgia.ttf', 'Georgia', 'normal');
+      georgiaFont = 'Georgia';
+    } catch(e) {}
+  }
+  if (_georgiaBoldFontB64) {
+    try {
+      doc.addFileToVFS('georgiab.ttf', _georgiaBoldFontB64);
+      doc.addFont('georgiab.ttf', 'Georgia', 'bold');
+    } catch(e) {}
+  }
+
+  // ── KOPFZEILE ─────────────────────────────────────────────────────
+  doc.setTextColor(30, 30, 30);
+  doc.setFont(georgiaFont, 'bold');
+  doc.setFontSize(24);
+  doc.text('KAROSSERIEFACHWERKSTÄTTE', 105, 25, {align:'center'});
+  doc.setFontSize(22);
+  doc.text('KURT LINDITSCH GMBH', 105, 34, {align:'center'});
+  doc.setFont(georgiaFont, 'normal');
+  doc.setFontSize(9);
+  doc.text('Jägerweg 42, A-8041 GRAZ', 105, 41, {align:'center'});
+  doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 46, {align:'center'});
+
+  // ── KUNDENADRESSE ─────────────────────────────────────────────────
+  doc.setFont('times', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(30, 30, 30);
+  var partnerLines = [];
+  if (inv.partner_info) {
+    inv.partner_info.split('\n').forEach(function(l){ if(l.trim()) partnerLines.push(l.trim()); });
+  }
+  if (inv.privatkunde && partnerLines.every(function(l){ return l.indexOf('Privatkunde')===-1; })) {
+    partnerLines.unshift('Privatkunde/Barzahler');
+  }
+  if (partnerLines.length === 0 && inv.privatkunde) partnerLines = ['Privatkunde/Barzahler'];
+  var yAddr = 64;
+  partnerLines.forEach(function(l) { doc.text(l, xL, yAddr); yAddr += 5; });
+
+  // ── DATUM ─────────────────────────────────────────────────────────
+  doc.text('Graz, ' + fmtD(inv.datum), xR, 57, {align:'right'});
+  if (inv.leistungsdatum) {
+    doc.text('Leistungsdatum: ' + fmtD(inv.leistungsdatum), xR, 95, {align:'right'});
+  }
+
+  // ── SAMMELRECHNUNG TITEL ──────────────────────────────────────────
+  doc.setFont('times', 'bold');
+  doc.setFontSize(12);
+  var rNr = inv.nummer || '';
+  var nrMatch = rNr.match(/(\d+)$/);
+  var nrDisplay = nrMatch ? (parseInt(nrMatch[1]) < 10 ? String(parseInt(nrMatch[1])).padStart(2,'0') : String(parseInt(nrMatch[1]))) : rNr;
+  doc.text('Sammelrechnung Nr.: ' + nrDisplay, xL, 100);
+  doc.setFont('times', 'normal');
+  doc.setFontSize(10);
+
+  // ── ALLGEMEINE BESCHREIBUNG ───────────────────────────────────────
+  var tY = 108;
+  if (inv.sammel_beschreibung && inv.sammel_beschreibung.trim()) {
+    doc.setFont('times', 'italic');
+    doc.setFontSize(10);
+    doc.text(inv.sammel_beschreibung.trim(), xL, tY);
+    doc.setFont('times', 'normal');
+    tY += 8;
+  }
+
+  // ── TABELLEN-HEADER ───────────────────────────────────────────────
+  var colBesch  = xL;       // Beschreibung starts at xL
+  var colFz     = xL + 65;  // Fahrzeug
+  var colKz     = xL + 100; // KZ
+  var colBetrag = xR;       // Betrag right-aligned
+  var rowH = 6;
+  var hdrH = 8;
+
+  function blackLine() { doc.setDrawColor(30,30,30); doc.setLineWidth(0.225); }
+
+  // Gray header background
+  doc.setFillColor(245, 245, 242);
+  doc.rect(xL, tY, xR - xL, hdrH, 'F');
+  blackLine();
+  doc.line(xL, tY + hdrH, xR, tY + hdrH);
+
+  var hdrY = tY + hdrH / 2 + 1.5;
+  doc.setFont('times', 'normal'); doc.setFontSize(10);
+  doc.text('Beschreibung',  colBesch + 2, hdrY);
+  doc.text('Fahrzeug',      colFz + 2,    hdrY);
+  doc.text('KZ',            colKz + 2,    hdrY);
+  doc.text('Betrag (€)',    xR - 2,       hdrY, {align:'right'});
+
+  // ── POSITIONEN ────────────────────────────────────────────────────
+  var yCur = tY + hdrH;
+  var items = inv.items || [];
+  items.forEach(function(it, idx) {
+    var bg = idx % 2 === 0;
+    if (!bg) { doc.setFillColor(250, 250, 248); doc.rect(xL, yCur, xR - xL, rowH, 'F'); }
+    doc.setFont('times', 'normal'); doc.setFontSize(10);
+    var brutto_it = (it.betrag||0) * (1 + (it.ust||20)/100);
+    doc.text((it.beschreibung||'').trim(), colBesch + 2, yCur + rowH - 2);
+    doc.text((it.fz_marke||'').trim(),     colFz + 2,    yCur + rowH - 2);
+    doc.text((it.fz_kz||'').trim(),        colKz + 2,    yCur + rowH - 2);
+    doc.text('€ ' + numFmt(brutto_it),     xR - 2,       yCur + rowH - 2, {align:'right'});
+    yCur += rowH;
+  });
+
+  // ── SUMMENZEILEN ──────────────────────────────────────────────────
+  var nt = items.reduce(function(s,it){ return s + (it.betrag||0); }, 0);
+  var va = items.reduce(function(s,it){ return s + (it.betrag||0)*(it.ust||20)/100; }, 0);
+  var totalH = nt + va;
+
+  var ustRates = [];
+  items.forEach(function(it){ if((it.ust||20)>0 && ustRates.indexOf(it.ust||20)===-1) ustRates.push(it.ust||20); });
+  var ustPct = ustRates.length > 0 ? ustRates.join('/') : '20';
+
+  var ySumStart = yCur + 4;
+  var yNettoY  = ySumStart + rowH - 2;
+  var yMwstY   = ySumStart + 2*rowH - 2;
+  var yGesamtY = ySumStart + 3*rowH - 2;
+
+  doc.setFont('times', 'normal'); doc.setFontSize(10);
+  doc.text('Netto',            xL + 2, yNettoY);
+  doc.text('€ ' + numFmt(nt), xR - 2, yNettoY, {align:'right'});
+  blackLine();
+  doc.line(xL, yNettoY + 1, xR, yNettoY + 1);
+
+  doc.text('MwSt. ' + ustPct + '%', xL + 2, yMwstY);
+  doc.text('€ ' + numFmt(va),        xR - 2, yMwstY, {align:'right'});
+  blackLine();
+  var xAmtLeft = xR - 2 - doc.getTextWidth('€ ' + numFmt(va)) - 1;
+  doc.line(xAmtLeft, yMwstY + 1, xR, yMwstY + 1);
+
+  doc.setFont('times', 'bold');
+  doc.text('Gesamtbetrag', xL + 2, yGesamtY);
+  doc.setFont('times', 'normal');
+  doc.text('€ ' + numFmt(totalH), xR - 2, yGesamtY, {align:'right'});
+  var gW = doc.getTextWidth('€ ' + numFmt(totalH));
+  blackLine();
+  doc.line(xR - 2 - gW - 1, yGesamtY + 1, xR, yGesamtY + 1);
+  doc.line(xR - 2 - gW - 1, yGesamtY + 2, xR, yGesamtY + 2);
+
+  // ── BEZAHLT IN BAR / BANKOMAT ─────────────────────────────────────
+  if (inv.zahlungsart === 'kassa') {
+    doc.setFont('times', 'normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+    var kbNr = inv.kassenbeleg_nr || '';
+    var bezahltText = (inv.kassa_typ === 'bankomat')
+      ? 'Bezahlt am ' + fmtD(inv.datum) + ' mit Bankomat  -  Kassenbeleg Nr.: ' + kbNr
+      : 'Bezahlt in Bar am ' + fmtD(inv.datum) + '  -  Kassenbeleg Nr.: ' + kbNr;
+    doc.text(bezahltText, xL, yGesamtY + 21);
+  }
+
+  // ── FUßZEILE ─────────────────────────────────────────────────────
+  doc.setFont(georgiaFont, 'normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+  doc.text('Zahlbar sofort nach Erhalt der Rechnung netto Kassa!', 105, 264, {align:'center'});
+  doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 269, {align:'center'});
+  doc.text('UID-Nr. ATU 58185458, LG f. ZRS GRAZ, FN 251792h', 105, 274, {align:'center'});
+
+  // ── DATEINAME & SPEICHERN ─────────────────────────────────────────
+  var fnNr = inv.nummer || '';
+  var fnKunde = '';
+  if (!inv.privatkunde && inv.partner_name) {
+    fnKunde = inv.partner_name.trim().replace(/\s+/g,'_').replace(/[^a-zA-Z0-9äöüÄÖÜß_\-]/g,'');
+  }
+  var filename = 'SammelrechnungNR.' + fnNr;
+  if (fnKunde) filename += '_' + fnKunde;
   filename += '.pdf';
   var arPath = inv.zahlungsart === 'kassa'
     ? (getSetting('bp_path_ar_kassa') || getSetting('bp_path_ar'))
@@ -3990,7 +4338,9 @@ function editInv(id) {
   editId = id;
   document.getElementById('form-title').textContent = 'Rechnung bearbeiten';
 
-  if (inv.typ === 'ausgang') {
+  if (inv.is_sammel) {
+    setTyp('sammel');
+  } else if (inv.typ === 'ausgang') {
     setTyp('ausgang');
   } else {
     setTyp('eingang');
@@ -4006,10 +4356,11 @@ function editInv(id) {
   if (inv.faellig)   document.getElementById('faellig').value = inv.faellig;
   if (inv.status)    document.getElementById('status').value = inv.status;
   if (inv.notizen)   document.getElementById('notizen').value = inv.notizen;
-  if (inv.pinfo)     document.getElementById('pinfo').value = inv.partner_info || '';
-  if (inv.fz_marke)  document.getElementById('fz-marke-inv').value = inv.fz_marke;
-  if (inv.fz_kz)     document.getElementById('fz-kz-inv').value = inv.fz_kz;
   document.getElementById('pinfo').value = inv.partner_info || '';
+  if (!inv.is_sammel) {
+    if (inv.fz_marke) document.getElementById('fz-marke-inv').value = inv.fz_marke;
+    if (inv.fz_kz)    document.getElementById('fz-kz-inv').value    = inv.fz_kz;
+  }
   if (inv.partner_id) {
     document.getElementById('partner').value = inv.partner_id;
     fillPD();
@@ -4023,28 +4374,38 @@ function editInv(id) {
     if (kbEl2) kbEl2.value = inv.kassenbeleg_nr;
     if (kbRow2) kbRow2.style.display = '';
   }
-  itemsData = (inv.items||[]).map(function(it){
-    var copy = Object.assign({},it);
-    // Migrate old single-extra fields to extras array
-    if (!copy.extras) {
-      if (copy.extraLabel || copy.extraBetrag) {
-        copy.extras = [{label:copy.extraLabel||'',betrag:copy.extraBetrag||0,ust:copy.extraUst!=null?copy.extraUst:20}];
+
+  if (inv.is_sammel) {
+    // Restore Sammelrechnung positions
+    window.sammelItemsData = (inv.items||[]).map(function(it){ return Object.assign({},it); });
+    if (!window.sammelItemsData.length) window.sammelItemsData = [{beschreibung:'', fz_marke:'', fz_kz:'', betrag:0, ust:20}];
+    renderSammelItems();
+    var sdEl = document.getElementById('sammel-beschreibung');
+    if (sdEl) sdEl.value = inv.sammel_beschreibung || '';
+  } else {
+    itemsData = (inv.items||[]).map(function(it){
+      var copy = Object.assign({},it);
+      // Migrate old single-extra fields to extras array
+      if (!copy.extras) {
+        if (copy.extraLabel || copy.extraBetrag) {
+          copy.extras = [{label:copy.extraLabel||'',betrag:copy.extraBetrag||0,ust:copy.extraUst!=null?copy.extraUst:20}];
+        } else {
+          copy.extras = [];
+        }
+        delete copy.extraLabel; delete copy.extraBetrag; delete copy.extraUst;
       } else {
-        copy.extras = [];
+        copy.extras = copy.extras.map(function(e){ return Object.assign({},e); });
       }
-      delete copy.extraLabel; delete copy.extraBetrag; delete copy.extraUst;
-    } else {
-      copy.extras = copy.extras.map(function(e){ return Object.assign({},e); });
-    }
-    return copy;
-  });
-  if (!itemsData.length) itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20,extras:[]}];
-  renderItems();
-  if (inv.materialkosten > 0) {
-    if (inv.mat_auto) {
-      document.getElementById('mat-auto').checked = true;
-    } else {
-      document.getElementById('mat-manuell').value = inv.materialkosten;
+      return copy;
+    });
+    if (!itemsData.length) itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20,extras:[]}];
+    renderItems();
+    if (inv.materialkosten > 0) {
+      if (inv.mat_auto) {
+        document.getElementById('mat-auto').checked = true;
+      } else {
+        document.getElementById('mat-manuell').value = inv.materialkosten;
+      }
     }
   }
   refreshNumbers();
