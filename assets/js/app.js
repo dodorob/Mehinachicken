@@ -2200,10 +2200,10 @@ function _renderSammelDatumRows(rows, i, type) {
     return '<div style="display:flex;align-items:center;gap:4px;margin-bottom:3px;flex-wrap:wrap">' +
       '<input type="date" class="si-' + type + '-datum" data-i="' + i + '" data-j="' + j + '" value="' + (r.datum||'') + '" style="flex:1;min-width:90px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
       '<span style="font-size:11px;color:#555;white-space:nowrap">Dž</span>' +
-      '<input type="number" class="si-' + type + '-dz" data-i="' + i + '" data-j="' + j + '" value="' + (r.djevad_h||0) + '" min="0" step="0.5" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+      '<input type="number" class="si-' + type + '-dz" data-i="' + i + '" data-j="' + j + '" value="' + (r.djevad_h||0) + '" min="0" step="0.5" onfocus="if(this.value===\'0\')this.value=\'\'" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
       '<span style="font-size:11px;color:#888">h</span>' +
       '<span style="font-size:11px;color:#555;white-space:nowrap">Helm.</span>' +
-      '<input type="number" class="si-' + type + '-helm" data-i="' + i + '" data-j="' + j + '" value="' + (r.helmut_h||0) + '" min="0" step="0.5" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+      '<input type="number" class="si-' + type + '-helm" data-i="' + i + '" data-j="' + j + '" value="' + (r.helmut_h||0) + '" min="0" step="0.5" onfocus="if(this.value===\'0\')this.value=\'\'" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
       '<span style="font-size:11px;color:#888">h</span>' +
       '<button type="button" onclick="' + addFn + '(' + i + ',' + j + ')" style="padding:1px 6px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;font-size:12px;color:#888;line-height:1.4">×</button>' +
     '</div>';
@@ -2528,10 +2528,10 @@ function renderItems() {
               return '<div class="item-arbeit-row" data-i="' + i + '" style="display:flex;align-items:center;gap:4px;margin-bottom:3px;flex-wrap:wrap">' +
                 '<input type="date" class="item-arbeit-datum" data-i="' + i + '" data-j="' + j + '" value="' + (r.datum||'') + '" style="flex:1;min-width:90px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
                 '<span style="font-size:11px;color:#555;white-space:nowrap">Dž</span>' +
-                '<input type="number" class="item-arbeit-dz" data-i="' + i + '" data-j="' + j + '" value="' + (r.djevad_h||0) + '" min="0" step="0.5" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+                '<input type="number" class="item-arbeit-dz" data-i="' + i + '" data-j="' + j + '" value="' + (r.djevad_h||0) + '" min="0" step="0.5" onfocus="if(this.value===\'0\')this.value=\'\'" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
                 '<span style="font-size:11px;color:#888">h</span>' +
                 '<span style="font-size:11px;color:#555;white-space:nowrap">Helm.</span>' +
-                '<input type="number" class="item-arbeit-helm" data-i="' + i + '" data-j="' + j + '" value="' + (r.helmut_h||0) + '" min="0" step="0.5" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+                '<input type="number" class="item-arbeit-helm" data-i="' + i + '" data-j="' + j + '" value="' + (r.helmut_h||0) + '" min="0" step="0.5" onfocus="if(this.value===\'0\')this.value=\'\'" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
                 '<span style="font-size:11px;color:#888">h</span>' +
                 '<button type="button" onclick="removeArbeitsdatum(' + i + ',' + j + ')" style="padding:1px 6px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;font-size:12px;color:#888;line-height:1.4">×</button>' +
               '</div>';
@@ -2552,10 +2552,10 @@ function renderItems() {
               return '<div class="item-fahrzeit-row" data-i="' + i + '" style="display:flex;align-items:center;gap:4px;margin-bottom:3px;flex-wrap:wrap">' +
                 '<input type="date" class="item-fahrzeit-datum" data-i="' + i + '" data-j="' + j + '" value="' + (r.datum||'') + '" style="flex:1;min-width:90px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
                 '<span style="font-size:11px;color:#555;white-space:nowrap">Dž</span>' +
-                '<input type="number" class="item-fahrzeit-dz" data-i="' + i + '" data-j="' + j + '" value="' + (r.djevad_h||0) + '" min="0" step="0.5" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+                '<input type="number" class="item-fahrzeit-dz" data-i="' + i + '" data-j="' + j + '" value="' + (r.djevad_h||0) + '" min="0" step="0.5" onfocus="if(this.value===\'0\')this.value=\'\'" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
                 '<span style="font-size:11px;color:#888">h</span>' +
                 '<span style="font-size:11px;color:#555;white-space:nowrap">Helm.</span>' +
-                '<input type="number" class="item-fahrzeit-helm" data-i="' + i + '" data-j="' + j + '" value="' + (r.helmut_h||0) + '" min="0" step="0.5" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
+                '<input type="number" class="item-fahrzeit-helm" data-i="' + i + '" data-j="' + j + '" value="' + (r.helmut_h||0) + '" min="0" step="0.5" onfocus="if(this.value===\'0\')this.value=\'\'" style="width:50px;padding:3px 5px;border:1px solid #ccc;border-radius:5px;font-size:12px">' +
                 '<span style="font-size:11px;color:#888">h</span>' +
                 '<button type="button" onclick="removeFahrzeitdatum(' + i + ',' + j + ')" style="padding:1px 6px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;font-size:12px;color:#888;line-height:1.4">×</button>' +
               '</div>';
@@ -2984,6 +2984,45 @@ function genPDFData(inv) {
     return {marke:m, kz:k, key:m+'|||'+k};
   }
 
+  // ── PAGE HELPERS ─────────────────────────────────────────────────
+  var contentBottom = 252;
+  function drawCompanyHdr() {
+    doc.setTextColor(30, 30, 30);
+    doc.setFont(georgiaFont, 'bold'); doc.setFontSize(24);
+    doc.text('KAROSSERIEFACHWERKSTÄTTE', 105, 25, {align:'center'});
+    doc.setFontSize(22);
+    doc.text('KURT LINDITSCH GMBH', 105, 34, {align:'center'});
+    doc.setFont(georgiaFont, 'normal'); doc.setFontSize(9);
+    doc.text('Jägerweg 42, A-8041 GRAZ', 105, 41, {align:'center'});
+    doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 46, {align:'center'});
+  }
+  function drawPageFooter() {
+    doc.setFont(georgiaFont, 'normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+    doc.text('Zahlbar sofort nach Erhalt der Rechnung netto Kassa!', 105, 264, {align:'center'});
+    doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 269, {align:'center'});
+    doc.text('UID-Nr. ATU 58185458, LG f. ZRS GRAZ, FN 251792h', 105, 274, {align:'center'});
+  }
+  function drawTblHdr(y) {
+    doc.setFillColor(245, 245, 242);
+    doc.rect(xL, y, xR - xL, hdrH, 'F');
+    blackLine();
+    doc.line(xL, y + hdrH, xR, y + hdrH);
+    var ty = y + hdrH / 2 + 1.5;
+    doc.setFont('times','normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+    doc.text('Fahrzeug',     xL + 2,      ty);
+    doc.text('Beschreibung', colFzEnd + 2, ty);
+    doc.text('Anzahl',       colAnz,       ty, {align:'center'});
+    doc.text('Betrag (€)',   xR - 2,       ty, {align:'right'});
+    return y + hdrH;
+  }
+  function addPageBreak() {
+    drawPageFooter();
+    doc.addPage();
+    drawCompanyHdr();
+    doc.setFont('times', 'normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+    return 55;
+  }
+
   // Fahrzeug-Gruppen aufbauen
   var carGroups = [];
   var seenCarKeys = [];
@@ -3038,8 +3077,14 @@ function genPDFData(inv) {
   carGroups.forEach(function(group) {
     var car = group.car;
     var subRows = buildSubRows(group);
+    var groupH = subRows.length * rowH;
 
-    doc.setFont('times','normal'); doc.setFontSize(10);
+    if (yCur + groupH > contentBottom) {
+      yCur = addPageBreak();
+      yCur = drawTblHdr(yCur);
+    }
+
+    doc.setFont('times','normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
     if (car.marke) doc.text(car.marke, xL + 2, yCur + rowH - 2);
     if (car.kz)    doc.text(car.kz,    xL + 2, yCur + 2*rowH - 2);
 
@@ -3069,13 +3114,16 @@ function genPDFData(inv) {
 
   // ── Materialkosten-Zeile ─────────────────────────────────────────
   if (hasMat) {
-    doc.setFont('times','normal'); doc.setFontSize(10);
+    if (yCur + rowH > contentBottom) { yCur = addPageBreak(); }
+    doc.setFont('times','normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
     doc.text(mklbl, colFzEnd + 2, yCur + rowH - 2);
     doc.text('€ ' + numFmt(matAmt), xR - 2, yCur + rowH - 2, {align:'right'});
     yCur += rowH;
   }
 
-  // ── Summenzeilen (kein Rahmen, nur Linien bei Netto + Gesamt) ────
+  // ── Summenzeilen ─────────────────────────────────────────────────
+  var neededForSum = 4 + 3 * rowH + (inv.zahlungsart === 'kassa' ? 22 : 0);
+  if (yCur + neededForSum > contentBottom) { yCur = addPageBreak(); }
   var ySumStart = yCur + 4;
   var yNettoY   = ySumStart + rowH - 2;
   var yMwstY    = ySumStart + 2*rowH - 2;
@@ -3116,11 +3164,19 @@ function genPDFData(inv) {
     doc.text(bezahltText, xL, yGesamtBottom + 1 + 20);
   }
 
-  // ── FUßZEILE ab 26,4cm ───────────────────────────────────────────
-  doc.setFont(georgiaFont,'normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
-  doc.text('Zahlbar sofort nach Erhalt der Rechnung netto Kassa!', 105, 264, {align:'center'});
-  doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 269, {align:'center'});
-  doc.text('UID-Nr. ATU 58185458, LG f. ZRS GRAZ, FN 251792h', 105, 274, {align:'center'});
+  // ── FUßZEILE ─────────────────────────────────────────────────────
+  drawPageFooter();
+
+  // ── SEITENZAHLEN (nur wenn > 1 Seite) ────────────────────────────
+  var totalPgs = doc.getNumberOfPages();
+  if (totalPgs > 1) {
+    for (var pg = 1; pg <= totalPgs; pg++) {
+      doc.setPage(pg);
+      doc.setFont(georgiaFont, 'normal'); doc.setFontSize(8); doc.setTextColor(100,100,100);
+      doc.text('Seite ' + pg + '/' + totalPgs, 105, 281, {align:'center'});
+    }
+    doc.setPage(totalPgs);
+  }
 
   // ── Dateiname ─────────────────────────────────────────────────────
   var fnNr = inv.nummer || '';
@@ -3235,6 +3291,45 @@ function genSammelPDF(inv) {
 
   function blackLine() { doc.setDrawColor(30,30,30); doc.setLineWidth(0.225); }
 
+  // ── PAGE HELPERS ─────────────────────────────────────────────────
+  var contentBottom = 252;
+  function drawSammelCompanyHdr() {
+    doc.setTextColor(30, 30, 30);
+    doc.setFont(georgiaFont, 'bold'); doc.setFontSize(24);
+    doc.text('KAROSSERIEFACHWERKSTÄTTE', 105, 25, {align:'center'});
+    doc.setFontSize(22);
+    doc.text('KURT LINDITSCH GMBH', 105, 34, {align:'center'});
+    doc.setFont(georgiaFont, 'normal'); doc.setFontSize(9);
+    doc.text('Jägerweg 42, A-8041 GRAZ', 105, 41, {align:'center'});
+    doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 46, {align:'center'});
+  }
+  function drawSammelPageFooter() {
+    doc.setFont(georgiaFont, 'normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+    doc.text('Zahlbar sofort nach Erhalt der Rechnung netto Kassa!', 105, 264, {align:'center'});
+    doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 269, {align:'center'});
+    doc.text('UID-Nr. ATU 58185458, LG f. ZRS GRAZ, FN 251792h', 105, 274, {align:'center'});
+  }
+  function drawSammelTblHdr(y) {
+    doc.setFillColor(245, 245, 242);
+    doc.rect(xL, y, xR - xL, hdrH, 'F');
+    blackLine();
+    doc.line(xL, y + hdrH, xR, y + hdrH);
+    var ty = y + hdrH / 2 + 1.5;
+    doc.setFont('times', 'normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+    doc.text('KZ',            xL + 2,       ty);
+    doc.text('Fahrzeug',      colFz + 2,    ty);
+    doc.text('Beschreibung',  colBesch + 2, ty);
+    doc.text('Betrag (€)',    xR - 2,       ty, {align:'right'});
+    return y + hdrH;
+  }
+  function addSammelPageBreak() {
+    drawSammelPageFooter();
+    doc.addPage();
+    drawSammelCompanyHdr();
+    doc.setFont('times', 'normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+    return 55;
+  }
+
   // ── TABELLEN-HEADER ───────────────────────────────────────────────
   doc.setFillColor(245, 245, 242);
   doc.rect(xL, tY, xR - xL, hdrH, 'F');
@@ -3261,6 +3356,11 @@ function genSammelPDF(inv) {
       var betrag  = typeof bz === 'string' ? 0  : (bz.betrag||0);
       var ust     = typeof bz === 'string' ? 20 : (bz.ust||20);
       var brutto  = betrag * (1 + ust / 100);
+      if (yCur + rowH > contentBottom) {
+        yCur = addSammelPageBreak();
+        yCur = drawSammelTblHdr(yCur);
+        rowIdx = 0;
+      }
       if (rowIdx % 2 !== 0) {
         doc.setFillColor(250, 250, 248);
         doc.rect(xL, yCur, xR - xL, rowH, 'F');
@@ -3290,6 +3390,8 @@ function genSammelPDF(inv) {
   var totalH = nt + va;
   var ustPct = ustRates.length > 0 ? ustRates.join('/') : '20';
 
+  var neededForSammelSum = 4 + 3 * rowH + (inv.zahlungsart === 'kassa' ? 22 : 0);
+  if (yCur + neededForSammelSum > contentBottom) { yCur = addSammelPageBreak(); }
   var ySumStart = yCur + 4;
   var yNettoY   = ySumStart + rowH - 2;
   var yMwstY    = ySumStart + 2*rowH - 2;
@@ -3326,11 +3428,19 @@ function genSammelPDF(inv) {
     doc.text(bezahltText, xL, yGesamtY + 21);
   }
 
-  // ── FUßZEILE (Georgia, zentriert – identisch zu genPDFData) ──────
-  doc.setFont(georgiaFont, 'normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
-  doc.text('Zahlbar sofort nach Erhalt der Rechnung netto Kassa!', 105, 264, {align:'center'});
-  doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 269, {align:'center'});
-  doc.text('UID-Nr. ATU 58185458, LG f. ZRS GRAZ, FN 251792h', 105, 274, {align:'center'});
+  // ── FUßZEILE ─────────────────────────────────────────────────────
+  drawSammelPageFooter();
+
+  // ── SEITENZAHLEN (nur wenn > 1 Seite) ────────────────────────────
+  var totalSammelPgs = doc.getNumberOfPages();
+  if (totalSammelPgs > 1) {
+    for (var pg = 1; pg <= totalSammelPgs; pg++) {
+      doc.setPage(pg);
+      doc.setFont(georgiaFont, 'normal'); doc.setFontSize(8); doc.setTextColor(100,100,100);
+      doc.text('Seite ' + pg + '/' + totalSammelPgs, 105, 281, {align:'center'});
+    }
+    doc.setPage(totalSammelPgs);
+  }
 
   // ── DATEINAME & SPEICHERN ─────────────────────────────────────────
   var fnNr = inv.nummer || '';
