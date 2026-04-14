@@ -1364,7 +1364,6 @@ function renderDash() {
       '</tr>';
     }).join('');
     rec.innerHTML = '<table style="table-layout:fixed;width:100%"><colgroup><col style="width:60px"><col><col style="width:45px"><col style="width:90px"><col style="width:130px"><col style="width:90px"></colgroup><thead><tr><th>Nr.</th><th>Partner</th><th>Typ</th><th style="text-align:right">Betrag</th><th>Fälligkeit</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
-    makeResizable(rec.querySelector('table'));
   }
 
   // Fällige Todos
@@ -1394,7 +1393,6 @@ function renderDash() {
         '</tr>';
       }).join('');
       todosEl.innerHTML = '<table style="table-layout:fixed;width:100%"><thead><tr><th style="width:38%">Titel</th><th style="width:16%">Fällig</th><th style="width:30%">Fälligkeit</th><th style="width:16%"></th></tr></thead><tbody>'+trows+'</tbody></table>';
-      makeResizable(todosEl.querySelector('table'));
     }
   }
 }
@@ -1406,39 +1404,6 @@ function dashBezahle(id) {
   saveDB(d);
   renderDash();
   renderTable(inv.typ);
-}
-
-// ================================================================
-// RESIZABLE COLUMNS
-// ================================================================
-function makeResizable(tbl) {
-  if (!tbl) return;
-  tbl.querySelectorAll('th').forEach(function(th) {
-    // avoid double-init
-    if (th.querySelector('.resize-handle')) return;
-    th.style.position = 'relative';
-    var handle = document.createElement('div');
-    handle.className = 'resize-handle';
-    th.appendChild(handle);
-    handle.addEventListener('mousedown', function(e) {
-      var startX = e.clientX, startW = th.offsetWidth;
-      var idx = Array.from(th.parentNode.children).indexOf(th);
-      var cols = tbl.querySelectorAll('col');
-      function onMove(e2) {
-        var w = Math.max(30, startW + e2.clientX - startX);
-        th.style.width = w + 'px';
-        if (cols[idx]) cols[idx].style.width = w + 'px';
-      }
-      function onUp() {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-      }
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
-      e.preventDefault();
-      e.stopPropagation();
-    });
-  });
 }
 
 // ================================================================
@@ -1515,7 +1480,6 @@ function renderTable(typ) {
     _th(typ,'Netto','netto') + _th(typ,'Brutto','brutto') + _th(typ,'Status','status') +
     '<th>Aktion</th></tr></thead><tbody>';
   el.innerHTML = hdr + rows + '</tbody></table>';
-  makeResizable(el.querySelector('table'));
   el.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){
       var id = this.dataset.id, action = this.dataset.action;
@@ -2516,7 +2480,7 @@ function renderItems() {
             '<span style="font-family:sans-serif;font-size:12px;font-weight:500;color:#555;background:#f0f0ec;padding:5px 10px;border-radius:6px;border:1px solid #ddd;display:inline-block">Stunden</span>'+
           '</td>' +
           '<td style="padding:0 8px 8px">' +
-            '<input type="number" class="item-menge" data-i="' + i + '" value="' + it.menge + '" min="0" step="0.01" style="width:100%">' +
+            '<input type="number" class="item-menge" data-i="' + i + '" value="' + (it.menge > 0 ? it.menge : '') + '" min="0" step="0.01" placeholder="0" onfocus="if(parseFloat(this.value)===1){this.value=\'\';}" style="width:100%">' +
           '</td>' +
           '<td style="padding:0 8px 8px">' +
             '<input type="number" class="item-preis" list="preis-suggestions" data-i="' + i + '" value="' + (it.preis||'') + '" min="0" step="0.01" placeholder="€" style="width:100%">' +
@@ -3097,7 +3061,8 @@ function genPDFData(inv) {
     var rows = [];
     group.items.forEach(function(it) {
       if (it.titel && it.titel.trim()) rows.push({type:'titel', it:it});
-      rows.push({type:'stunden', it:it});
+      // Only add stunden row if menge > 0
+      if (parseFloat(it.menge) > 0) rows.push({type:'stunden', it:it});
       (it.extras||[]).forEach(function(e){ if(e.label&&e.label.trim()&&e.betrag) rows.push({type:'extra',it:it,extra:e}); });
     });
     // KZ liegt immer auf Zeile 2 (Index 1) – Arbeitsstunden darf dort nicht stehen
@@ -3130,10 +3095,22 @@ function genPDFData(inv) {
   // ── Content-Zeilen ───────────────────────────────────────────────
   var yCur = tY + hdrH;
 
+  var beschMax = colAnz - 8 - (colFzEnd + 2);  // max width for description text (~70mm)
+
   carGroups.forEach(function(group) {
     var car = group.car;
     var subRows = buildSubRows(group);
-    var groupH = subRows.length * rowH;
+
+    // Pre-calculate actual height per sub-row (title may wrap to multiple lines)
+    doc.setFont('times','normal'); doc.setFontSize(10);
+    var rowHeights = subRows.map(function(row) {
+      if (row.type === 'titel') {
+        var lines = doc.splitTextToSize((row.it.titel||'').trim(), beschMax);
+        return Math.max(1, lines.length) * rowH;
+      }
+      return rowH;
+    });
+    var groupH = rowHeights.reduce(function(s, h){ return s + h; }, 0);
 
     if (yCur + groupH > contentBottom) {
       yCur = addPageBreak();
@@ -3144,28 +3121,34 @@ function genPDFData(inv) {
     if (car.marke) doc.text(car.marke, xL + 2, yCur + rowH - 2);
     if (car.kz)    doc.text(car.kz,    xL + 2, yCur + 2*rowH - 2);
 
+    var rY = yCur;
     for (var ri = 0; ri < subRows.length; ri++) {
       var row = subRows[ri];
-      var rowY = yCur + ri * rowH + rowH - 2;
+      var rH = rowHeights[ri];
       doc.setFont('times','normal'); doc.setFontSize(10);
       if (row.type === 'titel') {
-        doc.text((row.it.titel||'').trim(), colFzEnd + 2, rowY);
+        var lines = doc.splitTextToSize((row.it.titel||'').trim(), beschMax);
+        for (var li = 0; li < lines.length; li++) {
+          doc.text(lines[li], colFzEnd + 2, rY + li * rowH + rowH - 2);
+        }
       } else if (row.type === 'stunden') {
         var menge = parseFloat(row.it.menge)||1;
-        doc.text(menge===1?'Arbeitsstunde':'Arbeitsstunden', colFzEnd + 2, rowY);
-        doc.text(String(row.it.menge), colAnz, rowY, {align:'center'});
+        doc.text(menge===1?'Arbeitsstunde':'Arbeitsstunden', colFzEnd + 2, rY + rH - 2);
+        doc.text(String(row.it.menge), colAnz, rY + rH - 2, {align:'center'});
         var lt = row.it.menge * row.it.preis * (1 + row.it.ust/100);
-        doc.setFont('times','normal');
-        doc.text('€ ' + numFmt(lt), xR - 2, rowY, {align:'right'});
+        doc.text('€ ' + numFmt(lt), xR - 2, rY + rH - 2, {align:'right'});
       } else if (row.type === 'extra') {
         var ex = row.extra;
         var et = ex.betrag * (1 + (ex.ust!=null?ex.ust:20)/100);
-        doc.text((ex.label||'').trim(), colFzEnd + 2, rowY);
-        doc.setFont('times','normal');
-        doc.text('€ ' + numFmt(et), xR - 2, rowY, {align:'right'});
+        var exLines = doc.splitTextToSize((ex.label||'').trim(), beschMax);
+        for (var eli = 0; eli < exLines.length; eli++) {
+          doc.text(exLines[eli], colFzEnd + 2, rY + eli * rowH + rowH - 2);
+        }
+        doc.text('€ ' + numFmt(et), xR - 2, rY + rH - 2, {align:'right'});
       }
+      rY += rH;
     }
-    yCur += subRows.length * rowH;
+    yCur += groupH;
   });
 
   // ── Materialkosten-Zeile ─────────────────────────────────────────
@@ -3403,6 +3386,7 @@ function genSammelPDF(inv) {
   var yCur  = tY + hdrH;
   var items = inv.items || [];
   var rowIdx = 0;
+  var sammelBeschMax = xR - 32 - (colBesch + 2);  // max width for description (~64mm)
   items.forEach(function(it) {
     var bzList = _normBzn(it);
     var kz    = (it.fz_kz||'').trim();
@@ -3412,21 +3396,26 @@ function genSammelPDF(inv) {
       var betrag  = typeof bz === 'string' ? 0  : (bz.betrag||0);
       var ust     = typeof bz === 'string' ? 20 : (bz.ust||20);
       var brutto  = betrag * (1 + ust / 100);
-      if (yCur + rowH > contentBottom) {
+      doc.setFont('times', 'normal'); doc.setFontSize(10);
+      var txtLines = doc.splitTextToSize(txt, sammelBeschMax);
+      var actualH = Math.max(1, txtLines.length) * rowH;
+      if (yCur + actualH > contentBottom) {
         yCur = addSammelPageBreak();
         yCur = drawSammelTblHdr(yCur);
         rowIdx = 0;
       }
       if (rowIdx % 2 !== 0) {
         doc.setFillColor(250, 250, 248);
-        doc.rect(xL, yCur, xR - xL, rowH, 'F');
+        doc.rect(xL, yCur, xR - xL, actualH, 'F');
       }
-      doc.setFont('times', 'normal'); doc.setFontSize(10); doc.setTextColor(30, 30, 30);
-      doc.text(kz,                    xL + 2,       yCur + rowH - 2);
-      doc.text(marke,                 colFz + 2,    yCur + rowH - 2);
-      doc.text(txt,                   colBesch + 2, yCur + rowH - 2);
-      doc.text('€ ' + numFmt(brutto), xR - 2,       yCur + rowH - 2, {align:'right'});
-      yCur += rowH;
+      doc.setTextColor(30, 30, 30);
+      doc.text(kz,    xL + 2,    yCur + rowH - 2);
+      doc.text(marke, colFz + 2, yCur + rowH - 2);
+      for (var li = 0; li < txtLines.length; li++) {
+        doc.text(txtLines[li], colBesch + 2, yCur + li * rowH + rowH - 2);
+      }
+      doc.text('€ ' + numFmt(brutto), xR - 2, yCur + rowH - 2, {align:'right'});
+      yCur += actualH;
       rowIdx++;
     });
   });
@@ -4314,7 +4303,6 @@ function renderKunden() {
     _th('kunden','Name','name') + '<th>Adresse</th><th>Fahrzeuge</th>' +
     _th('kunden','E-Mail','email') + '<th>Aktion</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table>';
-  makeResizable(el.querySelector('table'));
   el.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if (this.dataset.action === 'edit')  editKunde(this.dataset.id);
@@ -4404,7 +4392,6 @@ function renderFahrzeuge() {
     _th('fahrzeuge','VIN','vin') + _th('fahrzeuge','Erstzulassung','erst') +
     _th('fahrzeuge','Kunde','kunde') + '<th>Aktion</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table>';
-  makeResizable(el.querySelector('table'));
   el.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if(this.dataset.action==='edit') editFz(this.dataset.id);
@@ -4518,7 +4505,6 @@ function renderLief() {
     _th('lieferanten','Name','name') + '<th>Adresse</th>' +
     _th('lieferanten','UID','uid') + _th('lieferanten','E-Mail','email') + '<th>Aktion</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table>';
-  makeResizable(el.querySelector('table'));
   el.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if(this.dataset.action==='edit') editLief(this.dataset.id);
@@ -4610,7 +4596,6 @@ function renderZ() {
     _th('zahlungen','Typ','typ') + _th('zahlungen','Fällig','faellig') +
     '<th>Status</th>' + _th('zahlungen','Betrag','betrag') + '<th>Aktion</th>' +
     '</tr></thead><tbody>'+rows+'</tbody></table>';
-  makeResizable(el.querySelector('table'));
   el.querySelectorAll('button[data-act]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if (this.dataset.act==='status'){ togStatus(this.dataset.id); renderZ(); }
@@ -4979,7 +4964,6 @@ function renderTodos() {
     '<th style="padding:10px 8px;text-align:left;white-space:nowrap">Wiederholung</th>' +
     '<th style="padding:10px 8px"></th>' +
   '</tr></thead><tbody id="todos-tbody">'+rows+'</tbody></table>';
-  makeResizable(el.querySelector('table'));
 
   var tdDragFrom = null;
   el.querySelectorAll('.todo-row').forEach(function(row){
@@ -6354,7 +6338,6 @@ function renderKVItems() {
   });
   html += '</tbody></table>';
   container.innerHTML = html;
-  makeResizable(container.querySelector('table'));
   container.querySelectorAll('.kv-fz-marke').forEach(function(el){
     el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].fz_marke = this.value; };
   });
