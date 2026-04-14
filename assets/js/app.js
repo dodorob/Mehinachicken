@@ -1364,6 +1364,7 @@ function renderDash() {
       '</tr>';
     }).join('');
     rec.innerHTML = '<table style="table-layout:fixed;width:100%"><colgroup><col style="width:60px"><col><col style="width:45px"><col style="width:90px"><col style="width:130px"><col style="width:90px"></colgroup><thead><tr><th>Nr.</th><th>Partner</th><th>Typ</th><th style="text-align:right">Betrag</th><th>Fälligkeit</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
+    makeResizable(rec.querySelector('table'));
   }
 
   // Fällige Todos
@@ -1393,6 +1394,7 @@ function renderDash() {
         '</tr>';
       }).join('');
       todosEl.innerHTML = '<table style="table-layout:fixed;width:100%"><thead><tr><th style="width:38%">Titel</th><th style="width:16%">Fällig</th><th style="width:30%">Fälligkeit</th><th style="width:16%"></th></tr></thead><tbody>'+trows+'</tbody></table>';
+      makeResizable(todosEl.querySelector('table'));
     }
   }
 }
@@ -1404,6 +1406,39 @@ function dashBezahle(id) {
   saveDB(d);
   renderDash();
   renderTable(inv.typ);
+}
+
+// ================================================================
+// RESIZABLE COLUMNS
+// ================================================================
+function makeResizable(tbl) {
+  if (!tbl) return;
+  tbl.querySelectorAll('th').forEach(function(th) {
+    // avoid double-init
+    if (th.querySelector('.resize-handle')) return;
+    th.style.position = 'relative';
+    var handle = document.createElement('div');
+    handle.className = 'resize-handle';
+    th.appendChild(handle);
+    handle.addEventListener('mousedown', function(e) {
+      var startX = e.clientX, startW = th.offsetWidth;
+      var idx = Array.from(th.parentNode.children).indexOf(th);
+      var cols = tbl.querySelectorAll('col');
+      function onMove(e2) {
+        var w = Math.max(30, startW + e2.clientX - startX);
+        th.style.width = w + 'px';
+        if (cols[idx]) cols[idx].style.width = w + 'px';
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      e.preventDefault();
+      e.stopPropagation();
+    });
+  });
 }
 
 // ================================================================
@@ -1420,7 +1455,11 @@ function renderTable(typ) {
   var maxB    = maxBStr !== '' ? parseFloat(maxBStr) : Infinity;
   var status = (document.getElementById('f-'+typ+'-status')||{value:''}).value;
   var invs = d.invoices.filter(function(i){ return i.typ === typ; });
-  if (s)      invs = invs.filter(function(i){ return (i.nummer+(i.partner_name||'')).toLowerCase().indexOf(s)!==-1; });
+  if (s)      invs = invs.filter(function(i){
+    var str = (i.nummer||'') + (i.partner_name||'');
+    if (typ === 'ausgang') str += (i.fz_kz||'') + (i.fz_marke||'');
+    return str.toLowerCase().indexOf(s) !== -1;
+  });
   if (von)    invs = invs.filter(function(i){ return i.datum >= von; });
   if (bis)    invs = invs.filter(function(i){ return i.datum <= bis; });
   if (status) invs = invs.filter(function(i){ return i.status === status; });
@@ -1431,6 +1470,7 @@ function renderTable(typ) {
     if      (sort.col==='lfd')     { va=a.lfd_nr||0;               vb=b.lfd_nr||0; }
     else if (sort.col==='nr')      { va=(a.nummer||'').toLowerCase(); vb=(b.nummer||'').toLowerCase(); }
     else if (sort.col==='partner') { va=(a.partner_name||'').toLowerCase(); vb=(b.partner_name||'').toLowerCase(); }
+    else if (sort.col==='kz')      { va=(a.fz_kz||'').toLowerCase(); vb=(b.fz_kz||'').toLowerCase(); }
     else if (sort.col==='faellig') { va=a.faellig||''; vb=b.faellig||''; }
     else if (sort.col==='netto')   { va=netto(a); vb=netto(b); }
     else if (sort.col==='brutto')  { va=brutto(a); vb=brutto(b); }
@@ -1449,8 +1489,9 @@ function renderTable(typ) {
       '<td class="mono" style="color:var(--t3);font-size:11px;white-space:nowrap">'+(inv.lfd_nr||'')+'</td>' +
       (typ==='ausgang'?'<td class="mono" style="white-space:nowrap">' + (inv.nummer||'—') + '</td>':'') +
       '<td style="overflow-wrap:break-word;word-break:break-word">' + partnerCell + sammelBadge + gutschriftBadge + tageslosungBadge + '</td>' +
-      '<td>' + fmtD(inv.datum) + '</td>' +
-      '<td>' + fmtD(inv.faellig) + '</td>' +
+      (typ==='ausgang'?'<td class="mono" style="font-size:11px;white-space:nowrap;color:var(--t2)">' + esc(inv.fz_kz||'—') + '</td>':'') +
+      '<td style="white-space:nowrap">' + fmtD(inv.datum) + '</td>' +
+      '<td style="white-space:nowrap">' + fmtD(inv.faellig) + '</td>' +
       '<td>' + fmt(netto(inv)) + '</td>' +
       '<td>' + fmt(brutto(inv)) + '</td>' +
       '<td>' + sBadge(inv.status) + '</td>' +
@@ -1463,15 +1504,18 @@ function renderTable(typ) {
     '</tr>';
   }).join('');
   var cols = typ==='ausgang'
-    ? '<colgroup><col style="width:50px"><col style="width:65px"><col><col style="width:82px"><col style="width:82px"><col style="width:90px"><col style="width:90px"><col style="width:80px"><col style="width:210px"></colgroup>'
-    : '<colgroup><col style="width:50px"><col><col style="width:82px"><col style="width:82px"><col style="width:90px"><col style="width:90px"><col style="width:80px"><col style="width:210px"></colgroup>';
+    ? '<colgroup><col style="width:50px"><col style="width:65px"><col style="width:130px"><col style="width:72px"><col style="width:82px"><col style="width:82px"><col style="width:90px"><col style="width:90px"><col style="width:80px"><col style="width:210px"></colgroup>'
+    : '<colgroup><col style="width:50px"><col style="width:155px"><col style="width:82px"><col style="width:82px"><col style="width:90px"><col style="width:90px"><col style="width:80px"><col style="width:210px"></colgroup>';
   var hdr = '<table style="table-layout:fixed;width:100%">' + cols + '<thead><tr>' +
     _th(typ,'Lfd.','lfd') +
     (typ==='ausgang' ? _th(typ,'Nr.','nr') : '') +
-    _th(typ,'Partner','partner') + _th(typ,'Datum','datum') + _th(typ,'Fällig','faellig') +
+    _th(typ,'Partner','partner') +
+    (typ==='ausgang' ? _th(typ,'KZ','kz') : '') +
+    _th(typ,'Datum','datum') + _th(typ,'Fällig','faellig') +
     _th(typ,'Netto','netto') + _th(typ,'Brutto','brutto') + _th(typ,'Status','status') +
     '<th>Aktion</th></tr></thead><tbody>';
   el.innerHTML = hdr + rows + '</tbody></table>';
+  makeResizable(el.querySelector('table'));
   el.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){
       var id = this.dataset.id, action = this.dataset.action;
@@ -4270,6 +4314,7 @@ function renderKunden() {
     _th('kunden','Name','name') + '<th>Adresse</th><th>Fahrzeuge</th>' +
     _th('kunden','E-Mail','email') + '<th>Aktion</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table>';
+  makeResizable(el.querySelector('table'));
   el.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if (this.dataset.action === 'edit')  editKunde(this.dataset.id);
@@ -4359,6 +4404,7 @@ function renderFahrzeuge() {
     _th('fahrzeuge','VIN','vin') + _th('fahrzeuge','Erstzulassung','erst') +
     _th('fahrzeuge','Kunde','kunde') + '<th>Aktion</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table>';
+  makeResizable(el.querySelector('table'));
   el.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if(this.dataset.action==='edit') editFz(this.dataset.id);
@@ -4472,6 +4518,7 @@ function renderLief() {
     _th('lieferanten','Name','name') + '<th>Adresse</th>' +
     _th('lieferanten','UID','uid') + _th('lieferanten','E-Mail','email') + '<th>Aktion</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table>';
+  makeResizable(el.querySelector('table'));
   el.querySelectorAll('button[data-action]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if(this.dataset.action==='edit') editLief(this.dataset.id);
@@ -4563,6 +4610,7 @@ function renderZ() {
     _th('zahlungen','Typ','typ') + _th('zahlungen','Fällig','faellig') +
     '<th>Status</th>' + _th('zahlungen','Betrag','betrag') + '<th>Aktion</th>' +
     '</tr></thead><tbody>'+rows+'</tbody></table>';
+  makeResizable(el.querySelector('table'));
   el.querySelectorAll('button[data-act]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if (this.dataset.act==='status'){ togStatus(this.dataset.id); renderZ(); }
@@ -4926,11 +4974,12 @@ function renderTodos() {
   el.innerHTML = '<table style="width:100%"><thead><tr>' +
     '<th style="padding:10px 6px;width:20px"></th>' +
     '<th style="padding:10px 8px;text-align:left">Titel</th>' +
-    '<th style="padding:10px 8px;text-align:left">Fällig am</th>' +
+    '<th style="padding:10px 8px;text-align:left;white-space:nowrap">Fällig am</th>' +
     '<th style="padding:10px 8px;text-align:left">Fälligkeit</th>' +
-    '<th style="padding:10px 8px;text-align:left">Wiederholung</th>' +
+    '<th style="padding:10px 8px;text-align:left;white-space:nowrap">Wiederholung</th>' +
     '<th style="padding:10px 8px"></th>' +
   '</tr></thead><tbody id="todos-tbody">'+rows+'</tbody></table>';
+  makeResizable(el.querySelector('table'));
 
   var tdDragFrom = null;
   el.querySelectorAll('.todo-row').forEach(function(row){
@@ -6276,12 +6325,14 @@ function renderKVItems() {
   var container = document.getElementById('kv-items-container');
   if (!container) return;
   var badgeStyle = 'font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid #ddd;background:#fff;cursor:pointer;font-family:sans-serif;color:#555';
-  var html = '<table class="itbl" style="width:100%"><thead><tr>' +
+  var html = '<table class="itbl" style="width:100%;table-layout:fixed">' +
+    '<colgroup><col style="width:155px"><col><col style="width:70px"><col style="width:110px"><col style="width:36px"></colgroup>' +
+    '<thead><tr>' +
     '<th style="text-align:left;padding:8px 6px">Fahrzeug (Marke / KZ)</th>' +
     '<th style="text-align:left;padding:8px 6px">Beschreibung</th>' +
-    '<th style="text-align:center;padding:8px 6px;width:70px">Anzahl</th>' +
-    '<th style="text-align:right;padding:8px 6px;width:110px">Betrag (€)</th>' +
-    '<th style="width:36px;padding:8px 6px"></th>' +
+    '<th style="text-align:center;padding:8px 6px">Anzahl</th>' +
+    '<th style="text-align:right;padding:8px 6px">Betrag (€)</th>' +
+    '<th style="padding:8px 6px"></th>' +
     '</tr></thead><tbody>';
   kvItemsData.forEach(function(it, i) {
     html += '<tr>' +
@@ -6289,11 +6340,11 @@ function renderKVItems() {
         '<input type="text" value="' + esc(it.fz_marke || '') + '" data-i="' + i + '" class="kv-fz-marke" placeholder="Marke/Modell" style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;margin-bottom:3px;display:block">' +
         '<input type="text" value="' + esc(it.fz_kz || '') + '" data-i="' + i + '" class="kv-fz-kz" placeholder="Kennzeichen" style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;display:block">' +
       '</td>' +
-      '<td style="padding:4px 4px">' +
+      '<td style="padding:4px 4px;overflow:hidden;min-width:0">' +
         '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">' +
           getPosBadges().map(function(b){ return '<button type="button" class="kv-pos-badge" data-i="' + i + '" data-val="'+esc(b)+'" style="' + badgeStyle + '">'+esc(b)+'</button>'; }).join('') +
         '</div>' +
-        '<input type="text" value="' + esc(it.beschreibung) + '" data-i="' + i + '" class="kv-beschreibung" placeholder="Details..." style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif">' +
+        '<input type="text" value="' + esc(it.beschreibung) + '" data-i="' + i + '" class="kv-beschreibung" placeholder="Details..." style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif">' +
       '</td>' +
       '<td style="padding:4px 4px"><input type="number" value="' + it.anzahl + '" data-i="' + i + '" class="kv-anzahl" min="1" step="1" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;text-align:center"></td>' +
       '<td style="padding:4px 4px"><input type="number" value="' + (it.betrag || '') + '" data-i="' + i + '" class="kv-betrag" min="0" step="0.01" placeholder="0,00" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:sans-serif;text-align:right"></td>' +
@@ -6303,6 +6354,7 @@ function renderKVItems() {
   });
   html += '</tbody></table>';
   container.innerHTML = html;
+  makeResizable(container.querySelector('table'));
   container.querySelectorAll('.kv-fz-marke').forEach(function(el){
     el.oninput = function(){ kvItemsData[parseInt(this.dataset.i)].fz_marke = this.value; };
   });

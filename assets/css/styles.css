@@ -124,6 +124,8 @@ canvas{max-height:200px!important}
 .tab{padding:8px 16px;font-size:13px;font-family:sans-serif;cursor:pointer;color:var(--t2);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s}
 .tab.active{color:var(--ad);border-bottom-color:var(--accent);font-weight:500}
 @media(max-width:700px){.sidebar{display:none}.grid4{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}.fr.c2{grid-template-columns:1fr}.vl{grid-template-columns:1fr}}
+.resize-handle{position:absolute;right:0;top:0;width:5px;height:100%;cursor:col-resize;user-select:none;z-index:1}
+.resize-handle:hover{background:rgba(0,0,0,.08)}
 
 .type-toggle, .pay-toggle { transition: all .15s; }
 .type-toggle:hover, .pay-toggle:hover { opacity: 0.85; }
