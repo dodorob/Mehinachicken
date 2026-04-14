@@ -2617,10 +2617,12 @@ function renderItems() {
   });
 
   document.querySelectorAll('.item-menge').forEach(function(el){
-    el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'menge', this.value); });
+    el.addEventListener('input',  function(){ updateItem(parseInt(this.dataset.i), 'menge', this.value); });
+    el.addEventListener('change', function(){ updateItem(parseInt(this.dataset.i), 'menge', this.value); });
   });
   document.querySelectorAll('.item-preis').forEach(function(el){
-    el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'preis', this.value); });
+    el.addEventListener('input',  function(){ updateItem(parseInt(this.dataset.i), 'preis', this.value); });
+    el.addEventListener('change', function(){ updateItem(parseInt(this.dataset.i), 'preis', this.value); });
   });
   document.querySelectorAll('.item-ust').forEach(function(el){
     el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'ust', this.value); });
@@ -3061,8 +3063,8 @@ function genPDFData(inv) {
     var rows = [];
     group.items.forEach(function(it) {
       if (it.titel && it.titel.trim()) rows.push({type:'titel', it:it});
-      // Only add stunden row if menge > 0
-      if (parseFloat(it.menge) > 0) rows.push({type:'stunden', it:it});
+      // Only add stunden row if both menge and preis are set
+      if (parseFloat(it.menge) > 0 && parseFloat(it.preis) > 0) rows.push({type:'stunden', it:it});
       (it.extras||[]).forEach(function(e){ if(e.label&&e.label.trim()&&e.betrag) rows.push({type:'extra',it:it,extra:e}); });
     });
     // KZ liegt immer auf Zeile 2 (Index 1) – Arbeitsstunden darf dort nicht stehen
@@ -4258,9 +4260,19 @@ function genArbeitsauftragPDF(inv, onDone) {
   doc.setFont('helvetica','normal'); doc.setFontSize(9);
   doc.text('Notiz: ', mL, notizY);
   doc.setFont('helvetica','bold');
-  doc.text(noteStr, mL + 13, notizY);
+  var noteMaxW = pw - 13;
+  var noteLineH = 5;
+  var noteLines = noteStr ? doc.splitTextToSize(noteStr, noteMaxW) : [''];
+  // First line (shares row with "Notiz:" label)
+  if (noteLines[0]) doc.text(noteLines[0], mL + 13, notizY);
   doc.setLineWidth(0.3); doc.setDrawColor(150,150,150);
   doc.line(mL + 13, notizY + 0.5, mL + pw, notizY + 0.5);
+  // Additional wrapped lines — each gets its own full-width underline
+  for (var ni = 1; ni < noteLines.length; ni++) {
+    var contY = notizY + ni * noteLineH;
+    doc.text(noteLines[ni], mL + 13, contY);
+    doc.line(mL, contY + 0.5, mL + pw, contY + 0.5);
+  }
 
   var aufFilename = 'Arbeitsauftrag_' + (inv.nummer||'neu') + '.pdf';
   if (typeof onDone === 'function') {
