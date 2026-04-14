@@ -433,7 +433,7 @@ function brutto(inv) {
   }
   if (inv.is_sammel) {
     return (inv.items || []).reduce(function(s,it){
-      return s + (it.betrag||0) * (1 + (it.ust||20)/100);
+      return s + _normBzn(it).reduce(function(vs,bz){ return vs + (bz.betrag||0)*(1+(bz.ust||20)/100); }, 0);
     }, 0);
   }
   var b = (inv.items || []).reduce(function(s,it){
@@ -456,7 +456,9 @@ function netto(inv) {
     if (inv.er_netto != null && inv.er_netto > 0) return sign * inv.er_netto;
   }
   if (inv.is_sammel) {
-    return (inv.items || []).reduce(function(s,it){ return s + (it.betrag||0); }, 0);
+    return (inv.items || []).reduce(function(s,it){
+      return s + _normBzn(it).reduce(function(vs,bz){ return vs + (bz.betrag||0); }, 0);
+    }, 0);
   }
   return (inv.items || []).reduce(function(s,it){
     var extras = (it.extras || []).reduce(function(es,ex){ return es + (ex.betrag || 0); }, 0);
@@ -475,7 +477,7 @@ function vatAmt(inv) {
   }
   if (inv.is_sammel) {
     return (inv.items || []).reduce(function(s,it){
-      return s + (it.betrag||0) * (it.ust||20)/100;
+      return s + _normBzn(it).reduce(function(vs,bz){ return vs + (bz.betrag||0)*(bz.ust||20)/100; }, 0);
     }, 0);
   }
   var items_vat = (inv.items || []).reduce(function(s,it){
@@ -1528,7 +1530,7 @@ function initForm() {
   renderItems();
   // Init Sammelrechnung
   window.isSammel = false;
-  window.sammelItemsData = [{bezeichnungen:[''], fz_marke:'', fz_kz:'', betrag:0, ust:20, arbeitsdaten:[], fahrzeitdaten:[]}];
+  window.sammelItemsData = [{fz_marke:'', fz_kz:'', bezeichnungen:[{text:'',betrag:0,ust:20}], arbeitsdaten:[], fahrzeitdaten:[]}];
   var sammelDescEl = document.getElementById('sammel-beschreibung');
   if (sammelDescEl) sammelDescEl.value = '';
   renderSammelItems();
@@ -2134,10 +2136,10 @@ function updateItem(i, f, v) {
 // ================================================================
 // SAMMELRECHNUNG POSITIONEN
 // ================================================================
-window.sammelItemsData = [{bezeichnungen:[''], fz_marke:'', fz_kz:'', betrag:0, ust:20, arbeitsdaten:[], fahrzeitdaten:[]}];
+window.sammelItemsData = [{fz_marke:'', fz_kz:'', bezeichnungen:[{text:'',betrag:0,ust:20}], arbeitsdaten:[], fahrzeitdaten:[]}];
 
 function addSammelItem() {
-  window.sammelItemsData.push({bezeichnungen:[''], fz_marke:'', fz_kz:'', betrag:0, ust:20, arbeitsdaten:[], fahrzeitdaten:[]});
+  window.sammelItemsData.push({fz_marke:'', fz_kz:'', bezeichnungen:[{text:'',betrag:0,ust:20}], arbeitsdaten:[], fahrzeitdaten:[]});
   renderSammelItems();
 }
 
@@ -2148,11 +2150,7 @@ function removeSammelItem(i) {
 }
 
 function updateSammelItem(i, f, v) {
-  if (f === 'fz_marke' || f === 'fz_kz') {
-    window.sammelItemsData[i][f] = v;
-  } else {
-    window.sammelItemsData[i][f] = parseFloat(v) || 0;
-  }
+  window.sammelItemsData[i][f] = v;
   renderSammelSum();
 }
 
@@ -2181,8 +2179,8 @@ function removeSammelFahrzeit(i, j) {
 }
 
 function addSammelBezeichnung(i) {
-  if (!window.sammelItemsData[i].bezeichnungen) window.sammelItemsData[i].bezeichnungen = [''];
-  window.sammelItemsData[i].bezeichnungen.push('');
+  if (!window.sammelItemsData[i].bezeichnungen) window.sammelItemsData[i].bezeichnungen = [{text:'',betrag:0,ust:20}];
+  window.sammelItemsData[i].bezeichnungen.push({text:'',betrag:0,ust:20});
   renderSammelItems();
 }
 
@@ -2212,20 +2210,44 @@ function _renderSammelDatumRows(rows, i, type) {
   }).join('');
 }
 
+function _normBzn(it) {
+  // Normalise bezeichnungen to [{text,betrag,ust}] regardless of stored format
+  var raw = it.bezeichnungen;
+  if (!raw || !raw.length) {
+    // Backward compat: old single beschreibung + vehicle-level betrag/ust
+    return [{text: it.beschreibung||'', betrag: it.betrag||0, ust: it.ust||20}];
+  }
+  return raw.map(function(bz) {
+    if (typeof bz === 'string') return {text:bz, betrag:0, ust:20};
+    return bz;
+  });
+}
+
 function renderSammelItems() {
   var container = document.getElementById('sammel-items-container');
   if (!container) return;
   var cards = window.sammelItemsData.map(function(it, i) {
-    var brutto_it = (it.betrag||0) * (1 + (it.ust||20)/100);
-    var arbHtml   = _renderSammelDatumRows(it.arbeitsdaten||[],   i, 'arbeit');
-    var fzHtml    = _renderSammelDatumRows(it.fahrzeitdaten||[], i, 'fahrzeit');
-    var bznArr    = (it.bezeichnungen && it.bezeichnungen.length) ? it.bezeichnungen : (it.beschreibung ? [it.beschreibung] : ['']);
-    var bznHtml   = bznArr.map(function(bz, j) {
-      return '<div style="display:flex;gap:4px;margin-bottom:4px;align-items:center">' +
-        '<input type="text" class="si-besch" data-i="' + i + '" data-j="' + j + '" value="' + esc(bz||'') + '" placeholder="z.B. Ölwechsel, Bremsen, Inspektion..." style="flex:1;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;font-family:inherit">' +
-        (bznArr.length > 1
-          ? '<button type="button" class="si-besch-del" data-i="' + i + '" data-j="' + j + '" style="padding:3px 7px;border:1px solid #ddd;border-radius:5px;background:#fff;color:#888;cursor:pointer;font-size:13px;line-height:1">×</button>'
-          : '') +
+    var bznArr  = _normBzn(it);
+    var vBrutto = bznArr.reduce(function(s,bz){ return s + (bz.betrag||0)*(1+(bz.ust||20)/100); }, 0);
+    var arbHtml = _renderSammelDatumRows(it.arbeitsdaten||[],  i, 'arbeit');
+    var fzHtml  = _renderSammelDatumRows(it.fahrzeitdaten||[], i, 'fahrzeit');
+
+    // Column header (tiny labels, shown only for first row)
+    var bznHeader = '<div style="display:grid;grid-template-columns:1fr 80px 48px 18px;gap:4px;margin-bottom:2px;padding-right:4px">' +
+      '<div style="font-size:10px;color:#aaa;font-family:sans-serif">Bezeichnung</div>' +
+      '<div style="font-size:10px;color:#aaa;font-family:sans-serif">Netto (€)</div>' +
+      '<div style="font-size:10px;color:#aaa;font-family:sans-serif">USt. %</div>' +
+      '<div></div></div>';
+
+    var bznHtml = bznArr.map(function(bz, j) {
+      var bzText   = typeof bz === 'string' ? bz : (bz.text||'');
+      var bzBetrag = typeof bz === 'string' ? 0  : (bz.betrag||0);
+      var bzUst    = typeof bz === 'string' ? 20 : (bz.ust||20);
+      return '<div style="display:grid;grid-template-columns:1fr 80px 48px 18px;gap:4px;margin-bottom:4px;align-items:center">' +
+        '<input type="text" class="si-besch" data-i="' + i + '" data-j="' + j + '" value="' + esc(bzText) + '" placeholder="z.B. Ölwechsel, Bremsen..." style="padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;font-family:inherit">' +
+        '<input type="number" class="si-besch-betrag" data-i="' + i + '" data-j="' + j + '" value="' + (bzBetrag||'') + '" min="0" step="0.01" placeholder="0.00" style="padding:5px 6px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:right">' +
+        '<input type="number" class="si-besch-ust" data-i="' + i + '" data-j="' + j + '" value="' + bzUst + '" min="0" max="100" style="padding:5px 4px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:right">' +
+        '<button type="button" class="si-besch-del" data-i="' + i + '" data-j="' + j + '" style="padding:2px;border:1px solid #ddd;border-radius:5px;background:#fff;color:#aaa;cursor:pointer;font-size:12px;line-height:1;' + (bznArr.length > 1 ? '' : 'opacity:0;pointer-events:none') + '">×</button>' +
       '</div>';
     }).join('');
 
@@ -2240,28 +2262,16 @@ function renderSammelItems() {
         '<button type="button" class="btn si-del" data-i="' + i + '" style="padding:4px 8px;font-size:11px;margin-left:auto">&#x2715; Entfernen</button>' +
       '</div>' +
 
-      // ── Sonstige Bezeichnungen + Betrag + USt ────────────────────────
-      '<div style="display:grid;grid-template-columns:1fr 110px 65px;gap:8px;margin-bottom:10px;align-items:start">' +
-        '<div>' +
-          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">' +
-            '<div style="font-size:10px;font-weight:600;color:#888;font-family:sans-serif">Sonstige Bezeichnungen (Notiz für Rechnung/Auftrag)</div>' +
-            '<button type="button" class="si-besch-add" data-i="' + i + '" style="font-size:11px;padding:1px 8px;border-radius:4px;border:1px solid #aaa;background:#fff;color:#555;cursor:pointer;font-family:sans-serif;white-space:nowrap;margin-left:6px">+ Bezeichnung</button>' +
-          '</div>' +
-          bznHtml +
+      // ── Bezeichnungen (je mit Netto + USt%) ──────────────────────────
+      '<div style="margin-bottom:10px">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">' +
+          '<div style="font-size:10px;font-weight:600;color:#888;font-family:sans-serif;text-transform:uppercase;letter-spacing:.4px">Bezeichnungen</div>' +
+          '<button type="button" class="si-besch-add" data-i="' + i + '" style="font-size:11px;padding:1px 8px;border-radius:4px;border:1px solid #aaa;background:#fff;color:#555;cursor:pointer;font-family:sans-serif;white-space:nowrap">+ Bezeichnung</button>' +
         '</div>' +
-        '<div>' +
-          '<div style="font-size:10px;font-weight:600;color:#888;font-family:sans-serif;margin-bottom:3px">Netto (€)</div>' +
-          '<input type="number" class="si-betrag" data-i="' + i + '" value="' + (it.betrag||'') + '" min="0" step="0.01" placeholder="0.00" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px">' +
-        '</div>' +
-        '<div>' +
-          '<div style="font-size:10px;font-weight:600;color:#888;font-family:sans-serif;margin-bottom:3px">USt. %</div>' +
-          '<div style="position:relative;display:flex;align-items:center">' +
-            '<input type="number" class="si-ust" data-i="' + i + '" value="' + (it.ust||20) + '" min="0" max="100" style="width:100%;padding:6px 8px;padding-right:18px;border:1px solid #ddd;border-radius:6px;font-size:13px">' +
-            '<span style="position:absolute;right:6px;font-family:sans-serif;font-size:11px;color:#aaa;pointer-events:none">%</span>' +
-          '</div>' +
-        '</div>' +
+        bznHeader +
+        bznHtml +
+        '<div style="font-family:sans-serif;font-size:12px;color:var(--accent);text-align:right;font-weight:500;margin-top:2px">Brutto: ' + fmt(vBrutto) + '</div>' +
       '</div>' +
-      '<div style="font-family:sans-serif;font-size:12px;color:var(--accent);text-align:right;margin-bottom:8px;font-weight:500">Brutto: ' + fmt(brutto_it) + '</div>' +
 
       // ── Arbeitsdaten ────────────────────────────────────────────────
       '<div style="background:#eef4ff;border-radius:6px;border:1px solid #c8d9f8;padding:6px 10px;margin-bottom:6px">' +
@@ -2289,8 +2299,27 @@ function renderSammelItems() {
   container.querySelectorAll('.si-besch').forEach(function(el) {
     el.addEventListener('input', function() {
       var i = parseInt(this.dataset.i), j = parseInt(this.dataset.j);
-      if (!window.sammelItemsData[i].bezeichnungen) window.sammelItemsData[i].bezeichnungen = [''];
-      window.sammelItemsData[i].bezeichnungen[j] = this.value;
+      var bzn = window.sammelItemsData[i].bezeichnungen;
+      if (!bzn || typeof bzn[j] === 'string') { bzn[j] = {text:this.value, betrag:0, ust:20}; }
+      else bzn[j].text = this.value;
+    });
+  });
+  container.querySelectorAll('.si-besch-betrag').forEach(function(el) {
+    el.addEventListener('input', function() {
+      var i = parseInt(this.dataset.i), j = parseInt(this.dataset.j);
+      var bzn = window.sammelItemsData[i].bezeichnungen;
+      if (!bzn || typeof bzn[j] === 'string') bzn[j] = {text:bzn[j]||'', betrag:parseFloat(this.value)||0, ust:20};
+      else bzn[j].betrag = parseFloat(this.value)||0;
+      renderSammelSum();
+    });
+  });
+  container.querySelectorAll('.si-besch-ust').forEach(function(el) {
+    el.addEventListener('change', function() {
+      var i = parseInt(this.dataset.i), j = parseInt(this.dataset.j);
+      var bzn = window.sammelItemsData[i].bezeichnungen;
+      if (!bzn || typeof bzn[j] === 'string') bzn[j] = {text:bzn[j]||'', betrag:0, ust:parseFloat(this.value)||20};
+      else bzn[j].ust = parseFloat(this.value)||20;
+      renderSammelSum();
     });
   });
   container.querySelectorAll('.si-besch-del').forEach(function(el) {
@@ -2351,12 +2380,6 @@ function renderSammelItems() {
   container.querySelectorAll('.si-fz-kz').forEach(function(el) {
     el.addEventListener('input', function() { updateSammelItem(parseInt(this.dataset.i), 'fz_kz', this.value); });
   });
-  container.querySelectorAll('.si-betrag').forEach(function(el) {
-    el.addEventListener('input', function() { updateSammelItem(parseInt(this.dataset.i), 'betrag', this.value); });
-  });
-  container.querySelectorAll('.si-ust').forEach(function(el) {
-    el.addEventListener('change', function() { updateSammelItem(parseInt(this.dataset.i), 'ust', this.value); });
-  });
   container.querySelectorAll('.si-del').forEach(function(el) {
     el.addEventListener('click', function() { removeSammelItem(parseInt(this.dataset.i)); });
   });
@@ -2367,8 +2390,12 @@ function renderSammelItems() {
 function renderSammelSum() {
   var el = document.getElementById('sammel-sum');
   if (!el) return;
-  var nt = window.sammelItemsData.reduce(function(s,it){ return s + (it.betrag||0); }, 0);
-  var va = window.sammelItemsData.reduce(function(s,it){ return s + (it.betrag||0) * (it.ust||20) / 100; }, 0);
+  var nt = window.sammelItemsData.reduce(function(s,it){
+    return s + _normBzn(it).reduce(function(vs,bz){ return vs + (bz.betrag||0); }, 0);
+  }, 0);
+  var va = window.sammelItemsData.reduce(function(s,it){
+    return s + _normBzn(it).reduce(function(vs,bz){ return vs + (bz.betrag||0)*(bz.ust||20)/100; }, 0);
+  }, 0);
   var br = nt + va;
   el.innerHTML =
     '<div style="display:flex;justify-content:space-between;padding:4px 0;font-family:sans-serif;font-size:13px"><span style="color:var(--t2)">Netto gesamt:</span><span>' + fmt(nt) + '</span></div>' +
@@ -2702,7 +2729,7 @@ function saveInvoice() {
   var gesamt;
   if (isSammel) {
     gesamt = window.sammelItemsData.reduce(function(s,it){
-      return s + (it.betrag||0) * (1 + (it.ust||20)/100);
+      return s + _normBzn(it).reduce(function(vs,bz){ return vs + (bz.betrag||0)*(1+(bz.ust||20)/100); }, 0);
     }, 0);
   } else {
     var matAuto2 = document.getElementById('mat-auto');
@@ -3127,7 +3154,7 @@ function genSammelPDF(inv) {
   var xL = 25;
   var xR = 190;
 
-  // ── Georgia Font laden ────────────────────────────────────────────
+  // ── Georgia Font laden (identisch zu genPDFData) ──────────────────
   var georgiaFont = 'times';
   if (_georgiaFontB64) {
     try {
@@ -3143,7 +3170,7 @@ function genSammelPDF(inv) {
     } catch(e) {}
   }
 
-  // ── KOPFZEILE ─────────────────────────────────────────────────────
+  // ── KOPFZEILE (Georgia, zentriert) ───────────────────────────────
   doc.setTextColor(30, 30, 30);
   doc.setFont(georgiaFont, 'bold');
   doc.setFontSize(24);
@@ -3155,10 +3182,12 @@ function genSammelPDF(inv) {
   doc.text('Jägerweg 42, A-8041 GRAZ', 105, 41, {align:'center'});
   doc.text('E-Mail: linditsch@a1.net     Tel.: 0676/343 134 2', 105, 46, {align:'center'});
 
-  // ── KUNDENADRESSE ─────────────────────────────────────────────────
+  // ── Ab jetzt: Times New Roman ────────────────────────────────────
   doc.setFont('times', 'normal');
   doc.setFontSize(10);
   doc.setTextColor(30, 30, 30);
+
+  // ── KUNDENADRESSE ─────────────────────────────────────────────────
   var partnerLines = [];
   if (inv.partner_info) {
     inv.partner_info.split('\n').forEach(function(l){ if(l.trim()) partnerLines.push(l.trim()); });
@@ -3176,7 +3205,7 @@ function genSammelPDF(inv) {
     doc.text('Leistungsdatum: ' + fmtD(inv.leistungsdatum), xR, 95, {align:'right'});
   }
 
-  // ── SAMMELRECHNUNG TITEL ──────────────────────────────────────────
+  // ── RECHNUNG NR. ─────────────────────────────────────────────────
   doc.setFont('times', 'bold');
   doc.setFontSize(12);
   var rNr = inv.nummer || '';
@@ -3187,26 +3216,27 @@ function genSammelPDF(inv) {
   doc.setFontSize(10);
 
   // ── ALLGEMEINE BESCHREIBUNG ───────────────────────────────────────
-  var tY = 108;
+  var tY = 113;
   if (inv.sammel_beschreibung && inv.sammel_beschreibung.trim()) {
     doc.setFont('times', 'italic');
-    doc.setFontSize(10);
     doc.text(inv.sammel_beschreibung.trim(), xL, tY);
     doc.setFont('times', 'normal');
     tY += 8;
   }
 
-  // ── TABELLEN-HEADER ───────────────────────────────────────────────
-  var colBesch  = xL;       // Beschreibung starts at xL
-  var colFz     = xL + 65;  // Fahrzeug
-  var colKz     = xL + 100; // KZ
-  var colBetrag = xR;       // Betrag right-aligned
+  // ── SPALTEN-LAYOUT: KZ | Fahrzeug | Beschreibung | Betrag ─────────
+  // KZ: xL … colFz (32mm)
+  // Fahrzeug: colFz … colBesch (40mm)
+  // Beschreibung: colBesch … ~colBetragLeft
+  // Betrag: xR-2 right-aligned
+  var colFz    = xL + 32;
+  var colBesch = xL + 72;
   var rowH = 6;
   var hdrH = 8;
 
   function blackLine() { doc.setDrawColor(30,30,30); doc.setLineWidth(0.225); }
 
-  // Gray header background
+  // ── TABELLEN-HEADER ───────────────────────────────────────────────
   doc.setFillColor(245, 245, 242);
   doc.rect(xL, tY, xR - xL, hdrH, 'F');
   blackLine();
@@ -3214,43 +3244,57 @@ function genSammelPDF(inv) {
 
   var hdrY = tY + hdrH / 2 + 1.5;
   doc.setFont('times', 'normal'); doc.setFontSize(10);
-  doc.text('Beschreibung',  colBesch + 2, hdrY);
+  doc.text('KZ',            xL + 2,       hdrY);
   doc.text('Fahrzeug',      colFz + 2,    hdrY);
-  doc.text('KZ',            colKz + 2,    hdrY);
+  doc.text('Beschreibung',  colBesch + 2, hdrY);
   doc.text('Betrag (€)',    xR - 2,       hdrY, {align:'right'});
 
-  // ── POSITIONEN ────────────────────────────────────────────────────
-  var yCur = tY + hdrH;
+  // ── POSITIONEN (eine Zeile pro Bezeichnung pro Fahrzeug) ──────────
+  var yCur  = tY + hdrH;
   var items = inv.items || [];
-  items.forEach(function(it, idx) {
-    var bg = idx % 2 === 0;
-    if (!bg) { doc.setFillColor(250, 250, 248); doc.rect(xL, yCur, xR - xL, rowH, 'F'); }
-    doc.setFont('times', 'normal'); doc.setFontSize(10); doc.setTextColor(30, 30, 30);
-    var brutto_it = (it.betrag||0) * (1 + (it.ust||20)/100);
-    var bznArr = (it.bezeichnungen && it.bezeichnungen.length) ? it.bezeichnungen : (it.beschreibung ? [it.beschreibung] : []);
-    var beschText = bznArr.filter(Boolean).join(', ');
-
-    doc.text(beschText,                  colBesch + 2, yCur + rowH - 2);
-    doc.text((it.fz_marke||'').trim(),   colFz + 2,    yCur + rowH - 2);
-    doc.text((it.fz_kz||'').trim(),      colKz + 2,    yCur + rowH - 2);
-    doc.text('€ ' + numFmt(brutto_it),   xR - 2,       yCur + rowH - 2, {align:'right'});
-
-    yCur += rowH;
+  var rowIdx = 0;
+  items.forEach(function(it) {
+    var bzList = _normBzn(it);
+    var kz    = (it.fz_kz||'').trim();
+    var marke = (it.fz_marke||'').trim();
+    bzList.forEach(function(bz) {
+      var txt     = typeof bz === 'string' ? bz : (bz.text||'');
+      var betrag  = typeof bz === 'string' ? 0  : (bz.betrag||0);
+      var ust     = typeof bz === 'string' ? 20 : (bz.ust||20);
+      var brutto  = betrag * (1 + ust / 100);
+      if (rowIdx % 2 !== 0) {
+        doc.setFillColor(250, 250, 248);
+        doc.rect(xL, yCur, xR - xL, rowH, 'F');
+      }
+      doc.setFont('times', 'normal'); doc.setFontSize(10); doc.setTextColor(30, 30, 30);
+      doc.text(kz,                    xL + 2,       yCur + rowH - 2);
+      doc.text(marke,                 colFz + 2,    yCur + rowH - 2);
+      doc.text(txt,                   colBesch + 2, yCur + rowH - 2);
+      doc.text('€ ' + numFmt(brutto), xR - 2,       yCur + rowH - 2, {align:'right'});
+      yCur += rowH;
+      rowIdx++;
+    });
   });
 
   // ── SUMMENZEILEN ──────────────────────────────────────────────────
-  var nt = items.reduce(function(s,it){ return s + (it.betrag||0); }, 0);
-  var va = items.reduce(function(s,it){ return s + (it.betrag||0)*(it.ust||20)/100; }, 0);
-  var totalH = nt + va;
-
+  var nt = 0, va = 0;
   var ustRates = [];
-  items.forEach(function(it){ if((it.ust||20)>0 && ustRates.indexOf(it.ust||20)===-1) ustRates.push(it.ust||20); });
+  items.forEach(function(it) {
+    _normBzn(it).forEach(function(bz) {
+      var b = typeof bz === 'string' ? 0 : (bz.betrag||0);
+      var u = typeof bz === 'string' ? 20 : (bz.ust||20);
+      nt += b;
+      va += b * u / 100;
+      if (u > 0 && ustRates.indexOf(u) === -1) ustRates.push(u);
+    });
+  });
+  var totalH = nt + va;
   var ustPct = ustRates.length > 0 ? ustRates.join('/') : '20';
 
   var ySumStart = yCur + 4;
-  var yNettoY  = ySumStart + rowH - 2;
-  var yMwstY   = ySumStart + 2*rowH - 2;
-  var yGesamtY = ySumStart + 3*rowH - 2;
+  var yNettoY   = ySumStart + rowH - 2;
+  var yMwstY    = ySumStart + 2*rowH - 2;
+  var yGesamtY  = ySumStart + 3*rowH - 2;
 
   doc.setFont('times', 'normal'); doc.setFontSize(10);
   doc.text('Netto',            xL + 2, yNettoY);
@@ -3259,7 +3303,7 @@ function genSammelPDF(inv) {
   doc.line(xL, yNettoY + 1, xR, yNettoY + 1);
 
   doc.text('MwSt. ' + ustPct + '%', xL + 2, yMwstY);
-  doc.text('€ ' + numFmt(va),        xR - 2, yMwstY, {align:'right'});
+  doc.text('€ ' + numFmt(va),       xR - 2, yMwstY, {align:'right'});
   blackLine();
   var xAmtLeft = xR - 2 - doc.getTextWidth('€ ' + numFmt(va)) - 1;
   doc.line(xAmtLeft, yMwstY + 1, xR, yMwstY + 1);
@@ -3283,7 +3327,7 @@ function genSammelPDF(inv) {
     doc.text(bezahltText, xL, yGesamtY + 21);
   }
 
-  // ── FUßZEILE ─────────────────────────────────────────────────────
+  // ── FUßZEILE (Georgia, zentriert – identisch zu genPDFData) ──────
   doc.setFont(georgiaFont, 'normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
   doc.text('Zahlbar sofort nach Erhalt der Rechnung netto Kassa!', 105, 264, {align:'center'});
   doc.text('Bankverbindung: Steierm. Sparkasse Graz, IBAN: AT072081500000073536, BIC: STSPAT2GXXX', 105, 269, {align:'center'});
@@ -3314,8 +3358,8 @@ function genSammelArbeitsauftraege(inv) {
     : (getSetting('bp_path_ar_bank')  || getSetting('bp_path_ar'));
   var delayMs = 0;
   (inv.items || []).forEach(function(it, idx) {
-    var bznArr = (it.bezeichnungen && it.bezeichnungen.length) ? it.bezeichnungen : (it.beschreibung ? [it.beschreibung] : []);
-    var beschrText = bznArr.filter(Boolean).join(', ');
+    var bzList = _normBzn(it);
+    var beschrText = bzList.map(function(bz){ return typeof bz === 'string' ? bz : (bz.text||''); }).filter(Boolean).join(', ');
     var fakeInv = {
       nummer:         (inv.nummer || '') + '-' + (idx + 1),
       datum:          inv.datum,
@@ -3336,7 +3380,8 @@ function genSammelArbeitsauftraege(inv) {
     genArbeitsauftragPDF(fakeInv, (function(ms) {
       return function(doc, filename) {
         setTimeout(function() {
-          savePDFToFolder(doc, filename, arPath, function() { openPDF(doc, filename); });
+          // savePDFToFolder saves & opens via Electron; fallback: doc.save() triggers download
+          savePDFToFolder(doc, filename, arPath, function() { doc.save(filename); });
         }, ms);
       };
     })(delayMs));
@@ -4607,15 +4652,19 @@ function editInv(id) {
     // Restore Sammelrechnung positions
     window.sammelItemsData = (inv.items||[]).map(function(it){
       var c = Object.assign({}, it);
-      c.arbeitsdaten   = (it.arbeitsdaten  || []).map(function(r){ return Object.assign({}, r); });
-      c.fahrzeitdaten  = (it.fahrzeitdaten || []).map(function(r){ return Object.assign({}, r); });
-      // Backward compat: migrate old beschreibung string to bezeichnungen array
-      c.bezeichnungen  = (it.bezeichnungen && it.bezeichnungen.length)
-        ? it.bezeichnungen.slice()
-        : (it.beschreibung ? [it.beschreibung] : ['']);
+      c.arbeitsdaten  = (it.arbeitsdaten  || []).map(function(r){ return Object.assign({}, r); });
+      c.fahrzeitdaten = (it.fahrzeitdaten || []).map(function(r){ return Object.assign({}, r); });
+      // Backward compat: migrate from string[] or {beschreibung+betrag} to {text,betrag,ust}[]
+      var rawBzn = it.bezeichnungen || (it.beschreibung ? [it.beschreibung] : []);
+      var oldBetrag = it.betrag || 0, oldUst = it.ust || 20;
+      c.bezeichnungen = rawBzn.map(function(bz, jj) {
+        if (typeof bz === 'string') return {text:bz, betrag:(jj===0?oldBetrag:0), ust:oldUst};
+        return Object.assign({}, bz);
+      });
+      if (!c.bezeichnungen.length) c.bezeichnungen = [{text:'', betrag:oldBetrag, ust:oldUst}];
       return c;
     });
-    if (!window.sammelItemsData.length) window.sammelItemsData = [{bezeichnungen:[''], fz_marke:'', fz_kz:'', betrag:0, ust:20, arbeitsdaten:[], fahrzeitdaten:[]}];
+    if (!window.sammelItemsData.length) window.sammelItemsData = [{fz_marke:'', fz_kz:'', bezeichnungen:[{text:'',betrag:0,ust:20}], arbeitsdaten:[], fahrzeitdaten:[]}];
     renderSammelItems();
     var sdEl = document.getElementById('sammel-beschreibung');
     if (sdEl) sdEl.value = inv.sammel_beschreibung || '';
