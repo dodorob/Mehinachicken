@@ -2044,9 +2044,6 @@ function setKassaTyp(typ) {
   } else {
     if (barBtn) { barBtn.style.background = 'var(--accent)'; barBtn.style.color = '#fff'; }
     if (bankomatBtn) { bankomatBtn.style.background = '#f0f0ec'; bankomatBtn.style.color = 'var(--t2)'; }
-    // Bar-Zahlung → Status sofort auf Bezahlt setzen
-    var statusEl = document.getElementById('status');
-    if (statusEl && !editId) statusEl.value = 'bezahlt';
   }
 }
 
@@ -2062,22 +2059,23 @@ function setPay(pay) {
     document.getElementById('pay-label').textContent = 'Banküberweisung';
     if (bankomatRow) bankomatRow.style.display = 'none';
     setKassaTyp('bar');
-    // Bank gewählt → AR- und ER-Status zurück auf Offen
     if (!editId) {
-      var arStatusEl = document.getElementById('status');
-      if (arStatusEl) arStatusEl.value = 'offen';
-      var erStatusEl2 = document.getElementById('er-status');
-      if (erStatusEl2) erStatusEl2.value = 'offen';
+      var sEl = document.getElementById('status');
+      if (sEl) sEl.value = 'offen';
+      var erSEl = document.getElementById('er-status');
+      if (erSEl) erSEl.value = 'offen';
     }
   } else {
     kassaBtn.style.background = 'var(--accent)'; kassaBtn.style.color = '#fff';
     bankBtn.style.background = '#f0f0ec'; bankBtn.style.color = 'var(--t2)';
     document.getElementById('pay-label').textContent = 'Barzahlung / Kassa';
     if (bankomatRow) bankomatRow.style.display = '';
-    // Kassa gewählt → ER-Status sofort auf Bezahlt setzen
+    setKassaTyp('bar');
     if (!editId) {
-      var erStatusEl = document.getElementById('er-status');
-      if (erStatusEl) erStatusEl.value = 'bezahlt';
+      var sEl2 = document.getElementById('status');
+      if (sEl2) sEl2.value = 'bezahlt';
+      var erSEl2 = document.getElementById('er-status');
+      if (erSEl2) erSEl2.value = 'bezahlt';
     }
   }
   refreshNumbers();
