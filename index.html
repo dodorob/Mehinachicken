@@ -701,7 +701,7 @@
   <div class="topbar">
     <h2>Fixkosten</h2>
     <div class="tba">
-      <button class="btn" id="btn-fixkosten-zu-einstellungen" style="font-size:13px">&#9881; Fixkosten verwalten</button>
+      <button class="btn primary" id="btn-fk-tab-add">+ Fixkosten hinzufügen</button>
     </div>
   </div>
   <div class="content">
@@ -709,14 +709,10 @@
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;flex-wrap:wrap;gap:8px">
         <div>
           <h3 style="margin:0 0 4px 0">Zahlungsstatus <span id="fk-tab-month-label" style="color:var(--accent)"></span></h3>
-          <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin:0">Haken setzen = Rechnung bezahlt. Erscheint in der Statistik als Ausgabe.</p>
+          <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin:0">Haken setzen = Rechnung bezahlt. Erscheint in der Statistik als Ausgabe. Reihenfolge per Drag &amp; Drop.</p>
         </div>
       </div>
       <div id="fixkosten-tab-list"></div>
-      <div id="fixkosten-tab-empty" style="display:none;font-family:sans-serif;font-size:13px;color:var(--t3);padding:16px 0">
-        Keine Fixkosten für diesen Monat.
-        <button class="btn" style="font-size:12px;margin-left:8px" id="btn-fk-tab-add-link">Fixkosten in Einstellungen hinzufügen</button>
-      </div>
     </div>
     <div class="card" id="fixkosten-tab-other-card" style="display:none">
       <h3 style="margin:0 0 12px 0;font-size:14px;color:var(--t2)">Weitere Fixkosten (andere Monate)</h3>
@@ -821,24 +817,6 @@
         <button class="btn primary" id="btn-pos-badge-add">+ Hinzufügen</button>
       </div>
       <div style="font-size:11px;color:var(--accent);margin-top:6px" id="pos-badges-info"></div>
-    </div>
-
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:0.75rem">
-        <div>
-          <h3 style="margin:0 0 4px 0">Fixkosten</h3>
-          <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin:0">
-            Tragen Sie hier Ihre monatlichen Fixkosten ein. Diese werden in der Statistik berücksichtigt.
-          </p>
-        </div>
-        <button class="btn" id="btn-einst-zu-fixkosten-tab" style="font-size:12px;white-space:nowrap">&#128178; Zum Fixkosten-Tab</button>
-      </div>
-      <div id="fixkosten-list"></div>
-      <button class="btn" id="btn-add-fixkosten" style="font-size:12px;margin-top:8px">+ Fixkosten hinzufügen</button>
-      <div style="margin-top:1rem;display:flex;justify-content:flex-end">
-        <button class="btn primary" id="btn-save-fixkosten">Speichern</button>
-      </div>
-      <div id="fixkosten-info" style="font-family:sans-serif;font-size:12px;color:var(--accent);margin-top:8px"></div>
     </div>
 
     <div class="card">
