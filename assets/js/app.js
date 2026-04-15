@@ -2390,13 +2390,15 @@ function renderSammelItems() {
     });
   });
   container.querySelectorAll('.si-besch-ust').forEach(function(el) {
-    el.addEventListener('change', function() {
+    function updateUst() {
       var i = parseInt(this.dataset.i), j = parseInt(this.dataset.j);
       var bzn = window.sammelItemsData[i].bezeichnungen;
       if (!bzn || typeof bzn[j] === 'string') bzn[j] = {text:bzn[j]||'', betrag:0, ust:parseFloat(this.value)||20};
       else bzn[j].ust = parseFloat(this.value)||20;
       renderSammelSum();
-    });
+    }
+    el.addEventListener('input',  updateUst);
+    el.addEventListener('change', updateUst);
   });
   container.querySelectorAll('.si-besch-del').forEach(function(el) {
     el.addEventListener('click', function() {
@@ -2682,7 +2684,8 @@ function renderItems() {
     el.addEventListener('change', function(){ updateItem(parseInt(this.dataset.i), 'preis', this.value); });
   });
   document.querySelectorAll('.item-ust').forEach(function(el){
-    el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'ust', this.value); });
+    el.addEventListener('input',  function(){ updateItem(parseInt(this.dataset.i), 'ust', this.value); });
+    el.addEventListener('change', function(){ updateItem(parseInt(this.dataset.i), 'ust', this.value); });
   });
   document.querySelectorAll('.item-del').forEach(function(el){
     el.addEventListener('click', function(){ removeItem(parseInt(this.dataset.i)); });
@@ -2694,7 +2697,8 @@ function renderItems() {
     el.addEventListener('input', function(){ updateItemExtra(parseInt(this.dataset.i), parseInt(this.dataset.j), 'betrag', this.value); });
   });
   document.querySelectorAll('.item-extra-ust').forEach(function(el){
-    el.addEventListener('input', function(){ updateItemExtra(parseInt(this.dataset.i), parseInt(this.dataset.j), 'ust', this.value); });
+    el.addEventListener('input',  function(){ updateItemExtra(parseInt(this.dataset.i), parseInt(this.dataset.j), 'ust', this.value); });
+    el.addEventListener('change', function(){ updateItemExtra(parseInt(this.dataset.i), parseInt(this.dataset.j), 'ust', this.value); });
   });
   document.querySelectorAll('.item-djevad-h').forEach(function(el){
     el.addEventListener('input', function(){ updateItem(parseInt(this.dataset.i), 'djevad_h', this.value); });
@@ -2713,6 +2717,7 @@ function renderItems() {
       var ii = parseInt(inp.dataset.i);
       if ((itemsData[ii].arbeitsdaten||[]).length) inp.value = itemsData[ii].helmut_h || 0;
     });
+    renderSum();
   }
   document.querySelectorAll('.item-arbeit-datum,.item-arbeit-dz,.item-arbeit-helm,.item-fahrzeit-datum,.item-fahrzeit-dz,.item-fahrzeit-helm').forEach(function(el) {
     el.addEventListener('change', syncDateInputs);
