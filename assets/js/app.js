@@ -568,6 +568,7 @@ function SP(id) {
   }
 
   if (id === 'todos')         renderTodos();
+  if (id === 'fixkosten')     renderFixkostenTab();
   if (id === 'einstellungen') initEinstellungen();
 }
 
@@ -587,6 +588,7 @@ document.getElementById('nav-bankbuch').addEventListener('click',     function()
 document.getElementById('nav-kassabuch').addEventListener('click',    function(){ SP('kassabuch'); });
 document.getElementById('nav-export').addEventListener('click',       function(){ SP('export'); });
 document.getElementById('nav-todos').addEventListener('click',         function(){ SP('todos'); });
+document.getElementById('nav-fixkosten').addEventListener('click',     function(){ SP('fixkosten'); });
 document.getElementById('nav-kostenvoranschlag').addEventListener('click', function(){ SP('kostenvoranschlag'); });
 document.getElementById('nav-kv-liste').addEventListener('click', function(){ SP('kv-liste'); });
 
@@ -901,18 +903,31 @@ function initEinstellungen() {
   // Fixkosten laden und rendern
   renderFixkostenList();
 
+  // Link to Fixkosten tab
+  var btnToFkTab = document.getElementById('btn-einst-zu-fixkosten-tab');
+  if (btnToFkTab) btnToFkTab.onclick = function(){ SP('fixkosten'); };
+
   var btnAdd = document.getElementById('btn-add-fixkosten');
   if(btnAdd) btnAdd.onclick = function(){
-    // Read current values from DOM (not from storage) so nothing gets lost
+    // Read current values from DOM (not from storage) so nothing gets lost, preserve payment state
+    var cached = loadFixkosten();
     var fk = [];
     document.querySelectorAll('.fk-row').forEach(function(row){
+      var idEl = row.querySelector('.fk-id-input');
+      var fkId = idEl ? idEl.value : '';
       var name = row.querySelector('.fk-name').value.trim();
       var betrag = parseFloat(row.querySelector('.fk-betrag').value) || 0;
       var monatEl = row.querySelector('.fk-monat');
       var monat = monatEl ? (parseInt(monatEl.value)||null) : null;
-      fk.push({name:name, betrag:betrag, monat:monat});
+      var existing = cached.find(function(f){ return f.fk_id && f.fk_id === fkId; });
+      fk.push({
+        fk_id: fkId || generateFkId(),
+        name: name, betrag: betrag, monat: monat,
+        bezahlt_am:      existing ? (existing.bezahlt_am || null)           : null,
+        reset_intervall: existing ? (existing.reset_intervall || 'monatlich') : 'monatlich',
+      });
     });
-    fk.push({name:'', betrag:0});
+    fk.push({ fk_id: generateFkId(), name: '', betrag: 0, bezahlt_am: null, reset_intervall: 'monatlich' });
     saveFixkosten(fk);
     renderFixkostenList();
   };
@@ -939,14 +954,26 @@ function initEinstellungen() {
 
   var btnSave = document.getElementById('btn-save-fixkosten');
   if(btnSave) btnSave.onclick = function(){
-    var rows = document.querySelectorAll('.fk-row');
+    var cached = loadFixkosten();
     var fk = [];
-    rows.forEach(function(row){
+    document.querySelectorAll('.fk-row').forEach(function(row){
+      var idEl = row.querySelector('.fk-id-input');
+      var fkId = idEl ? idEl.value : '';
       var name   = row.querySelector('.fk-name').value.trim();
       var betrag = parseFloat(row.querySelector('.fk-betrag').value) || 0;
       var monatEl = row.querySelector('.fk-monat');
       var monat = monatEl ? (parseInt(monatEl.value)||null) : null;
-      if(name || betrag > 0) fk.push({name:name, betrag:betrag, monat:monat});
+      if (name || betrag > 0) {
+        var existing = cached.find(function(f){ return f.fk_id && f.fk_id === fkId; });
+        fk.push({
+          fk_id:           fkId || generateFkId(),
+          name:            name,
+          betrag:          betrag,
+          monat:           monat,
+          bezahlt_am:      existing ? (existing.bezahlt_am || null)           : null,
+          reset_intervall: existing ? (existing.reset_intervall || 'monatlich') : 'monatlich',
+        });
+      }
     });
     saveFixkosten(fk);
     var info = document.getElementById('fixkosten-info');
@@ -1005,9 +1032,26 @@ function initEinstellungen() {
 }
 
 function loadFixkosten() {
-  if (_dbInitialized) return _fixkostenCache.slice();
-  // Fallback
-  try { return JSON.parse(localStorage.getItem('bp_fixkosten') || '[]'); } catch(e){ return []; }
+  var items;
+  if (_dbInitialized) {
+    items = _fixkostenCache.slice();
+  } else {
+    try { items = JSON.parse(localStorage.getItem('bp_fixkosten') || '[]'); } catch(e){ items = []; }
+  }
+  // Ensure all items have a stable fk_id; generate and persist if missing
+  var needsSave = false;
+  items = items.map(function(item) {
+    if (!item.fk_id) {
+      needsSave = true;
+      return Object.assign({}, item, { fk_id: generateFkId() });
+    }
+    return item;
+  });
+  if (needsSave) {
+    _fixkostenCache = items;
+    saveFixkosten(items);
+  }
+  return items;
 }
 
 function saveFixkosten(list) {
@@ -1044,6 +1088,7 @@ function renderFixkostenList() {
     var opts = '<option value="">Jeden Monat</option>' +
       MONTHS.map(function(m,mi){ return '<option value="'+(mi+1)+'"'+(String(mi+1)===selVal?' selected':'')+'>'+m+'</option>'; }).join('');
     return '<div class="fk-row" draggable="true" data-i="'+i+'" style="display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap;border-radius:8px;transition:background .15s">' +
+      '<input type="hidden" class="fk-id-input" value="'+esc(item.fk_id||'')+'">' +
       '<span class="drag-handle" style="cursor:grab;font-size:20px;color:#bbb;padding:0 2px;user-select:none;flex-shrink:0" title="Verschieben">&#8942;</span>' +
       '<input class="fk-name" placeholder="Bezeichnung (z.B. 13. Gehalt)" value="'+esc(item.name||'')+'" style="flex:2;min-width:140px;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:sans-serif">' +
       '<input class="fk-betrag" type="number" placeholder="0.00" value="'+(item.betrag||'')+'" min="0" step="0.01" style="flex:1;min-width:90px;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:sans-serif">' +
@@ -1053,14 +1098,26 @@ function renderFixkostenList() {
     '</div>';
   }).join('');
 
+  // Reads rows from DOM and carries over payment state (bezahlt_am, reset_intervall) from cache
   function readFkFromDOM() {
+    var cached = loadFixkosten();
     var rows = [];
     document.querySelectorAll('#fixkosten-list .fk-row').forEach(function(row){
+      var idEl = row.querySelector('.fk-id-input');
+      var fkId = idEl ? idEl.value : '';
       var name = row.querySelector('.fk-name').value.trim();
       var betrag = parseFloat(row.querySelector('.fk-betrag').value)||0;
       var monatEl = row.querySelector('.fk-monat');
       var monat = monatEl ? (parseInt(monatEl.value)||null) : null;
-      rows.push({name:name, betrag:betrag, monat:monat});
+      var existing = cached.find(function(f){ return f.fk_id && f.fk_id === fkId; });
+      rows.push({
+        fk_id:           fkId || generateFkId(),
+        name:            name,
+        betrag:          betrag,
+        monat:           monat,
+        bezahlt_am:      existing ? (existing.bezahlt_am || null)      : null,
+        reset_intervall: existing ? (existing.reset_intervall || 'monatlich') : 'monatlich',
+      });
     });
     return rows;
   }
@@ -1107,6 +1164,170 @@ function renderFixkostenList() {
 
 
 // ================================================================
+// FIXKOSTEN HELPERS
+// ================================================================
+function generateFkId() {
+  return 'fk_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+}
+
+/**
+ * Returns true if the item should be displayed as "bezahlt" (paid) right now.
+ * The checkbox resets according to the item's reset_intervall.
+ */
+function isFixkostenBezahlt(item) {
+  if (!item.bezahlt_am) return false;
+  var paidDate = new Date(item.bezahlt_am);
+  var now = new Date();
+  var intervall = item.reset_intervall || 'monatlich';
+  if (intervall === 'manuell') return true;
+  if (intervall === 'monatlich') {
+    var nextMonth = new Date(paidDate.getFullYear(), paidDate.getMonth() + 1, 1);
+    return now < nextMonth;
+  }
+  if (intervall === 'jaehrlich') {
+    var nextYear = new Date(paidDate.getFullYear() + 1, 0, 1);
+    return now < nextYear;
+  }
+  return false;
+}
+
+/**
+ * Returns the total amount of paid fixkosten whose bezahlt_am falls in the given month/year.
+ * Used by statistics to include them as Ausgaben.
+ */
+function getFixkostenPaidExpenses(monat, year) {
+  return loadFixkosten().filter(function(f) {
+    if (!f.bezahlt_am) return false;
+    var d = new Date(f.bezahlt_am);
+    return d.getMonth() === monat && d.getFullYear() === year;
+  }).reduce(function(s, f) { return s + (parseFloat(f.betrag) || 0); }, 0);
+}
+
+// ================================================================
+// FIXKOSTEN TAB
+// ================================================================
+function renderFixkostenTab() {
+  var MONTHS_FULL = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+  var now = new Date();
+  var curM = now.getMonth();
+  var curY = now.getFullYear();
+
+  var lbl = document.getElementById('fk-tab-month-label');
+  if (lbl) lbl.textContent = MONTHS_FULL[curM] + ' ' + curY;
+
+  var fk = loadFixkosten();
+  var fkThis   = fk.filter(function(f){ return !f.monat || f.monat === (curM + 1); });
+  var fkOther  = fk.filter(function(f){ return f.monat && f.monat !== (curM + 1); });
+
+  var el = document.getElementById('fixkosten-tab-list');
+  var emptyEl = document.getElementById('fixkosten-tab-empty');
+  var otherCard = document.getElementById('fixkosten-tab-other-card');
+  var otherList = document.getElementById('fixkosten-tab-other-list');
+  if (!el) return;
+
+  // Wire navigation buttons
+  var btnToEinst = document.getElementById('btn-fixkosten-zu-einstellungen');
+  if (btnToEinst) btnToEinst.onclick = function(){ SP('einstellungen'); };
+  var btnEmpty = document.getElementById('btn-fk-tab-add-link');
+  if (btnEmpty) btnEmpty.onclick = function(){ SP('einstellungen'); };
+
+  if (!fkThis.length) {
+    el.innerHTML = '';
+    if (emptyEl) emptyEl.style.display = '';
+  } else {
+    if (emptyEl) emptyEl.style.display = 'none';
+
+    var INTERVALL_OPTS = [
+      { val: 'monatlich', lbl: 'Monatlich' },
+      { val: 'jaehrlich', lbl: 'Jährlich' },
+      { val: 'manuell',   lbl: 'Manuell' },
+    ];
+
+    var rows = fkThis.map(function(item) {
+      var bezahlt = isFixkostenBezahlt(item);
+      var wann = item.monat ? MONTHS_FULL[item.monat - 1] : 'Jeden Monat';
+      var paidDateStr = '';
+      if (item.bezahlt_am) {
+        try { paidDateStr = new Date(item.bezahlt_am).toLocaleDateString('de-AT'); } catch(_) {}
+      }
+      var intervallOpts = INTERVALL_OPTS.map(function(o) {
+        return '<option value="' + o.val + '"' + ((item.reset_intervall || 'monatlich') === o.val ? ' selected' : '') + '>' + o.lbl + '</option>';
+      }).join('');
+
+      var statusBadge = bezahlt
+        ? '<span style="background:#d1fae5;color:#065f46;font-size:11px;padding:2px 8px;border-radius:10px;font-family:sans-serif;white-space:nowrap">&#10003; bezahlt' + (paidDateStr ? ' ' + paidDateStr : '') + '</span>'
+        : '<span style="background:#fef3c7;color:#92400e;font-size:11px;padding:2px 8px;border-radius:10px;font-family:sans-serif;white-space:nowrap">offen</span>';
+
+      return '<div class="fk-tab-row" data-fk-id="' + esc(item.fk_id || '') + '" style="display:flex;align-items:center;gap:12px;padding:14px 4px;border-bottom:1px solid var(--border);flex-wrap:wrap">' +
+        '<input type="checkbox" class="fk-tab-chk" ' + (bezahlt ? 'checked' : '') + ' style="width:20px;height:20px;cursor:pointer;flex-shrink:0;accent-color:var(--accent)" title="Als bezahlt markieren">' +
+        '<div style="flex:1;min-width:120px">' +
+          '<div style="font-family:sans-serif;font-size:14px;font-weight:500;color:var(--text)">' + esc(item.name || '—') + '</div>' +
+          '<div style="font-family:sans-serif;font-size:11px;color:var(--t3);margin-top:2px">' + wann + '</div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+          statusBadge +
+          '<div style="font-family:\'Courier New\',monospace;font-size:15px;font-weight:600;color:var(--accent);white-space:nowrap">' + fmt(parseFloat(item.betrag) || 0) + '</div>' +
+          '<div style="display:flex;align-items:center;gap:4px">' +
+            '<span style="font-family:sans-serif;font-size:11px;color:var(--t3);white-space:nowrap">Reset:</span>' +
+            '<select class="fk-tab-intervall" style="padding:5px 8px;border:1px solid var(--border);border-radius:8px;font-size:11px;font-family:sans-serif;color:var(--t2);background:var(--card)">' + intervallOpts + '</select>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    el.innerHTML = rows;
+
+    // Wire checkboxes and interval selects
+    el.querySelectorAll('.fk-tab-row').forEach(function(row) {
+      var fkId = row.dataset.fkId;
+      var chkEl = row.querySelector('.fk-tab-chk');
+      var selEl = row.querySelector('.fk-tab-intervall');
+
+      if (chkEl) chkEl.onchange = function() {
+        var fk2 = loadFixkosten();
+        fk2 = fk2.map(function(f) {
+          if (f.fk_id !== fkId) return f;
+          return Object.assign({}, f, {
+            bezahlt_am: chkEl.checked ? new Date().toISOString().split('T')[0] : null,
+          });
+        });
+        saveFixkosten(fk2);
+        renderFixkostenTab();
+      };
+
+      if (selEl) selEl.onchange = function() {
+        var fk2 = loadFixkosten();
+        fk2 = fk2.map(function(f) {
+          if (f.fk_id !== fkId) return f;
+          return Object.assign({}, f, { reset_intervall: selEl.value });
+        });
+        saveFixkosten(fk2);
+      };
+    });
+  }
+
+  // Other months section
+  if (otherCard && otherList) {
+    if (!fkOther.length) {
+      otherCard.style.display = 'none';
+    } else {
+      otherCard.style.display = '';
+      fkOther.sort(function(a, b) {
+        var am = a.monat > curM + 1 ? a.monat : a.monat + 12;
+        var bm = b.monat > curM + 1 ? b.monat : b.monat + 12;
+        return am - bm;
+      });
+      otherList.innerHTML = fkOther.map(function(f) {
+        return '<div style="display:flex;justify-content:space-between;padding:8px 4px;border-bottom:1px solid var(--border)">' +
+          '<span>' + esc(f.name || '—') + ' <span style="font-size:11px;color:var(--accent)">' + (f.monat ? MONTHS_FULL[f.monat - 1] : '') + '</span></span>' +
+          '<span style="font-family:\'Courier New\',monospace;font-weight:500">' + fmt(parseFloat(f.betrag) || 0) + '</span>' +
+        '</div>';
+      }).join('');
+    }
+  }
+}
+
+// ================================================================
 // STATISTIK
 // ================================================================
 function renderStatistik() {
@@ -1125,8 +1346,10 @@ function renderStatistik() {
 
   var umsatz   = arInvs.reduce(function(s,i){ return s+brutto(i); }, 0);
   var ausgaben = erInvs.reduce(function(s,i){ return s+brutto(i); }, 0);
+  // Include paid Fixkosten as expenses
+  var fkPaidThisMonth = getFixkostenPaidExpenses(curM, curY);
+  ausgaben += fkPaidThisMonth;
   var fixkostenMonat = getFixkostenTotal(curM + 1);
-  // Gewinn WITHOUT Fixkosten as requested
   var gewinnVerlust  = umsatz - ausgaben;
   var isGewinn       = gewinnVerlust >= 0;
   var marge = umsatz > 0 ? Math.round(gewinnVerlust / umsatz * 1000) / 10 : 0;
@@ -1134,12 +1357,12 @@ function renderStatistik() {
   // ── Metrics ──────────────────────────────────────────────────
   document.getElementById('stat-metrics').innerHTML =
     '<div class="metric green"><div class="lbl">Umsatz (dieser Monat)</div><div class="val">'+fmt(umsatz)+'</div></div>' +
-    '<div class="metric red"><div class="lbl">Ausgaben</div><div class="val">'+fmt(ausgaben)+'</div></div>' +
+    '<div class="metric red"><div class="lbl">Ausgaben' + (fkPaidThisMonth > 0 ? ' <span style="font-size:10px;background:#fee2e2;color:#991b1b;border-radius:8px;padding:1px 5px">inkl. '+fmt(fkPaidThisMonth)+' Fixkosten</span>' : '') + '</div><div class="val">'+fmt(ausgaben)+'</div></div>' +
     '<div class="metric '+(isGewinn?'green':'red')+'"><div class="lbl">'+(isGewinn?'Gewinn':'Verlust')+'</div><div class="val">'+fmt(Math.abs(gewinnVerlust))+'</div></div>' +
     '<div class="metric '+(marge>=0?'green':'red')+'"><div class="lbl">Gewinnmarge</div><div class="val">'+marge.toFixed(1)+'%</div></div>' +
     '<div class="metric"><div class="lbl">Fixkosten / Monat</div><div class="val">'+fmt(fixkostenMonat)+'</div></div>';
 
-  // ── 6-month trend (also without Fixkosten) ───────────────────
+  // ── 6-month trend — includes paid Fixkosten in Ausgaben ──────
   var labels=[], dataGV=[], dataUM=[], dataAUS=[];
   for (var offset=5; offset>=0; offset--) {
     var mm = new Date(curY, curM - offset, 1);
@@ -1147,6 +1370,7 @@ function renderStatistik() {
     var mi = invForMonth(mo, yo);
     var um = mi.filter(function(i){return i.typ==='ausgang';}).reduce(function(s,i){return s+brutto(i);},0);
     var au = mi.filter(function(i){return i.typ==='eingang'&&!i.is_tageslosung;}).reduce(function(s,i){return s+brutto(i);},0);
+    au += getFixkostenPaidExpenses(mo, yo);
     labels.push(MONTHS[mo]+' '+yo);
     dataUM.push(Math.round(um*100)/100);
     dataAUS.push(Math.round(au*100)/100);
