@@ -1367,7 +1367,7 @@ function renderDash() {
         '<td style="white-space:nowrap"><button class="btn primary" style="font-size:11px;padding:3px 8px" onclick="dashBezahle(\''+inv.id+'\')">Bezahlen</button></td>'+
       '</tr>';
     }).join('');
-    rec.innerHTML = '<table style="table-layout:fixed;width:100%"><colgroup><col style="width:60px"><col><col style="width:45px"><col style="width:90px"><col style="width:130px"><col style="width:90px"></colgroup><thead><tr><th>Nr.</th><th>Partner</th><th>Typ</th><th style="text-align:right">Betrag</th><th>Fälligkeit</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
+    rec.innerHTML = '<table style="table-layout:fixed;width:100%;min-width:440px"><colgroup><col style="width:50px"><col><col style="width:38px"><col style="width:72px"><col style="width:108px"><col style="width:76px"></colgroup><thead><tr><th>Nr.</th><th>Partner</th><th>Typ</th><th style="text-align:right">Betrag</th><th>Fälligkeit</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
   }
 
   // Fällige Todos
@@ -2067,6 +2067,11 @@ function setPay(pay) {
     bankBtn.style.background = '#f0f0ec'; bankBtn.style.color = 'var(--t2)';
     document.getElementById('pay-label').textContent = 'Barzahlung / Kassa';
     if (bankomatRow) bankomatRow.style.display = '';
+    // Kassa gewählt → ER-Status sofort auf Bezahlt setzen
+    if (!editId) {
+      var erStatusEl = document.getElementById('er-status');
+      if (erStatusEl) erStatusEl.value = 'bezahlt';
+    }
   }
   refreshNumbers();
 }
