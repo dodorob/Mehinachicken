@@ -339,8 +339,9 @@ function previewNum(typ) {
 // HELPERS
 // ================================================================
 var MONTHS = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
-var FIN_M = new Date().getMonth(), FIN_Y = new Date().getFullYear();
+var FIN_M  = new Date().getMonth(), FIN_Y  = new Date().getFullYear();
 var STAT_M = new Date().getMonth(), STAT_Y = new Date().getFullYear();
+var DASH_VIEW = 'monat'; // 'monat' | 'jahr'
 
 function fmt(n) {
   return new Intl.NumberFormat('de-AT', {style:'currency', currency:'EUR'}).format(n || 0);
@@ -518,7 +519,13 @@ function SP(id) {
   var mainEl = document.querySelector('.main');
   if (mainEl) mainEl.scrollTop = 0;
   window.scrollTo(0, 0);
-  if (id === 'dashboard')  { renderDash(); updateBeschDatalist(); }
+  if (id === 'dashboard') {
+    renderDash(); updateBeschDatalist();
+    var btnM = document.getElementById('dash-toggle-monat');
+    var btnJ = document.getElementById('dash-toggle-jahr');
+    if (btnM) btnM.onclick = function(){ DASH_VIEW='monat'; renderDash(); };
+    if (btnJ) btnJ.onclick = function(){ DASH_VIEW='jahr'; renderDash(); };
+  }
   if (id === 'ausgang') {
     renderTable('ausgang');
     var bfa=document.getElementById('btn-filter-ausgang'); if(bfa) bfa.onclick=function(){ openFilterModal('ausgang','ar'); };
@@ -900,6 +907,17 @@ function initEinstellungen() {
   var inp = document.getElementById('pos-badge-new');
   if (inp) inp.onkeydown = function(e){ if (e.key === 'Enter') document.getElementById('btn-pos-badge-add').click(); };
 
+  // USt.-Guthaben
+  var ustGutEl  = document.getElementById('ust-guthaben');
+  var ustGutBtn = document.getElementById('btn-ust-guthaben-save');
+  if (ustGutEl) ustGutEl.value = getSetting('bp_ust_guthaben') || '';
+  if (ustGutBtn) ustGutBtn.onclick = function() {
+    var v = parseFloat((document.getElementById('ust-guthaben')||{value:'0'}).value) || 0;
+    setSetting('bp_ust_guthaben', String(v));
+    var info = document.getElementById('ust-guthaben-info');
+    if (info) { info.textContent = '✓ Gespeichert: ' + fmt(v); setTimeout(function(){ info.textContent=''; }, 2000); }
+  };
+
   var vlEl = document.getElementById('todo-vorlauf');
   if (vlEl) vlEl.value = getSetting('bp_todo_vorlauf') || '7';
   var vlBtn = document.getElementById('btn-todo-vorlauf-save');
@@ -1136,11 +1154,66 @@ function isFixkostenBezahlt(item) {
  * Used by statistics to include them as Ausgaben.
  */
 function getFixkostenPaidExpenses(monat, year) {
-  return loadFixkosten().filter(function(f) {
+  var total = loadFixkosten().filter(function(f) {
     if (!f.bezahlt_am) return false;
     var d = new Date(f.bezahlt_am);
     return d.getMonth() === monat && d.getFullYear() === year;
   }).reduce(function(s, f) { return s + (parseFloat(f.betrag) || 0); }, 0);
+  // Also include paid VAT entry for this month
+  var vatEntry = loadVatEntry();
+  if (vatEntry && vatEntry.bezahlt_am) {
+    var vd = new Date(vatEntry.bezahlt_am);
+    if (vd.getMonth() === monat && vd.getFullYear() === year) {
+      total += parseFloat(vatEntry.betrag) || 0;
+    }
+  }
+  return total;
+}
+
+// ================================================================
+// VAT AUTO-ENTRY (stored separately from fixkosten table)
+// ================================================================
+var VAT_ENTRY_KEY = 'bp_vat_entry';
+
+function loadVatEntry() {
+  var raw = getSetting(VAT_ENTRY_KEY);
+  try { return raw ? JSON.parse(raw) : null; } catch(e) { return null; }
+}
+
+function saveVatEntry(obj) {
+  setSetting(VAT_ENTRY_KEY, JSON.stringify(obj));
+}
+
+/**
+ * Returns the current month's VAT auto-entry, creating/resetting it if needed.
+ * Only updates betrag when the entry belongs to a different month (monthly reset).
+ */
+function getVatAutoEntry() {
+  var now  = new Date();
+  var curMonthKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  var vatSchuld = _calcMonthVatSchuld(now.getMonth(), now.getFullYear());
+  var entry = loadVatEntry();
+  if (!entry || entry.month !== curMonthKey) {
+    entry = { month: curMonthKey, betrag: vatSchuld, bezahlt_am: null };
+    saveVatEntry(entry);
+  } else if (!entry.bezahlt_am && entry.betrag !== vatSchuld) {
+    entry.betrag = vatSchuld;
+    saveVatEntry(entry);
+  }
+  return entry;
+}
+
+function _calcMonthVatSchuld(m, y) {
+  var d = getDB();
+  var vC = 0, vP = 0;
+  d.invoices.forEach(function(inv) {
+    var dt = new Date(inv.datum);
+    if (dt.getMonth() !== m || dt.getFullYear() !== y) return;
+    var v = vatAmt(inv);
+    if (inv.typ === 'ausgang') vC += v;
+    else if (!inv.is_tageslosung) vP += v;
+  });
+  return Math.max(0, Math.round((vC - vP) * 100) / 100);
 }
 
 // ================================================================
@@ -1275,6 +1348,36 @@ function renderFixkostenTab() {
   }
 
   buildRows(fkThis);
+
+  // ── VAT auto-entry row (pinned, locked) ───────────────────────
+  var vatEntry = getVatAutoEntry();
+  if (vatEntry && vatEntry.betrag > 0) {
+    var vatBezahlt = !!vatEntry.bezahlt_am;
+    var vatDateStr = '';
+    if (vatEntry.bezahlt_am) { try { vatDateStr = new Date(vatEntry.bezahlt_am).toLocaleDateString('de-AT'); } catch(_) {} }
+    var vatBadge = vatBezahlt
+      ? '<span style="background:#d1fae5;color:#065f46;font-size:11px;padding:2px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0">&#10003; bezahlt'+(vatDateStr?' '+vatDateStr:'')+'</span>'
+      : '<span style="background:#fef3c7;color:#92400e;font-size:11px;padding:2px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0">offen</span>';
+    var vatHtml = '<div id="fk-vat-row" style="display:flex;align-items:center;gap:10px;padding:10px 4px;margin-top:8px;border:1px dashed var(--accent);border-radius:8px;flex-wrap:wrap;background:var(--card)">' +
+      '<span style="font-size:16px;color:var(--accent);flex-shrink:0">&#9889;</span>' +
+      '<input type="checkbox" id="fk-vat-chk" '+(vatBezahlt?'checked':'')+' style="width:18px;height:18px;cursor:pointer;flex-shrink:0;accent-color:var(--accent)">' +
+      '<div style="flex:1;min-width:120px">' +
+        '<div style="font-family:sans-serif;font-size:13px;font-weight:600;color:var(--accent)">USt. Abgabe</div>' +
+        '<div style="font-family:sans-serif;font-size:11px;color:var(--t3)">Automatisch berechnet &mdash; '+MONTHS_FULL[curM]+' '+curY+'</div>' +
+      '</div>' +
+      '<span style="font-family:\'Courier New\',monospace;font-size:15px;font-weight:700;color:var(--accent)">'+fmt(vatEntry.betrag)+'</span>' +
+      vatBadge +
+    '</div>';
+    el.innerHTML += vatHtml;
+    var vatChk = document.getElementById('fk-vat-chk');
+    if (vatChk) vatChk.onchange = function() {
+      var e = loadVatEntry();
+      if (!e) return;
+      e.bezahlt_am = vatChk.checked ? new Date().toISOString().split('T')[0] : null;
+      saveVatEntry(e);
+      renderFixkostenTab();
+    };
+  }
 
   // ── Wire all interactive elements ─────────────────────────────
   function wireRows() {
@@ -1602,43 +1705,63 @@ function renderStatistik() {
 
 function renderDash() {
   var d = getDB(), now = new Date(), m = now.getMonth(), y = now.getFullYear();
-  var tI=0, tE=0, vC=0, vP=0, mI=0, mE=0;
+
+  // ── Aggregate monthly & yearly figures ──────────────────────
+  var mI=0, mE=0, mVC=0, mVP=0;
+  var yI=0, yE=0, yVC=0, yVP=0;
   d.invoices.forEach(function(inv){
     var b = brutto(inv), v = vatAmt(inv);
-    if (inv.typ === 'ausgang') { tI+=b; vC+=v; } else if (!inv.is_tageslosung) { tE+=b; vP+=v; }
-    var id = new Date(inv.datum);
-    if (id.getMonth()===m && id.getFullYear()===y) {
-      if (inv.typ==='ausgang') mI+=b; else if (!inv.is_tageslosung) mE+=b;
+    var dt = new Date(inv.datum);
+    var isM = dt.getMonth()===m && dt.getFullYear()===y;
+    var isY = dt.getFullYear()===y;
+    if (inv.typ === 'ausgang') {
+      if (isM){ mI+=b; mVC+=v; }
+      if (isY){ yI+=b; yVC+=v; }
+    } else if (!inv.is_tageslosung) {
+      if (isM){ mE+=b; mVP+=v; }
+      if (isY){ yE+=b; yVP+=v; }
     }
   });
-  // Include paid Fixkosten as expenses (all time total + this month)
-  var allFk = loadFixkosten();
-  allFk.forEach(function(f) {
-    if (!f.bezahlt_am) return;
-    var amt = parseFloat(f.betrag) || 0;
-    tE += amt;
-    var pd = new Date(f.bezahlt_am);
-    if (pd.getMonth() === m && pd.getFullYear() === y) mE += amt;
-  });
-  document.getElementById('d-metrics').innerHTML =
-    '<div class="metric '+(tI-tE>=0?'green':'red')+'"><div class="lbl">Umsatz</div><div class="val">' + fmt(tI-tE) + '</div></div>' +
-    '<div class="metric green"><div class="lbl">Einnahmen</div><div class="val">' + fmt(tI) + '</div><div class="sub">Monat: ' + fmt(mI) + '</div></div>' +
-    '<div class="metric red"><div class="lbl">Ausgaben</div><div class="val">' + fmt(tE) + '</div><div class="sub">Monat: ' + fmt(mE) + '</div></div>' +
-    '<div class="metric amber"><div class="lbl">USt.-Schuld</div><div class="val">' + fmt(vC-vP) + '</div></div>';
+  // Include paid Fixkosten (incl. VAT entry) as expenses
+  mE += getFixkostenPaidExpenses(m, y);
+  for (var mi=0; mi<12; mi++) yE += getFixkostenPaidExpenses(mi, y);
 
+  var isMonat  = DASH_VIEW !== 'jahr';
+  var showI    = isMonat ? mI  : yI;
+  var showE    = isMonat ? mE  : yE;
+  var showVC   = isMonat ? mVC : yVC;
+  var showVP   = isMonat ? mVP : yVP;
+  var showGV   = showI - showE;
+  var viewLbl  = isMonat ? MONTHS[m].substr(0,3)+' '+y : 'Jahr '+y;
+
+  // ── Update toggle button styling ─────────────────────────────
+  var btnM = document.getElementById('dash-toggle-monat');
+  var btnJ = document.getElementById('dash-toggle-jahr');
+  if (btnM){ btnM.style.background=isMonat?'var(--accent)':'transparent'; btnM.style.color=isMonat?'#fff':'var(--t2)'; btnM.style.fontWeight=isMonat?'600':'400'; }
+  if (btnJ){ btnJ.style.background=!isMonat?'var(--accent)':'transparent'; btnJ.style.color=!isMonat?'#fff':'var(--t2)'; btnJ.style.fontWeight=!isMonat?'600':'400'; }
+
+  // ── Metrics ──────────────────────────────────────────────────
+  document.getElementById('d-metrics').innerHTML =
+    '<div class="metric '+(showGV>=0?'green':'red')+'"><div class="lbl">Gewinn / Verlust</div><div class="val">'+fmt(showGV)+'</div><div class="sub">'+viewLbl+'</div></div>' +
+    '<div class="metric green"><div class="lbl">Einnahmen</div><div class="val">'+fmt(showI)+'</div><div class="sub">'+viewLbl+'</div></div>' +
+    '<div class="metric red"><div class="lbl">Ausgaben</div><div class="val">'+fmt(showE)+'</div><div class="sub">'+viewLbl+'</div></div>' +
+    '<div class="metric amber"><div class="lbl">USt.-Schuld</div><div class="val">'+fmt(showVC-showVP)+'</div><div class="sub">'+viewLbl+'</div></div>';
+
+  // ── Alerts ───────────────────────────────────────────────────
   var alerts = '';
   var od = d.invoices.filter(function(i){ return i.typ==='ausgang' && i.status==='offen' && i.faellig && new Date(i.faellig) < now; });
   if (od.length) alerts += '<div class="alert warning">&#9888; ' + od.length + ' überfällige Ausgangsrechnung(en)</div>';
   document.getElementById('d-alerts').innerHTML = alerts;
 
+  // ── 6-month bar chart (always monthly) ──────────────────────
   var m6=[],iD=[],eD=[];
   for (var i=5; i>=0; i--) {
     var dm = new Date(y, m-i, 1);
     m6.push(MONTHS[dm.getMonth()].substr(0,3));
     var ii=0, ee=0;
     d.invoices.forEach(function(inv){
-      var id = new Date(inv.datum);
-      if (id.getMonth()===dm.getMonth() && id.getFullYear()===dm.getFullYear()) {
+      var dt2 = new Date(inv.datum);
+      if (dt2.getMonth()===dm.getMonth() && dt2.getFullYear()===dm.getFullYear()) {
         if (inv.typ==='ausgang') ii+=brutto(inv); else if (!inv.is_tageslosung) ee+=brutto(inv);
       }
     });
@@ -1649,9 +1772,93 @@ function renderDash() {
   if (c1._c) c1._c.destroy();
   c1._c = new Chart(c1, {type:'bar', data:{labels:m6, datasets:[{label:'Einnahmen',data:iD,backgroundColor:'#5DCAA5'},{label:'Ausgaben',data:eD,backgroundColor:'#F09595'}]}, options:{plugins:{legend:{labels:{font:{size:11}}},datalabels:{display:false}}, scales:{y:{ticks:{callback:function(v){ return fmt(v); }}}}, animation:{onComplete:function(){var ctx=this.ctx;ctx.save();ctx.font='bold 10px sans-serif';ctx.fillStyle='#333';ctx.textAlign='center';ctx.textBaseline='bottom';this.data.datasets.forEach(function(ds,di){var meta=this.getDatasetMeta(di);meta.data.forEach(function(bar,i){var val=ds.data[i];if(val>0){var v=val>=1000?(val/1000).toFixed(1)+'k':''+Math.round(val);ctx.fillText(v,bar.x,bar.y-2);}});}.bind(this));ctx.restore();}}}});
 
-  var c2 = document.getElementById('cUST');
-  if (c2._c) c2._c.destroy();
-  c2._c = new Chart(c2, {type:'doughnut', data:{labels:['USt. eingenommen','USt. bezahlt'], datasets:[{data:[vC,vP], backgroundColor:['#1D9E75','#F09595']}]}, options:{plugins:{legend:{labels:{font:{size:11}}}}}});
+  // ── USt card (simple display, no chart) ─────────────────────
+  var ustEl = document.getElementById('d-ust');
+  var ustTitle = document.getElementById('d-ust-title');
+  if (ustTitle) ustTitle.textContent = 'USt.-Schuld (' + (isMonat ? MONTHS[m].substr(0,3) : 'Jahr') + ')';
+  if (ustEl) {
+    var ustSchuld = showVC - showVP;
+    var ustGuthaben = parseFloat(getSetting('bp_ust_guthaben') || '0') || 0;
+    // Cumulative year VAT to subtract from Guthaben
+    var yearVatSchuld = 0;
+    for (var mi2=0; mi2<=m; mi2++) yearVatSchuld += _calcMonthVatSchuld(mi2, y);
+    var remainingGuthaben = ustGuthaben - yearVatSchuld;
+    var schuld_col = ustSchuld > 0 ? '#E24B4A' : '#1D9E75';
+    var gutH = ustGuthaben > 0
+      ? '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">' +
+          '<div style="font-family:sans-serif;font-size:12px;color:var(--t3);margin-bottom:4px">USt.-Guthaben</div>' +
+          '<div style="font-family:\'Courier New\',monospace;font-size:14px;font-weight:600;color:#1D9E75">'+fmt(ustGuthaben)+'</div>' +
+          '<div style="font-family:sans-serif;font-size:11px;color:var(--t3);margin:6px 0 2px 0">Abzug kum. ('+y+'): &minus;'+fmt(yearVatSchuld)+'</div>' +
+          '<div style="display:flex;align-items:center;gap:6px;margin-top:4px">' +
+            '<span style="font-family:sans-serif;font-size:12px;color:var(--t2)">Verbleibend:</span>' +
+            '<span style="font-family:\'Courier New\',monospace;font-size:15px;font-weight:700;color:'+(remainingGuthaben>=0?'#1D9E75':'#E24B4A')+'">'+fmt(remainingGuthaben)+'</span>' +
+          '</div>' +
+        '</div>'
+      : '<div style="margin-top:12px;font-family:sans-serif;font-size:11px;color:var(--t3)">Kein Guthaben hinterlegt. <button class="btn" style="font-size:11px;padding:2px 8px" onclick="SP(\'einstellungen\')">In Einstellungen festlegen</button></div>';
+    ustEl.innerHTML =
+      '<div style="font-family:sans-serif;font-size:12px;color:var(--t3);margin-bottom:4px">Fällige USt.</div>' +
+      '<div style="font-family:\'Courier New\',monospace;font-size:24px;font-weight:700;color:'+schuld_col+'">'+fmt(ustSchuld)+'</div>' +
+      '<div style="font-family:sans-serif;font-size:11px;color:var(--t3);margin-top:4px">'+(ustSchuld>0?'einzuzahlen':'kein Betrag fällig')+'</div>' +
+      gutH;
+  }
+
+  // ── Fixkosten card ───────────────────────────────────────────
+  var fkEl = document.getElementById('d-fixkosten');
+  var fkMonEl = document.getElementById('d-fk-month');
+  if (fkMonEl) fkMonEl.textContent = isMonat ? '— ' + MONTHS[m] + ' ' + y : '— ' + y;
+  if (fkEl) {
+    var fk = loadFixkosten();
+    var vatEntry = getVatAutoEntry();
+    var fkShow = isMonat
+      ? fk.filter(function(f){ return !f.monat || f.monat === (m+1); })
+      : fk;
+    if (!fkShow.length && (!vatEntry || vatEntry.betrag <= 0)) {
+      fkEl.innerHTML = '<div class="empty" style="font-family:sans-serif;font-size:13px;color:var(--t3);padding:8px 0">Keine Fixkosten. <button class="btn" style="font-size:12px" onclick="SP(\'fixkosten\')">Hinzufügen</button></div>';
+    } else {
+      var totalFk = fkShow.reduce(function(s,f){ return s+(parseFloat(f.betrag)||0); }, 0);
+      var paidFk  = fkShow.filter(isFixkostenBezahlt).reduce(function(s,f){ return s+(parseFloat(f.betrag)||0); }, 0);
+      if (vatEntry && vatEntry.betrag > 0) {
+        totalFk += vatEntry.betrag;
+        if (vatEntry.bezahlt_am) paidFk += vatEntry.betrag;
+      }
+      var paidPct = totalFk > 0 ? Math.round(paidFk / totalFk * 100) : 0;
+      var pctCol  = paidPct >= 100 ? '#1D9E75' : paidPct >= 50 ? '#f59e0b' : '#E24B4A';
+
+      var rows = fkShow.map(function(f){
+        var bezahlt = isFixkostenBezahlt(f);
+        var badge = bezahlt
+          ? '<span style="background:#d1fae5;color:#065f46;font-size:10px;padding:1px 6px;border-radius:8px">&#10003; bezahlt</span>'
+          : '<span style="background:#fef3c7;color:#92400e;font-size:10px;padding:1px 6px;border-radius:8px">offen</span>';
+        return '<tr><td style="font-family:sans-serif;font-size:12px">'+esc(f.name||'—')+'</td>'+
+               '<td style="text-align:right;font-family:\'Courier New\',monospace;font-size:12px">'+fmt(parseFloat(f.betrag)||0)+'</td>'+
+               '<td style="padding-left:8px">'+badge+'</td></tr>';
+      }).join('');
+
+      // VAT row
+      var vatRow = '';
+      if (vatEntry && vatEntry.betrag > 0) {
+        var vatBezahlt = !!vatEntry.bezahlt_am;
+        var vatBadge = vatBezahlt
+          ? '<span style="background:#d1fae5;color:#065f46;font-size:10px;padding:1px 6px;border-radius:8px">&#10003; bezahlt</span>'
+          : '<span style="background:#fef3c7;color:#92400e;font-size:10px;padding:1px 6px;border-radius:8px">offen</span>';
+        vatRow = '<tr><td style="font-family:sans-serif;font-size:12px;color:var(--accent)">&#9889; USt. Abgabe</td>'+
+                 '<td style="text-align:right;font-family:\'Courier New\',monospace;font-size:12px">'+fmt(vatEntry.betrag)+'</td>'+
+                 '<td style="padding-left:8px">'+vatBadge+'</td></tr>';
+      }
+
+      fkEl.innerHTML =
+        '<table style="width:100%;margin-bottom:10px"><tbody>'+rows+vatRow+'</tbody>'+
+        '<tfoot><tr>'+
+          '<td style="font-family:sans-serif;font-size:12px;font-weight:600;padding-top:8px;border-top:1px solid var(--border)">Gesamt</td>'+
+          '<td style="text-align:right;font-family:\'Courier New\',monospace;font-size:12px;font-weight:600;padding-top:8px;border-top:1px solid var(--border)">'+fmt(totalFk)+'</td>'+
+          '<td style="padding-top:8px;border-top:1px solid var(--border);padding-left:8px">'+
+            '<span style="font-size:11px;font-weight:600;color:'+pctCol+'">'+paidPct+'% bezahlt</span>'+
+          '</td>'+
+        '</tr></tfoot></table>'+
+        '<div style="background:#f0f0ec;border-radius:6px;height:8px"><div style="background:'+pctCol+';height:8px;border-radius:6px;width:'+paidPct+'%"></div></div>'+
+        '<div style="text-align:right;margin-top:6px"><button class="btn" style="font-size:11px;padding:3px 10px" onclick="SP(\'fixkosten\')">Zum Fixkosten-Tab &#8594;</button></div>';
+    }
+  }
 
   var rec = document.getElementById('d-recent');
   var rechVorlauf = parseInt(getSetting('bp_rech_vorlauf') || '3');
