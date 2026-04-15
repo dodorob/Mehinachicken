@@ -50,7 +50,7 @@
 
 <div class="page active" id="page-dashboard">
   <div class="topbar"><h2>Dashboard</h2><div class="tba"><button class="btn" onclick="showMotivation()" style="background:linear-gradient(135deg,#ff6b9d,#ff8e53);color:#fff;border:none;font-size:13px;padding:8px 16px;border-radius:20px;cursor:pointer">💪 Motivation</button></div></div>
-  <div class="content"><div id="d-alerts"></div><div class="grid4" id="d-metrics"></div><div class="grid2"><div class="card"><h3>Einnahmen &amp; Ausgaben (6 Monate)</h3><canvas id="cEA"></canvas></div><div class="card"><h3>USt.-Übersicht</h3><canvas id="cUST"></canvas></div></div><div class="grid2"><div class="card"><h3>Fällig in 3 Tagen</h3><div id="d-recent"></div></div><div class="card"><h3>&#9989; Fällige To-Dos</h3><div id="d-todos"></div></div></div></div>
+  <div class="content"><div id="d-alerts"></div><div class="grid4" id="d-metrics"></div><div class="grid2"><div class="card"><h3>Einnahmen &amp; Ausgaben (6 Monate)</h3><canvas id="cEA"></canvas></div><div class="card"><h3>USt.-Übersicht</h3><canvas id="cUST"></canvas></div></div><div class="grid2"><div class="card" style="overflow:hidden"><h3>Fällig in 3 Tagen</h3><div id="d-recent" style="overflow-x:auto"></div></div><div class="card" style="overflow:hidden"><h3>&#9989; Fällige To-Dos</h3><div id="d-todos" style="overflow-x:auto"></div></div></div></div>
 </div>
 
 <div class="page" id="page-ausgang">
@@ -281,7 +281,7 @@
           </div>
           <p style="font-family:sans-serif;font-size:12px;color:var(--t2);margin-bottom:0.75rem">Mehrere Positionen mit verschiedenen Steuersätzen möglich. Netto eingeben — USt. und Brutto werden automatisch berechnet.</p>
           <div style="display:grid;grid-template-columns:1fr 130px 90px 130px 32px;gap:6px;margin-bottom:4px;font-family:sans-serif;font-size:11px;color:var(--t3);font-weight:600;padding:0 2px">
-            <span>Beschreibung</span><span>Netto (€) *</span><span>USt. %</span><span>USt. (€)</span><span></span>
+            <span>Beschreibung</span><span>Netto (€)</span><span>USt. %</span><span>USt. (€)</span><span></span>
           </div>
           <div id="er-items-container"></div>
           <div id="er-totals" style="margin-top:10px;padding:10px 12px;background:#f5f5f2;border-radius:8px;font-family:sans-serif;font-size:13px;display:none">
