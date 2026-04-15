@@ -1359,15 +1359,15 @@ function renderDash() {
         : tage === 0 ? '<span style="color:#BA7517;font-weight:600">Heute fällig</span>'
         : '<span style="color:#f59e0b;font-weight:600">in '+tage+' Tag(en)</span>';
       return '<tr>'+
-        '<td class="mono" style="font-size:11px;white-space:nowrap">'+esc(inv.nummer)+'</td>'+
-        '<td style="overflow-wrap:break-word;word-break:break-word">'+(inv.partner_name||'—')+'</td>'+
+        '<td class="mono" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(inv.nummer)+'</td>'+
+        '<td style="overflow:hidden;overflow-wrap:break-word;word-break:break-word">'+(inv.partner_name||'—')+'</td>'+
         '<td style="white-space:nowrap"><span class="badge '+(inv.typ==='ausgang'?'green':'red')+'">'+(inv.typ==='ausgang'?'AR':'ER')+'</span></td>'+
         '<td style="text-align:right;white-space:nowrap">'+fmt(brutto(inv))+'</td>'+
-        '<td>'+tageStr+'</td>'+
-        '<td style="white-space:nowrap"><button class="btn primary" style="font-size:11px;padding:3px 8px" onclick="dashBezahle(\''+inv.id+'\')">Bezahlen</button></td>'+
+        '<td style="overflow:hidden;font-size:11px">'+tageStr+'</td>'+
+        '<td style="white-space:nowrap"><button class="btn primary" style="font-size:11px;padding:3px 6px" onclick="dashBezahle(\''+inv.id+'\')">Bezahlen</button></td>'+
       '</tr>';
     }).join('');
-    rec.innerHTML = '<table style="table-layout:fixed;width:100%;min-width:440px"><colgroup><col style="width:50px"><col><col style="width:38px"><col style="width:72px"><col style="width:108px"><col style="width:76px"></colgroup><thead><tr><th>Nr.</th><th>Partner</th><th>Typ</th><th style="text-align:right">Betrag</th><th>Fälligkeit</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
+    rec.innerHTML = '<table style="table-layout:fixed;width:100%;min-width:460px"><colgroup><col style="width:95px"><col><col style="width:38px"><col style="width:72px"><col style="width:100px"><col style="width:72px"></colgroup><thead><tr><th>Nr.</th><th>Partner</th><th>Typ</th><th style="text-align:right">Betrag</th><th>Fälligkeit</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
   }
 
   // Fällige Todos
@@ -2062,6 +2062,13 @@ function setPay(pay) {
     document.getElementById('pay-label').textContent = 'Banküberweisung';
     if (bankomatRow) bankomatRow.style.display = 'none';
     setKassaTyp('bar');
+    // Bank gewählt → AR- und ER-Status zurück auf Offen
+    if (!editId) {
+      var arStatusEl = document.getElementById('status');
+      if (arStatusEl) arStatusEl.value = 'offen';
+      var erStatusEl2 = document.getElementById('er-status');
+      if (erStatusEl2) erStatusEl2.value = 'offen';
+    }
   } else {
     kassaBtn.style.background = 'var(--accent)'; kassaBtn.style.color = '#fff';
     bankBtn.style.background = '#f0f0ec'; bankBtn.style.color = 'var(--t2)';
