@@ -63,14 +63,16 @@
   <div class="content">
     <div id="d-alerts"></div>
     <div class="grid4" id="d-metrics"></div>
-    <div class="grid2">
+    <div class="grid2" style="align-items:stretch">
       <div class="card"><h3>Einnahmen &amp; Ausgaben (6 Monate)</h3><canvas id="cEA"></canvas></div>
-      <div class="card"><h3 id="d-ust-title">USt.-Schuld</h3><div id="d-ust"></div></div>
+      <div style="display:flex;flex-direction:column;gap:1.25rem">
+        <div class="card"><h3 id="d-ust-title">USt.-Schuld</h3><div id="d-ust"></div></div>
+        <div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0"><span>Fixkosten <span id="d-fk-month" style="font-size:13px;font-weight:400;color:var(--t2)"></span></span><button class="btn" style="font-size:12px;padding:3px 12px" onclick="openFkModal()">+</button></h3><div id="d-fixkosten" style="margin-top:12px"></div></div>
+      </div>
     </div>
-    <div class="card"><h3>Fixkosten <span id="d-fk-month" style="font-size:13px;font-weight:400;color:var(--t2)"></span></h3><div id="d-fixkosten"></div></div>
     <div class="grid2">
-      <div class="card" style="overflow:hidden"><h3>Fällig in 3 Tagen</h3><div id="d-recent" style="overflow-x:auto"></div></div>
-      <div class="card" style="overflow:hidden"><h3>&#9989; Fällige To-Dos</h3><div id="d-todos" style="overflow-x:auto"></div></div>
+      <div class="card" style="overflow:hidden"><h3 style="display:flex;justify-content:space-between;align-items:center">Fällig in 3 Tagen<button class="btn" style="font-size:12px;padding:3px 12px" onclick="SP('neu')">+</button></h3><div id="d-recent" style="overflow-x:auto"></div></div>
+      <div class="card" style="overflow:hidden"><h3 style="display:flex;justify-content:space-between;align-items:center">&#9989; Fällige To-Dos<button class="btn" style="font-size:12px;padding:3px 12px" onclick="openTodoForm()">+</button></h3><div id="d-todos" style="overflow-x:auto"></div></div>
     </div>
   </div>
 </div>
@@ -735,6 +737,13 @@
     <div class="card" id="fixkosten-tab-other-card" style="display:none">
       <h3 style="margin:0 0 12px 0;font-size:14px;color:var(--t2)">Weitere Fixkosten (andere Monate)</h3>
       <div id="fixkosten-tab-other-list" style="font-family:sans-serif;font-size:13px;color:var(--t3)"></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <h3 style="margin:0">Kürzlich bezahlt</h3>
+        <input type="text" id="fk-recent-search" placeholder="Suche..." style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;width:160px">
+      </div>
+      <div id="fixkosten-tab-recent-list"></div>
     </div>
   </div>
   <!-- Floating action button -->

@@ -521,10 +521,6 @@ function SP(id) {
   window.scrollTo(0, 0);
   if (id === 'dashboard') {
     renderDash(); updateBeschDatalist();
-    var btnM = document.getElementById('dash-toggle-monat');
-    var btnJ = document.getElementById('dash-toggle-jahr');
-    if (btnM) btnM.onclick = function(){ DASH_VIEW='monat'; renderDash(); };
-    if (btnJ) btnJ.onclick = function(){ DASH_VIEW='jahr'; renderDash(); };
   }
   if (id === 'ausgang') {
     renderTable('ausgang');
@@ -1194,12 +1190,15 @@ function getVatAutoEntry() {
   var vatSchuld = _calcMonthVatSchuld(now.getMonth(), now.getFullYear());
   var entry = loadVatEntry();
   if (!entry || entry.month !== curMonthKey) {
-    entry = { month: curMonthKey, betrag: vatSchuld, bezahlt_am: null };
-    saveVatEntry(entry);
-  } else if (!entry.bezahlt_am && entry.betrag !== vatSchuld) {
-    entry.betrag = vatSchuld;
+    // New month: apply Guthaben credit, reduce it
+    var g = parseFloat(getSetting('bp_ust_guthaben') || '0') || 0;
+    var net = Math.max(0, Math.round((vatSchuld - g) * 100) / 100);
+    var newG = Math.max(0, Math.round((g - vatSchuld) * 100) / 100);
+    if (g > 0) setSetting('bp_ust_guthaben', String(newG));
+    entry = { month: curMonthKey, betrag: net, bezahlt_am: null };
     saveVatEntry(entry);
   }
+  // Same month: return as-is (manual override respected)
   return entry;
 }
 
@@ -1365,7 +1364,10 @@ function renderFixkostenTab() {
         '<div style="font-family:sans-serif;font-size:13px;font-weight:600;color:var(--accent)">USt. Abgabe</div>' +
         '<div style="font-family:sans-serif;font-size:11px;color:var(--t3)">Automatisch berechnet &mdash; '+MONTHS_FULL[curM]+' '+curY+'</div>' +
       '</div>' +
-      '<span style="font-family:\'Courier New\',monospace;font-size:15px;font-weight:700;color:var(--accent)">'+fmt(vatEntry.betrag)+'</span>' +
+      '<input type="number" id="fk-vat-betrag" value="'+vatEntry.betrag+'" min="0" step="0.01" ' +
+        'style="width:90px;padding:6px 9px;border:1px solid var(--accent);border-radius:8px;font-size:13px;font-family:monospace;background:var(--card);color:var(--accent);font-weight:700" ' +
+        'title="Betrag manuell anpassen">' +
+      '<span style="font-size:13px;color:var(--accent);flex-shrink:0">€</span>' +
       vatBadge +
     '</div>';
     el.innerHTML += vatHtml;
@@ -1374,6 +1376,14 @@ function renderFixkostenTab() {
       var e = loadVatEntry();
       if (!e) return;
       e.bezahlt_am = vatChk.checked ? new Date().toISOString().split('T')[0] : null;
+      saveVatEntry(e);
+      renderFixkostenTab();
+    };
+    var vatBetragEl = document.getElementById('fk-vat-betrag');
+    if (vatBetragEl) vatBetragEl.onblur = function() {
+      var e = loadVatEntry();
+      if (!e) return;
+      e.betrag = Math.max(0, parseFloat(vatBetragEl.value) || 0);
       saveVatEntry(e);
       renderFixkostenTab();
     };
@@ -1477,6 +1487,11 @@ function renderFixkostenTab() {
 
   wireRows();
 
+  // ── Recently paid section ─────────────────────────────────────
+  renderRecentlyPaidFk();
+  var searchEl = document.getElementById('fk-recent-search');
+  if (searchEl) searchEl.oninput = renderRecentlyPaidFk;
+
   // ── Other months section ──────────────────────────────────────
   if (otherCard && otherList) {
     if (!fkOther.length) {
@@ -1504,6 +1519,43 @@ function renderFixkostenTab() {
       }).join('');
     }
   }
+}
+
+// ================================================================
+// RECENTLY PAID FIXKOSTEN
+// ================================================================
+function renderRecentlyPaidFk() {
+  var el = document.getElementById('fixkosten-tab-recent-list');
+  if (!el) return;
+  var fk = loadFixkosten();
+  var vatEntry = loadVatEntry();
+  var allPaid = fk
+    .filter(function(f){ return !!f.bezahlt_am; })
+    .map(function(f){ return { name: f.name || '—', betrag: f.betrag, bezahlt_am: f.bezahlt_am }; });
+  if (vatEntry && vatEntry.bezahlt_am) {
+    allPaid.push({ name: '⚡ USt. Abgabe', betrag: vatEntry.betrag, bezahlt_am: vatEntry.bezahlt_am });
+  }
+  var search = ((document.getElementById('fk-recent-search') || {}).value || '').toLowerCase();
+  if (search) allPaid = allPaid.filter(function(p){ return (p.name || '').toLowerCase().indexOf(search) !== -1; });
+  allPaid.sort(function(a, b){ return new Date(b.bezahlt_am) - new Date(a.bezahlt_am); });
+  if (!allPaid.length) {
+    el.innerHTML = '<div style="font-family:sans-serif;font-size:13px;color:var(--t3);padding:8px 0">Noch keine bezahlten Fixkosten.</div>';
+    return;
+  }
+  var rows = allPaid.map(function(p) {
+    var dateStr = '';
+    try { dateStr = new Date(p.bezahlt_am).toLocaleDateString('de-AT'); } catch(_) {}
+    return '<tr>' +
+      '<td style="font-family:sans-serif;font-size:13px;padding:6px 8px 6px 0">'+esc(p.name)+'</td>' +
+      '<td style="text-align:right;font-family:\'Courier New\',monospace;font-size:13px;padding:6px 8px">'+fmt(parseFloat(p.betrag)||0)+'</td>' +
+      '<td style="font-family:sans-serif;font-size:12px;color:var(--t2);padding:6px 0 6px 8px">'+dateStr+'</td>' +
+    '</tr>';
+  }).join('');
+  el.innerHTML = '<table style="width:100%"><thead><tr>' +
+    '<th style="text-align:left;font-size:12px;padding-bottom:6px">Bezeichnung</th>' +
+    '<th style="text-align:right;font-size:12px;padding-bottom:6px">Betrag</th>' +
+    '<th style="text-align:left;font-size:12px;padding-bottom:6px;padding-left:8px">Bezahlt am</th>' +
+    '</tr></thead><tbody>'+rows+'</tbody></table>';
 }
 
 // ================================================================
@@ -1779,22 +1831,13 @@ function renderDash() {
   if (ustEl) {
     var ustSchuld = showVC - showVP;
     var ustGuthaben = parseFloat(getSetting('bp_ust_guthaben') || '0') || 0;
-    // Cumulative year VAT to subtract from Guthaben
-    var yearVatSchuld = 0;
-    for (var mi2=0; mi2<=m; mi2++) yearVatSchuld += _calcMonthVatSchuld(mi2, y);
-    var remainingGuthaben = ustGuthaben - yearVatSchuld;
     var schuld_col = ustSchuld > 0 ? '#E24B4A' : '#1D9E75';
     var gutH = ustGuthaben > 0
       ? '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">' +
-          '<div style="font-family:sans-serif;font-size:12px;color:var(--t3);margin-bottom:4px">USt.-Guthaben</div>' +
-          '<div style="font-family:\'Courier New\',monospace;font-size:14px;font-weight:600;color:#1D9E75">'+fmt(ustGuthaben)+'</div>' +
-          '<div style="font-family:sans-serif;font-size:11px;color:var(--t3);margin:6px 0 2px 0">Abzug kum. ('+y+'): &minus;'+fmt(yearVatSchuld)+'</div>' +
-          '<div style="display:flex;align-items:center;gap:6px;margin-top:4px">' +
-            '<span style="font-family:sans-serif;font-size:12px;color:var(--t2)">Verbleibend:</span>' +
-            '<span style="font-family:\'Courier New\',monospace;font-size:15px;font-weight:700;color:'+(remainingGuthaben>=0?'#1D9E75':'#E24B4A')+'">'+fmt(remainingGuthaben)+'</span>' +
-          '</div>' +
+          '<div style="font-family:sans-serif;font-size:12px;color:var(--t3);margin-bottom:4px">Verbleibendes USt.-Guthaben</div>' +
+          '<div style="font-family:\'Courier New\',monospace;font-size:18px;font-weight:700;color:#1D9E75">'+fmt(ustGuthaben)+'</div>' +
         '</div>'
-      : '<div style="margin-top:12px;font-family:sans-serif;font-size:11px;color:var(--t3)">Kein Guthaben hinterlegt. <button class="btn" style="font-size:11px;padding:2px 8px" onclick="SP(\'einstellungen\')">In Einstellungen festlegen</button></div>';
+      : '';
     ustEl.innerHTML =
       '<div style="font-family:sans-serif;font-size:12px;color:var(--t3);margin-bottom:4px">Fällige USt.</div>' +
       '<div style="font-family:\'Courier New\',monospace;font-size:24px;font-weight:700;color:'+schuld_col+'">'+fmt(ustSchuld)+'</div>' +
@@ -1829,9 +1872,13 @@ function renderDash() {
         var badge = bezahlt
           ? '<span style="background:#d1fae5;color:#065f46;font-size:10px;padding:1px 6px;border-radius:8px">&#10003; bezahlt</span>'
           : '<span style="background:#fef3c7;color:#92400e;font-size:10px;padding:1px 6px;border-radius:8px">offen</span>';
+        var payBtn = bezahlt
+          ? ''
+          : '<button class="btn primary" style="font-size:10px;padding:2px 7px;white-space:nowrap" onclick="dashFkBezahle(\''+f.fk_id+'\')">Bezahlen</button>';
         return '<tr><td style="font-family:sans-serif;font-size:12px">'+esc(f.name||'—')+'</td>'+
                '<td style="text-align:right;font-family:\'Courier New\',monospace;font-size:12px">'+fmt(parseFloat(f.betrag)||0)+'</td>'+
-               '<td style="padding-left:8px">'+badge+'</td></tr>';
+               '<td style="padding-left:8px">'+badge+'</td>'+
+               '<td style="padding-left:6px">'+payBtn+'</td></tr>';
       }).join('');
 
       // VAT row
@@ -1841,9 +1888,13 @@ function renderDash() {
         var vatBadge = vatBezahlt
           ? '<span style="background:#d1fae5;color:#065f46;font-size:10px;padding:1px 6px;border-radius:8px">&#10003; bezahlt</span>'
           : '<span style="background:#fef3c7;color:#92400e;font-size:10px;padding:1px 6px;border-radius:8px">offen</span>';
+        var vatPayBtn = vatBezahlt
+          ? ''
+          : '<button class="btn primary" style="font-size:10px;padding:2px 7px;white-space:nowrap" onclick="dashVatBezahle()">Bezahlen</button>';
         vatRow = '<tr><td style="font-family:sans-serif;font-size:12px;color:var(--accent)">&#9889; USt. Abgabe</td>'+
                  '<td style="text-align:right;font-family:\'Courier New\',monospace;font-size:12px">'+fmt(vatEntry.betrag)+'</td>'+
-                 '<td style="padding-left:8px">'+vatBadge+'</td></tr>';
+                 '<td style="padding-left:8px">'+vatBadge+'</td>'+
+                 '<td style="padding-left:6px">'+vatPayBtn+'</td></tr>';
       }
 
       fkEl.innerHTML =
@@ -1851,7 +1902,7 @@ function renderDash() {
         '<tfoot><tr>'+
           '<td style="font-family:sans-serif;font-size:12px;font-weight:600;padding-top:8px;border-top:1px solid var(--border)">Gesamt</td>'+
           '<td style="text-align:right;font-family:\'Courier New\',monospace;font-size:12px;font-weight:600;padding-top:8px;border-top:1px solid var(--border)">'+fmt(totalFk)+'</td>'+
-          '<td style="padding-top:8px;border-top:1px solid var(--border);padding-left:8px">'+
+          '<td colspan="2" style="padding-top:8px;border-top:1px solid var(--border);padding-left:8px">'+
             '<span style="font-size:11px;font-weight:600;color:'+pctCol+'">'+paidPct+'% bezahlt</span>'+
           '</td>'+
         '</tr></tfoot></table>'+
@@ -1924,6 +1975,59 @@ function dashBezahle(id) {
   saveDB(d);
   renderDash();
   renderTable(inv.typ);
+}
+
+function dashFkBezahle(fkId) {
+  var fk2 = loadFixkosten().map(function(f) {
+    if (f.fk_id !== fkId) return f;
+    return Object.assign({}, f, { bezahlt_am: new Date().toISOString().split('T')[0] });
+  });
+  saveFixkosten(fk2);
+  renderDash();
+}
+
+function dashVatBezahle() {
+  var e = loadVatEntry();
+  if (!e) return;
+  e.bezahlt_am = new Date().toISOString().split('T')[0];
+  saveVatEntry(e);
+  renderDash();
+}
+
+function openFkModal() {
+  var iOpts = [
+    { val: 'monatlich', lbl: 'Monatlich' },
+    { val: 'jaehrlich', lbl: 'Jährlich' },
+    { val: 'manuell',   lbl: 'Manuell' },
+  ].map(function(o){ return '<option value="'+o.val+'">'+o.lbl+'</option>'; }).join('');
+  document.getElementById('modal-body').innerHTML =
+    '<h3 style="margin:0 0 1rem;font-family:sans-serif">Neue Fixkosten</h3>' +
+    '<div style="display:flex;flex-direction:column;gap:12px;font-family:sans-serif">' +
+      '<div><label style="font-size:12px;color:var(--t2);display:block;margin-bottom:4px">Bezeichnung</label>' +
+        '<input id="fk-modal-name" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;box-sizing:border-box" placeholder="z.B. Miete"></div>' +
+      '<div><label style="font-size:12px;color:var(--t2);display:block;margin-bottom:4px">Betrag (€)</label>' +
+        '<input id="fk-modal-betrag" type="number" min="0" step="0.01" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;box-sizing:border-box" placeholder="0.00"></div>' +
+      '<div><label style="font-size:12px;color:var(--t2);display:block;margin-bottom:4px">Reset-Intervall</label>' +
+        '<select id="fk-modal-intervall" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px">'+iOpts+'</select></div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">' +
+        '<button class="btn" onclick="closeModal()">Abbrechen</button>' +
+        '<button class="btn primary" onclick="saveFkModal()">Speichern</button>' +
+      '</div>' +
+    '</div>';
+  openModal();
+  setTimeout(function(){ var n=document.getElementById('fk-modal-name'); if(n) n.focus(); }, 50);
+}
+
+function saveFkModal() {
+  var name = (document.getElementById('fk-modal-name')||{value:''}).value.trim();
+  var betrag = parseFloat((document.getElementById('fk-modal-betrag')||{value:'0'}).value) || 0;
+  var intervall = (document.getElementById('fk-modal-intervall')||{value:'monatlich'}).value;
+  if (!name) { alert('Bitte Bezeichnung eingeben'); return; }
+  var fk2 = loadFixkosten();
+  fk2.push({ fk_id: generateFkId(), name: name, betrag: betrag, monat: null, bezahlt_am: null, reset_intervall: intervall });
+  saveFixkosten(fk2);
+  closeModal();
+  renderDash();
 }
 
 // ================================================================
@@ -6594,6 +6698,10 @@ window.onload = async function() {
   loadMalgunFont();
   renderDash();
   autoSaveBackup();
+  var btnM = document.getElementById('dash-toggle-monat');
+  var btnJ = document.getElementById('dash-toggle-jahr');
+  if (btnM) btnM.addEventListener('click', function(){ DASH_VIEW='monat'; renderDash(); });
+  if (btnJ) btnJ.addEventListener('click', function(){ DASH_VIEW='jahr'; renderDash(); });
 };
 
 var _motTimer = null;
