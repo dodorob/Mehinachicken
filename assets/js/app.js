@@ -1248,7 +1248,6 @@ function renderFixkostenTab() {
   var INTERVALL_OPTS = [
     { val: 'monatlich', lbl: 'Monatlich' },
     { val: 'jaehrlich', lbl: 'Jährlich'  },
-    { val: 'manuell',   lbl: 'Manuell'   },
     { val: 'datum',     lbl: 'Datum'     },
   ];
 
