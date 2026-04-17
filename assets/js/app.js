@@ -1189,16 +1189,24 @@ function getVatAutoEntry() {
   var curMonthKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
   var vatSchuld = _calcMonthVatSchuld(now.getMonth(), now.getFullYear());
   var entry = loadVatEntry();
+
   if (!entry || entry.month !== curMonthKey) {
-    // New month: apply Guthaben credit, reduce it
+    // New month: snapshot Guthaben, consume it, calculate net betrag
     var g = parseFloat(getSetting('bp_ust_guthaben') || '0') || 0;
     var net = Math.max(0, Math.round((vatSchuld - g) * 100) / 100);
     var newG = Math.max(0, Math.round((g - vatSchuld) * 100) / 100);
-    if (g > 0) setSetting('bp_ust_guthaben', String(newG));
-    entry = { month: curMonthKey, betrag: net, bezahlt_am: null };
+    setSetting('bp_ust_guthaben', String(newG));
+    entry = { month: curMonthKey, betrag: net, bezahlt_am: null, _g: g };
     saveVatEntry(entry);
+  } else if (!entry.bezahlt_am) {
+    // Same month, unpaid: recalculate using the stored Guthaben snapshot
+    var gOrig = typeof entry._g === 'number' ? entry._g : (parseFloat(getSetting('bp_ust_guthaben') || '0') || 0);
+    var net2 = Math.max(0, Math.round((vatSchuld - gOrig) * 100) / 100);
+    if (entry.betrag !== net2) {
+      entry.betrag = net2;
+      saveVatEntry(entry);
+    }
   }
-  // Same month: return as-is (manual override respected)
   return entry;
 }
 
@@ -1350,10 +1358,7 @@ function renderFixkostenTab() {
         '<div style="font-family:sans-serif;font-size:13px;font-weight:600;color:var(--accent)">USt. Abgabe</div>' +
         '<div style="font-family:sans-serif;font-size:11px;color:var(--t3)">Automatisch berechnet &mdash; '+MONTHS_FULL[curM]+' '+curY+'</div>' +
       '</div>' +
-      '<input type="number" id="fk-vat-betrag" value="'+vatEntry.betrag+'" min="0" step="0.01" ' +
-        'style="width:90px;padding:6px 9px;border:1px solid var(--accent);border-radius:8px;font-size:13px;font-family:monospace;background:var(--card);color:var(--accent);font-weight:700" ' +
-        'title="Betrag manuell anpassen">' +
-      '<span style="font-size:13px;color:var(--accent);flex-shrink:0">€</span>' +
+      '<span style="font-family:\'Courier New\',monospace;font-size:15px;font-weight:700;color:var(--accent);flex-shrink:0">'+fmt(vatEntry.betrag)+'</span>' +
       vatBadge +
     '</div>';
     el.innerHTML += vatHtml;
@@ -1362,14 +1367,6 @@ function renderFixkostenTab() {
       var e = loadVatEntry();
       if (!e) return;
       e.bezahlt_am = vatChk.checked ? new Date().toISOString().split('T')[0] : null;
-      saveVatEntry(e);
-      renderFixkostenTab();
-    };
-    var vatBetragEl = document.getElementById('fk-vat-betrag');
-    if (vatBetragEl) vatBetragEl.onblur = function() {
-      var e = loadVatEntry();
-      if (!e) return;
-      e.betrag = Math.max(0, parseFloat(vatBetragEl.value) || 0);
       saveVatEntry(e);
       renderFixkostenTab();
     };
