@@ -130,6 +130,7 @@ class BuchProDB {
     try { this.db.exec('ALTER TABLE fixkosten ADD COLUMN fk_id TEXT'); } catch(_) {}
     try { this.db.exec('ALTER TABLE fixkosten ADD COLUMN bezahlt_am TEXT'); } catch(_) {}
     try { this.db.exec("ALTER TABLE fixkosten ADD COLUMN reset_intervall TEXT DEFAULT 'monatlich'"); } catch(_) {}
+    try { this.db.exec('ALTER TABLE fixkosten ADD COLUMN reset_datum TEXT'); } catch(_) {}
   }
 
   // ----------------------------------------------------------------
@@ -291,13 +292,13 @@ class BuchProDB {
   // Fixkosten
   // ----------------------------------------------------------------
   getFixkosten() {
-    return this.db.prepare('SELECT fk_id, name, betrag, monat, bezahlt_am, reset_intervall FROM fixkosten').all();
+    return this.db.prepare('SELECT fk_id, name, betrag, monat, bezahlt_am, reset_intervall, reset_datum FROM fixkosten').all();
   }
 
   saveFixkosten(list) {
     const tx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM fixkosten').run();
-      const ins = this.db.prepare('INSERT INTO fixkosten (fk_id, name, betrag, monat, bezahlt_am, reset_intervall) VALUES (@fk_id, @name, @betrag, @monat, @bezahlt_am, @reset_intervall)');
+      const ins = this.db.prepare('INSERT INTO fixkosten (fk_id, name, betrag, monat, bezahlt_am, reset_intervall, reset_datum) VALUES (@fk_id, @name, @betrag, @monat, @bezahlt_am, @reset_intervall, @reset_datum)');
       list.forEach(item => ins.run({
         fk_id:           item.fk_id          || null,
         name:            item.name           || '',
@@ -305,6 +306,7 @@ class BuchProDB {
         monat:           item.monat          || null,
         bezahlt_am:      item.bezahlt_am     || null,
         reset_intervall: item.reset_intervall || 'monatlich',
+        reset_datum:     item.reset_datum     || null,
       }));
     });
     tx();

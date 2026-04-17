@@ -1134,6 +1134,10 @@ function isFixkostenBezahlt(item) {
   var now = new Date();
   var intervall = item.reset_intervall || 'monatlich';
   if (intervall === 'manuell') return true;
+  if (intervall === 'datum') {
+    if (!item.reset_datum) return true; // no date set → stays paid until user changes it
+    return now < new Date(item.reset_datum);
+  }
   if (intervall === 'monatlich') {
     var nextMonth = new Date(paidDate.getFullYear(), paidDate.getMonth() + 1, 1);
     return now < nextMonth;
@@ -1245,6 +1249,7 @@ function renderFixkostenTab() {
     { val: 'monatlich', lbl: 'Monatlich' },
     { val: 'jaehrlich', lbl: 'Jährlich'  },
     { val: 'manuell',   lbl: 'Manuell'   },
+    { val: 'datum',     lbl: 'Datum'     },
   ];
 
   // Helper: read all rows from DOM to a list (preserving all fields)
@@ -1258,6 +1263,8 @@ function renderFixkostenTab() {
       var monat  = monatEl ? (parseInt(monatEl.value) || null) : null;
       var selEl  = row.querySelector('.fk-tab-intervall');
       var intervall = selEl ? selEl.value : 'monatlich';
+      var datumEl = row.querySelector('.fk-tab-reset-datum');
+      var resetDatum = datumEl ? (datumEl.value || null) : null;
       // preserve payment state from cache
       var cached = loadFixkosten().find(function(f){ return f.fk_id === fkId; });
       rows.push({
@@ -1265,8 +1272,9 @@ function renderFixkostenTab() {
         name:            name,
         betrag:          betrag,
         monat:           monat,
-        bezahlt_am:      cached ? (cached.bezahlt_am || null)           : null,
+        bezahlt_am:      cached ? (cached.bezahlt_am || null) : null,
         reset_intervall: intervall,
+        reset_datum:     resetDatum,
       });
     });
     return rows;
@@ -1319,10 +1327,12 @@ function renderFixkostenTab() {
         '<select class="fk-tab-monat" style="padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:sans-serif;color:var(--t2);background:var(--card)">' + mOpts + '</select>' +
         // status badge
         statusBadge +
-        // reset interval
-        '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0">' +
+        // reset interval + optional date
+        '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0;flex-wrap:wrap">' +
           '<span style="font-size:11px;color:var(--t3);white-space:nowrap">Reset:</span>' +
           '<select class="fk-tab-intervall" style="padding:5px 8px;border:1px solid var(--border);border-radius:8px;font-size:11px;font-family:sans-serif;color:var(--t2);background:var(--card)">' + iOpts + '</select>' +
+          '<input type="date" class="fk-tab-reset-datum" value="' + (item.reset_datum || '') + '" ' +
+            'style="display:' + (item.reset_intervall === 'datum' ? 'block' : 'none') + ';padding:4px 7px;border:1px solid var(--border);border-radius:8px;font-size:11px;background:var(--card);color:var(--text)">' +
         '</div>' +
         // delete
         '<button class="btn danger fk-tab-del" style="padding:4px 10px;font-size:12px;flex-shrink:0">&#10005;</button>' +
@@ -1393,11 +1403,12 @@ function renderFixkostenTab() {
     el.querySelectorAll('.fk-tab-row').forEach(function(row) {
       var fkId  = row.dataset.fkId;
       var idx   = parseInt(row.dataset.i);
-      var chkEl = row.querySelector('.fk-tab-chk');
-      var selEl = row.querySelector('.fk-tab-intervall');
+      var chkEl    = row.querySelector('.fk-tab-chk');
+      var selEl    = row.querySelector('.fk-tab-intervall');
       var nameEl   = row.querySelector('.fk-tab-name');
       var betragEl = row.querySelector('.fk-tab-betrag');
       var monatEl  = row.querySelector('.fk-tab-monat');
+      var datumEl  = row.querySelector('.fk-tab-reset-datum');
       var delBtn   = row.querySelector('.fk-tab-del');
 
       // Checkbox: mark paid / unpaid
@@ -1411,8 +1422,9 @@ function renderFixkostenTab() {
         renderFixkostenTab();
       };
 
-      // Reset interval: save immediately on change
+      // Reset interval: save immediately; show/hide date input
       if (selEl) selEl.onchange = function() {
+        if (datumEl) datumEl.style.display = selEl.value === 'datum' ? 'block' : 'none';
         var fk2 = loadFixkosten();
         fk2 = fk2.map(function(f) {
           if (f.fk_id !== fkId) return f;
@@ -1421,22 +1433,24 @@ function renderFixkostenTab() {
         saveFixkosten(fk2);
       };
 
-      // Name / amount / month: save on blur
+      // Name / amount / month / reset-datum: save on blur/change
       function saveEdits() {
         var fk2 = loadFixkosten();
         fk2 = fk2.map(function(f) {
           if (f.fk_id !== fkId) return f;
           return Object.assign({}, f, {
-            name:   nameEl   ? nameEl.value.trim()                                 : f.name,
-            betrag: betragEl ? (parseFloat(betragEl.value) || 0)                   : f.betrag,
-            monat:  monatEl  ? (parseInt(monatEl.value) || null)                   : f.monat,
+            name:        nameEl   ? nameEl.value.trim()               : f.name,
+            betrag:      betragEl ? (parseFloat(betragEl.value) || 0) : f.betrag,
+            monat:       monatEl  ? (parseInt(monatEl.value) || null) : f.monat,
+            reset_datum: datumEl  ? (datumEl.value || null)           : f.reset_datum,
           });
         });
         saveFixkosten(fk2);
       }
-      if (nameEl)   nameEl.onblur   = saveEdits;
-      if (betragEl) betragEl.onblur = saveEdits;
+      if (nameEl)   nameEl.onblur    = saveEdits;
+      if (betragEl) betragEl.onblur  = saveEdits;
       if (monatEl)  monatEl.onchange = saveEdits;
+      if (datumEl)  datumEl.onchange = saveEdits;
 
       // Enter on name field moves to amount
       if (nameEl) nameEl.onkeydown = function(e) {
