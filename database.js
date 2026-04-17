@@ -127,6 +127,10 @@ class BuchProDB {
     // Schema migrations (safe to run multiple times)
     try { this.db.exec('ALTER TABLE invoices ADD COLUMN is_sammel INTEGER DEFAULT 0'); } catch(_) {}
     try { this.db.exec('ALTER TABLE invoices ADD COLUMN sammel_beschreibung TEXT'); } catch(_) {}
+    try { this.db.exec('ALTER TABLE fixkosten ADD COLUMN fk_id TEXT'); } catch(_) {}
+    try { this.db.exec('ALTER TABLE fixkosten ADD COLUMN bezahlt_am TEXT'); } catch(_) {}
+    try { this.db.exec("ALTER TABLE fixkosten ADD COLUMN reset_intervall TEXT DEFAULT 'monatlich'"); } catch(_) {}
+    try { this.db.exec('ALTER TABLE fixkosten ADD COLUMN reset_datum TEXT'); } catch(_) {}
   }
 
   // ----------------------------------------------------------------
@@ -288,14 +292,22 @@ class BuchProDB {
   // Fixkosten
   // ----------------------------------------------------------------
   getFixkosten() {
-    return this.db.prepare('SELECT name, betrag, monat FROM fixkosten').all();
+    return this.db.prepare('SELECT fk_id, name, betrag, monat, bezahlt_am, reset_intervall, reset_datum FROM fixkosten').all();
   }
 
   saveFixkosten(list) {
     const tx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM fixkosten').run();
-      const ins = this.db.prepare('INSERT INTO fixkosten (name, betrag, monat) VALUES (@name, @betrag, @monat)');
-      list.forEach(item => ins.run({ name: item.name || '', betrag: item.betrag || 0, monat: item.monat || null }));
+      const ins = this.db.prepare('INSERT INTO fixkosten (fk_id, name, betrag, monat, bezahlt_am, reset_intervall, reset_datum) VALUES (@fk_id, @name, @betrag, @monat, @bezahlt_am, @reset_intervall, @reset_datum)');
+      list.forEach(item => ins.run({
+        fk_id:           item.fk_id          || null,
+        name:            item.name           || '',
+        betrag:          item.betrag         || 0,
+        monat:           item.monat          || null,
+        bezahlt_am:      item.bezahlt_am     || null,
+        reset_intervall: item.reset_intervall || 'monatlich',
+        reset_datum:     item.reset_datum     || null,
+      }));
     });
     tx();
   }
