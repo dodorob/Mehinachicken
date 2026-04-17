@@ -1155,9 +1155,9 @@ function getFixkostenPaidExpenses(monat, year) {
     var d = new Date(f.bezahlt_am);
     return d.getMonth() === monat && d.getFullYear() === year;
   }).reduce(function(s, f) { return s + (parseFloat(f.betrag) || 0); }, 0);
-  // Also include paid VAT entry for this month
+  // Also include paid VAT entry for this month (only if not fully covered by Guthaben)
   var vatEntry = loadVatEntry();
-  if (vatEntry && vatEntry.bezahlt_am) {
+  if (vatEntry && !vatEntry._covered && vatEntry.bezahlt_am) {
     var vd = new Date(vatEntry.bezahlt_am);
     if (vd.getMonth() === monat && vd.getFullYear() === year) {
       total += parseFloat(vatEntry.betrag) || 0;
@@ -1190,20 +1190,28 @@ function getVatAutoEntry() {
   var vatSchuld = _calcMonthVatSchuld(now.getMonth(), now.getFullYear());
   var entry = loadVatEntry();
 
+  function _buildEntry(schuld, g, bezahlt_am) {
+    // schuld = 0 → show row with betrag 0 (never hidden)
+    if (schuld === 0) return { month: curMonthKey, betrag: 0, bezahlt_am: bezahlt_am || null, _g: g, _covered: false };
+    // guthaben fully covers schuld → hide row
+    if (g >= schuld) return { month: curMonthKey, betrag: 0, bezahlt_am: bezahlt_am || null, _g: g, _covered: true };
+    // partial: show restbetrag
+    return { month: curMonthKey, betrag: Math.round((schuld - g) * 100) / 100, bezahlt_am: bezahlt_am || null, _g: g, _covered: false };
+  }
+
   if (!entry || entry.month !== curMonthKey) {
-    // New month: snapshot Guthaben, consume it, calculate net betrag
+    // New month: snapshot Guthaben, consume it
     var g = parseFloat(getSetting('bp_ust_guthaben') || '0') || 0;
-    var net = Math.max(0, Math.round((vatSchuld - g) * 100) / 100);
     var newG = Math.max(0, Math.round((g - vatSchuld) * 100) / 100);
     setSetting('bp_ust_guthaben', String(newG));
-    entry = { month: curMonthKey, betrag: net, bezahlt_am: null, _g: g };
+    entry = _buildEntry(vatSchuld, g, null);
     saveVatEntry(entry);
   } else if (!entry.bezahlt_am) {
-    // Same month, unpaid: recalculate using the stored Guthaben snapshot
-    var gOrig = typeof entry._g === 'number' ? entry._g : (parseFloat(getSetting('bp_ust_guthaben') || '0') || 0);
-    var net2 = Math.max(0, Math.round((vatSchuld - gOrig) * 100) / 100);
-    if (entry.betrag !== net2) {
-      entry.betrag = net2;
+    // Same month, unpaid: recalculate using original Guthaben snapshot
+    var gOrig = typeof entry._g === 'number' ? entry._g : 0;
+    var updated = _buildEntry(vatSchuld, gOrig, null);
+    if (updated.betrag !== entry.betrag || updated._covered !== entry._covered) {
+      entry = updated;
       saveVatEntry(entry);
     }
   }
@@ -1245,10 +1253,6 @@ function renderFixkostenTab() {
   var otherCard = document.getElementById('fixkosten-tab-other-card');
   var otherList = document.getElementById('fixkosten-tab-other-list');
   if (!el) return;
-
-  // ── "Add" button in topbar ────────────────────────────────────
-  var btnAdd = document.getElementById('btn-fk-tab-add');
-  if (btnAdd) btnAdd.onclick = function() { openFkModal(); };
 
   var MONTHS = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
   var INTERVALL_OPTS = [
@@ -1344,7 +1348,7 @@ function renderFixkostenTab() {
 
   // ── VAT auto-entry row (pinned, locked) ───────────────────────
   var vatEntry = getVatAutoEntry();
-  if (vatEntry && vatEntry.betrag > 0) {
+  if (vatEntry && !vatEntry._covered) {
     var vatBezahlt = !!vatEntry.bezahlt_am;
     var vatDateStr = '';
     if (vatEntry.bezahlt_am) { try { vatDateStr = new Date(vatEntry.bezahlt_am).toLocaleDateString('de-AT'); } catch(_) {} }
@@ -1843,7 +1847,7 @@ function renderDash() {
     } else {
       var totalFk = fkShow.reduce(function(s,f){ return s+(parseFloat(f.betrag)||0); }, 0);
       var paidFk  = fkShow.filter(isFixkostenBezahlt).reduce(function(s,f){ return s+(parseFloat(f.betrag)||0); }, 0);
-      if (vatEntry && vatEntry.betrag > 0) {
+      if (vatEntry && !vatEntry._covered) {
         totalFk += vatEntry.betrag;
         if (vatEntry.bezahlt_am) paidFk += vatEntry.betrag;
       }
@@ -1866,7 +1870,7 @@ function renderDash() {
 
       // VAT row
       var vatRow = '';
-      if (vatEntry && vatEntry.betrag > 0) {
+      if (vatEntry && !vatEntry._covered) {
         var vatBezahlt = !!vatEntry.bezahlt_am;
         var vatBadge = vatBezahlt
           ? '<span style="background:#d1fae5;color:#065f46;font-size:10px;padding:1px 6px;border-radius:8px">&#10003; bezahlt</span>'
