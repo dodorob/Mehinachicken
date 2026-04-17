@@ -63,17 +63,15 @@
   <div class="content">
     <div id="d-alerts"></div>
     <div class="grid4" id="d-metrics"></div>
-    <div class="grid2" style="align-items:stretch">
+    <div class="grid2">
       <div class="card"><h3>Einnahmen &amp; Ausgaben (6 Monate)</h3><canvas id="cEA"></canvas></div>
-      <div style="display:flex;flex-direction:column;gap:1.25rem">
-        <div class="card"><h3 id="d-ust-title">USt.-Schuld</h3><div id="d-ust"></div></div>
-        <div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0"><span>Fixkosten <span id="d-fk-month" style="font-size:13px;font-weight:400;color:var(--t2)"></span></span><button class="btn" style="font-size:12px;padding:3px 12px" onclick="openFkModal()">+</button></h3><div id="d-fixkosten" style="margin-top:12px"></div></div>
-      </div>
+      <div class="card"><h3 id="d-ust-title">USt.-Schuld</h3><div id="d-ust"></div></div>
     </div>
     <div class="grid2">
       <div class="card" style="overflow:hidden"><h3 style="display:flex;justify-content:space-between;align-items:center">Fällig in 3 Tagen<button class="btn" style="font-size:12px;padding:3px 12px" onclick="SP('neu')">+</button></h3><div id="d-recent" style="overflow-x:auto"></div></div>
       <div class="card" style="overflow:hidden"><h3 style="display:flex;justify-content:space-between;align-items:center">&#9989; Fällige To-Dos<button class="btn" style="font-size:12px;padding:3px 12px" onclick="openTodoForm()">+</button></h3><div id="d-todos" style="overflow-x:auto"></div></div>
     </div>
+    <div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0"><span>Fixkosten <span id="d-fk-month" style="font-size:13px;font-weight:400;color:var(--t2)"></span></span><button class="btn" style="font-size:12px;padding:3px 12px" onclick="openFkModal()">+</button></h3><div id="d-fixkosten" style="margin-top:12px"></div></div>
   </div>
 </div>
 

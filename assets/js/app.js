@@ -1240,21 +1240,7 @@ function renderFixkostenTab() {
 
   // ── "Add" button in topbar ────────────────────────────────────
   var btnAdd = document.getElementById('btn-fk-tab-add');
-  if (btnAdd) btnAdd.onclick = function() {
-    var fk2 = loadFixkosten();
-    fk2.push({ fk_id: generateFkId(), name: '', betrag: 0, monat: null, bezahlt_am: null, reset_intervall: 'monatlich' });
-    saveFixkosten(fk2);
-    renderFixkostenTab();
-    // focus the last name input
-    setTimeout(function() {
-      var rows = el.querySelectorAll('.fk-tab-row');
-      if (rows.length) {
-        var last = rows[rows.length - 1];
-        var inp = last.querySelector('.fk-tab-name');
-        if (inp) inp.focus();
-      }
-    }, 50);
-  };
+  if (btnAdd) btnAdd.onclick = function() { openFkModal(); };
 
   var MONTHS = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
   var INTERVALL_OPTS = [
@@ -2027,7 +2013,8 @@ function saveFkModal() {
   fk2.push({ fk_id: generateFkId(), name: name, betrag: betrag, monat: null, bezahlt_am: null, reset_intervall: intervall });
   saveFixkosten(fk2);
   closeModal();
-  renderDash();
+  if (document.getElementById('page-fixkosten').classList.contains('active')) renderFixkostenTab();
+  else renderDash();
 }
 
 // ================================================================
