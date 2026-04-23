@@ -3873,8 +3873,9 @@ function genPDFData(inv) {
   var yGesamtBottom = ySumStart + 3*rowH;
 
   doc.setFont('times','normal'); doc.setFontSize(10);
-  doc.text('Netto',              xL + 2, yNettoY);
-  doc.text('€ ' + numFmt(nt),   xR - 2, yNettoY, {align:'right'});
+  var nettoGesamt = nt + matAmt;
+  doc.text('Netto',                        xL + 2, yNettoY);
+  doc.text('€ ' + numFmt(nettoGesamt),     xR - 2, yNettoY, {align:'right'});
   // Linie unter Netto: volle Breite
   blackLine();
   doc.line(xL, yNettoY + 1, xR, yNettoY + 1);
