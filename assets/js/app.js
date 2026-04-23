@@ -3838,11 +3838,11 @@ function genPDFData(inv) {
         var menge = parseFloat(row.it.menge)||1;
         doc.text(menge===1?'Arbeitsstunde':'Arbeitsstunden', colFzEnd + 2, rY + rH - 2);
         doc.text(String(row.it.menge), colAnz, rY + rH - 2, {align:'center'});
-        var lt = row.it.menge * row.it.preis * (1 + row.it.ust/100);
+        var lt = row.it.menge * row.it.preis;
         doc.text('€ ' + numFmt(lt), xR - 2, rY + rH - 2, {align:'right'});
       } else if (row.type === 'extra') {
         var ex = row.extra;
-        var et = ex.betrag * (1 + (ex.ust!=null?ex.ust:20)/100);
+        var et = ex.betrag;
         var exLines = doc.splitTextToSize((ex.label||'').trim(), beschMax);
         for (var eli = 0; eli < exLines.length; eli++) {
           doc.text(exLines[eli], colFzEnd + 2, rY + eli * rowH + rowH - 2);
@@ -3873,8 +3873,9 @@ function genPDFData(inv) {
   var yGesamtBottom = ySumStart + 3*rowH;
 
   doc.setFont('times','normal'); doc.setFontSize(10);
-  doc.text('Netto',              xL + 2, yNettoY);
-  doc.text('€ ' + numFmt(nt),   xR - 2, yNettoY, {align:'right'});
+  var nettoGesamt = nt + matAmt;
+  doc.text('Netto',                        xL + 2, yNettoY);
+  doc.text('€ ' + numFmt(nettoGesamt),     xR - 2, yNettoY, {align:'right'});
   // Linie unter Netto: volle Breite
   blackLine();
   doc.line(xL, yNettoY + 1, xR, yNettoY + 1);
