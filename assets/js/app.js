@@ -16,6 +16,7 @@ var _beschHistCache = [];     // description autocomplete history
 var _fixkostenCache = [];     // fixed costs
 var _posBadgesCache = null;   // position badges (null = use default)
 var _dbInitialized  = false;
+var saveQueue       = Promise.resolve();
 
 // ================================================================
 // BACKUP
@@ -208,12 +209,45 @@ function getDB() {
   return d;
 }
 
+function cloneForSave(d) {
+  if (typeof structuredClone === 'function') return structuredClone(d);
+  return JSON.parse(JSON.stringify(d));
+}
+
 function saveDB(d) {
   _dbCache = d;
-  if (window.electronAPI && window.electronAPI.db) {
-    window.electronAPI.db.saveAll(d).catch(function(e){ console.warn('saveDB error:', e); });
-  } else {
-    localStorage.setItem(STORE_KEY, JSON.stringify(d));
+  var snapshot = cloneForSave(d);
+
+  var saveTask = saveQueue.then(function() {
+    if (window.electronAPI && window.electronAPI.db) {
+      return window.electronAPI.db.saveAll(snapshot).then(function(result) {
+        if (!result || result.ok !== true) {
+          var message = result && result.error ? result.error : 'Speichern fehlgeschlagen';
+          var error = new Error(message);
+          error.result = result;
+          throw error;
+        }
+        return result;
+      });
+    }
+
+    localStorage.setItem(STORE_KEY, JSON.stringify(snapshot));
+    return { ok: true };
+  });
+
+  saveQueue = saveTask.catch(function() {});
+  return saveTask;
+}
+
+async function persistDB(d) {
+  try {
+    await saveDB(d);
+    return true;
+  } catch (e) {
+    console.error('saveDB error:', e);
+    var message = e && e.message ? e.message : String(e);
+    alert('Speichern fehlgeschlagen: ' + message);
+    return false;
   }
 }
 
@@ -300,7 +334,7 @@ function savePDFToFolder(doc, filename, folderPath, fallback) {
   }
 }
 
-function nextNum(typ) {
+async function nextNum(typ) {
   var d = getDB();
   if (!d.counters) d.counters = {};
   if (!d.counters.ausgang)   d.counters.ausgang   = 1;
@@ -315,12 +349,12 @@ function nextNum(typ) {
     d.counters.ausgang = num + 1;
     d.counters[lfdKey] = (d.counters[lfdKey] || 1) + 1;
     if (za === 'kassa') d.counters.kassenbeleg = (d.counters.kassenbeleg || 1) + 1;
-    saveDB(d);
+    if (!(await persistDB(d))) return;
     return String(num).padStart(2, '0');
   } else {
     // ER: no AR number, but lfd still increments
     d.counters[lfdKey] = (d.counters[lfdKey] || 1) + 1;
-    saveDB(d);
+    if (!(await persistDB(d))) return;
     return '';
   }
 }
@@ -717,7 +751,7 @@ function renderPosBadgesList() {
       el.querySelectorAll('.pb-row').forEach(function(r){ r.style.background=''; });
       this.style.background='#f0f9f5';
     });
-    row.addEventListener('drop', function(e){
+    row.addEventListener('drop', async function(e){
       e.preventDefault();
       var toIdx = parseInt(this.dataset.i);
       if (dragFrom === null || dragFrom === toIdx) return;
@@ -870,7 +904,7 @@ function initEinstellungen() {
     if (elKb)       elKb.value       = c.kassenbeleg   || 1;
 
     var btnSaveCounters = document.getElementById('btn-save-counters');
-    if (btnSaveCounters) btnSaveCounters.onclick = function() {
+    if (btnSaveCounters) btnSaveCounters.onclick = async function() {
       var d2 = getDB();
       var newAusgang  = parseInt((document.getElementById('counter-ausgang')||{value:'1'}).value) || 1;
       var newLfdBank  = parseInt((document.getElementById('counter-lfd-bank')||{value:'1'}).value) || 1;
@@ -880,7 +914,7 @@ function initEinstellungen() {
       d2.counters.lfd_bank    = newLfdBank;
       d2.counters.lfd_kassa   = newLfdKassa;
       d2.counters.kassenbeleg = newKb;
-      saveDB(d2);
+      if (!(await persistDB(d2))) return;
       var info = document.getElementById('counter-info');
       if (info) { info.textContent = '\u2713 Zähler gespeichert'; setTimeout(function(){ info.textContent = ''; }, 2500); }
     };
@@ -1093,7 +1127,7 @@ function renderFixkostenList() {
       el.querySelectorAll('.fk-row').forEach(function(r){ r.style.background=''; });
       this.style.background = '#f0f9f5';
     });
-    row.addEventListener('drop', function(e){
+    row.addEventListener('drop', async function(e){
       e.preventDefault();
       var toIdx = parseInt(this.dataset.i);
       if (fkDragFrom === null || fkDragFrom === toIdx) return;
@@ -1987,11 +2021,11 @@ function renderDash() {
   }
 }
 
-function dashBezahle(id) {
+async function dashBezahle(id) {
   var d = getDB(), inv = d.invoices.find(function(i){ return i.id===id; });
   if (!inv) return;
   inv.status = 'bezahlt';
-  saveDB(d);
+  if (!(await persistDB(d))) return;
   renderDash();
   renderTable(inv.typ);
 }
@@ -2135,20 +2169,20 @@ function renderTable(typ) {
   });
 }
 
-function togStatus(id) {
+async function togStatus(id) {
   var d = getDB(), inv = d.invoices.find(function(i){ return i.id===id; });
   if (!inv) return;
   var s = ['offen','bezahlt','überfällig'];
   inv.status = s[(s.indexOf(inv.status)+1) % s.length];
-  saveDB(d);
+  if (!(await persistDB(d))) return;
   renderTable(inv.typ);
 }
 
-function delInv(id) {
+async function delInv(id) {
   if (!confirm('Rechnung löschen?')) return;
   var d = getDB(), inv = d.invoices.find(function(i){ return i.id===id; }), typ = inv ? inv.typ : 'ausgang';
   d.invoices = d.invoices.filter(function(i){ return i.id!==id; });
-  saveDB(d);
+  if (!(await persistDB(d))) return;
   renderTable(typ);
 }
 
@@ -2253,14 +2287,14 @@ function wireFormButtons() {
   var btnResetBottom = document.getElementById('btn-reset-form-bottom');
   if (btnResetBottom) btnResetBottom.onclick = function(){ resetForm(); };
   var btnFixC = document.getElementById('btn-fix-counters');
-  if (btnFixC) btnFixC.addEventListener('click', function(){
+  if (btnFixC) btnFixC.addEventListener('click', async function(){
     var d = getDB();
     var arInvs = d.invoices.filter(function(i){ return i.typ === 'ausgang'; });
     var allInvs = d.invoices;
     d.counters.ausgang = arInvs.length + 1;
     d.counters.fortlaufend = allInvs.length + 1;
     if (!d.counters.eingang) d.counters.eingang = 1;
-    saveDB(d);
+    if (!(await persistDB(d))) return;
     refreshNumbers();
     this.textContent = '✓ Repariert!';
     this.style.color = 'var(--accent)';
@@ -2521,7 +2555,7 @@ function removeERItem(i) {
   renderERItems();
 }
 
-function saveER() {
+async function saveER() {
   var lief = document.getElementById('er-lief-name').value.trim() ||
     (function(){ var s=document.getElementById('er-partner'); return s&&s.selectedIndex>0?s.options[s.selectedIndex].text:''; })();
   var datum   = document.getElementById('er-datum').value;
@@ -2601,7 +2635,7 @@ function saveER() {
     d.invoices.push(inv);
   }
 
-  saveDB(d);
+  if (!(await persistDB(d))) return;
   refreshNumbers();
 
   var typLabel = isGutschrift ? 'Gutschrift' : 'Eingangsrechnung';
@@ -2629,7 +2663,7 @@ function resetERForm() {
   setERMode('eingang');
 }
 
-function saveTageslosung() {
+async function saveTageslosung() {
   var datum   = (document.getElementById('tl-datum')||{value:''}).value;
   var betrag  = parseFloat((document.getElementById('tl-betrag')||{value:'0'}).value) || 0;
   var notizen = (document.getElementById('tl-notizen')||{value:''}).value.trim();
@@ -2657,7 +2691,7 @@ function saveTageslosung() {
   };
 
   d.invoices.push(inv);
-  saveDB(d);
+  if (!(await persistDB(d))) return;
   refreshNumbers();
 
   document.getElementById('f-alerts').innerHTML = '<div class="alert success">&#10003; Tageslosung gespeichert!</div>';
@@ -2804,12 +2838,12 @@ function openInlineKundeModal() {
 
     '<div style="text-align:right;margin-top:1rem"><button class="btn primary" id="btn-ik-save">Speichern</button></div>';
   openModal();
-  document.getElementById('btn-ik-save').addEventListener('click', function(){
+  document.getElementById('btn-ik-save').addEventListener('click', async function(){
     var name = document.getElementById('ik-name').value.trim();
     if (!name) { alert('Name eingeben'); return; }
     var d = getDB();
     var newP = {id:uid(), name:name, adresse:document.getElementById('ik-adr').value, uid:document.getElementById('ik-uid').value, email:document.getElementById('ik-email').value};
-    d[col].push(newP); saveDB(d);
+    d[col].push(newP); if (!(await persistDB(d))) return;
     closeModal();
     updateFT();
     document.getElementById('partner').value = newP.id;
@@ -3438,7 +3472,7 @@ function renderSum() {
     ? '<div class="alert warning">&#9888; Gesamtbetrag über €400: Kunde/Adresse ist Pflichtfeld!</div>' : '';
 }
 
-function saveInvoice() {
+async function saveInvoice() {
   var isSammel = !!window.isSammel;
 
   if (!isSammel) collectDateRows();  // sync arbeitsdaten/fahrzeitdaten into itemsData
@@ -3489,7 +3523,7 @@ function saveInvoice() {
     var dPre = getDB();
     nummer = dPre.invoices.find(function(i){ return i.id===editId; }).nummer;
   } else {
-    nextNum(typ);  // increments correct counter based on zahlungsart
+    if (await nextNum(typ) === undefined) return;  // increments correct counter based on zahlungsart
     // Use manually entered value from rnr field if present, else use auto-generated
     var rnrFieldVal = (document.getElementById('rnr')||{value:''}).value.trim();
     nummer = rnrFieldVal || String(getDB().counters.ausgang - 1).padStart(2,'0');
@@ -3556,7 +3590,7 @@ function saveInvoice() {
 
   if (editId) d.invoices = d.invoices.map(function(i){ return i.id===editId ? inv : i; });
   else d.invoices.push(inv);
-  saveDB(d);
+  if (!(await persistDB(d))) return;
   // Save beschreibung history
   if (!isSammel) {
     itemsData.forEach(function(it){
@@ -5052,22 +5086,22 @@ function openKundeModal() {
     '<div style="text-align:right;margin-top:1rem"><button class="btn primary" id="btn-save-kunde">Speichern</button></div>';
   openModal(); renderKFz();
   document.getElementById('k-add-fz').onclick = function(){ kFzList.push({marke:'',kz:''}); renderKFz(); };
-  document.getElementById('btn-save-kunde').addEventListener('click', function(){
+  document.getElementById('btn-save-kunde').addEventListener('click', async function(){
     var name = document.getElementById('k-name').value.trim();
     if (!name) { alert('Name eingeben'); return; }
     var d = getDB(), kid = uid();
     d.kunden.push({id:kid,name:name,adresse:document.getElementById('k-adr').value,uid:document.getElementById('k-uid').value,email:document.getElementById('k-email').value});
     kFzList.forEach(function(fz){ if(fz.marke||fz.kz){ d.fahrzeuge.push({id:uid(),kundeId:kid,kundeName:name,marke:fz.marke,kennzeichen:fz.kz,vin:'',erstzulassung:'',erstellt:new Date().toISOString()}); }});
-    saveDB(d); closeModal(); renderKunden();
+    if (!(await persistDB(d))) return; closeModal(); renderKunden();
   });
 }
 
 
-function delKunde(id) {
+async function delKunde(id) {
   if (!confirm('Kunden löschen?')) return;
   var d = getDB();
   d.kunden = d.kunden.filter(function(k){ return k.id!==id; });
-  saveDB(d); renderKunden();
+  if (!(await persistDB(d))) return; renderKunden();
 }
 
 // ================================================================
@@ -5170,7 +5204,7 @@ function openFzModal(kundeId) {
   document.getElementById('btn-save-fz').addEventListener('click', saveFz);
 }
 
-function saveFz() {
+async function saveFz() {
   var d = getDB();
   var kid = document.getElementById('fz-kid').value;
   var k   = d.kunden.find(function(x){ return x.id===kid; });
@@ -5183,16 +5217,16 @@ function saveFz() {
     erstellt: new Date().toISOString()
   };
   if (!fz.marke && !fz.kennzeichen) { alert('Bitte Marke oder Kennzeichen eingeben'); return; }
-  d.fahrzeuge.push(fz); saveDB(d); closeModal();
+  d.fahrzeuge.push(fz); if (!(await persistDB(d))) return; closeModal();
   if (document.getElementById('page-fahrzeuge').classList.contains('active')) renderFahrzeuge();
   if (document.getElementById('page-kunden').classList.contains('active'))    renderKunden();
 }
 
-function delFz(id) {
+async function delFz(id) {
   if (!confirm('Fahrzeug löschen?')) return;
   var d = getDB();
   d.fahrzeuge = d.fahrzeuge.filter(function(f){ return f.id!==id; });
-  saveDB(d); renderFahrzeuge();
+  if (!(await persistDB(d))) return; renderFahrzeuge();
 }
 
 // ================================================================
@@ -5238,13 +5272,13 @@ function openLiefModal() {
   document.getElementById('btn-save-lief').addEventListener('click', saveLief);
 }
 
-function saveLief() {
+async function saveLief() {
   var name = document.getElementById('l-name').value.trim();
   if (!name) { alert('Name eingeben'); return; }
   var d = getDB();
   var newL = {id:uid(), name:name, adresse:document.getElementById('l-adr').value, uid:document.getElementById('l-uid').value, email:document.getElementById('l-email').value};
   d.lieferanten.push(newL);
-  saveDB(d); closeModal();
+  if (!(await persistDB(d))) return; closeModal();
   if (document.getElementById('page-lieferanten') && document.getElementById('page-lieferanten').classList.contains('active')) renderLief();
   // Always refresh ER partner dropdown (wireERForm re-populates it from fresh DB data)
   wireERForm();
@@ -5254,11 +5288,11 @@ function saveLief() {
   if (lnEl) lnEl.value = newL.name;
 }
 
-function delLief(id) {
+async function delLief(id) {
   if (!confirm('Lieferant löschen?')) return;
   var d = getDB();
   d.lieferanten = d.lieferanten.filter(function(l){ return l.id!==id; });
-  saveDB(d); renderLief();
+  if (!(await persistDB(d))) return; renderLief();
 }
 
 // ================================================================
@@ -5327,13 +5361,13 @@ function openZModal() {
   document.getElementById('btn-save-z').addEventListener('click', saveZ);
 }
 
-function saveZ() {
+async function saveZ() {
   var b = parseFloat(document.getElementById('z-b').value);
   var desc = document.getElementById('z-desc').value.trim();
   if (!desc || isNaN(b)) { alert('Alle Felder ausfüllen'); return; }
   var d = getDB();
   d.zahlungen.push({id:uid(), datum:document.getElementById('z-d').value, betrag:b, beschreibung:desc});
-  saveDB(d); closeModal(); renderZ();
+  if (!(await persistDB(d))) return; closeModal(); renderZ();
 }
 
 
@@ -5645,7 +5679,7 @@ var TODO_WDH = [
   {val:'jaehrlich',   lbl:'Jährlich'}
 ];
 
-function renderTodos() {
+async function renderTodos() {
   var d = getDB();
   var el = document.getElementById('todos-list');
   if (!el) return;
@@ -5665,7 +5699,7 @@ function renderTodos() {
       changed = true;
     }
   });
-  if (changed) saveDB(d);
+  if (changed) if (!(await persistDB(d))) return;
 
   var rows = todos.map(function(t, i){
     var fd = t.faellig ? new Date(t.faellig) : null;
@@ -5728,14 +5762,14 @@ function renderTodos() {
       el.querySelectorAll('.todo-row').forEach(function(r){ r.style.background=''; });
       this.style.background = '#f0f9f5';
     });
-    row.addEventListener('drop', function(e){
+    row.addEventListener('drop', async function(e){
       e.preventDefault();
       var toIdx = parseInt(this.dataset.i);
       if (tdDragFrom === null || tdDragFrom === toIdx) return;
       var db = getDB();
       var item = db.todos.splice(tdDragFrom, 1)[0];
       db.todos.splice(toIdx, 0, item);
-      saveDB(db);
+      if (!(await persistDB(db))) return;
       renderTodos();
     });
   });
@@ -5764,7 +5798,7 @@ function openTodoForm(id) {
   openModal();
 }
 
-function saveTodo(id) {
+async function saveTodo(id) {
   var titel   = (document.getElementById('td-titel')||{value:''}).value.trim();
   var faellig = (document.getElementById('td-faellig')||{value:''}).value;
   var wdh     = (document.getElementById('td-wdh')||{value:'keine'}).value;
@@ -5782,12 +5816,12 @@ function saveTodo(id) {
   } else {
     d.todos.push({id:uid(), titel:titel, faellig:faellig, wiederholung:wdh, erledigt:false, erstellt:new Date().toISOString()});
   }
-  saveDB(d);
+  if (!(await persistDB(d))) return;
   closeModal();
   renderTodos();
 }
 
-function erledigeTodo(id) {
+async function erledigeTodo(id) {
   var d = getDB();
   if (!d.todos) return;
   if (!d.todos_archiv) d.todos_archiv = [];
@@ -5811,7 +5845,7 @@ function erledigeTodo(id) {
     d.todos_archiv.push(t);
     d.todos.splice(idx, 1);
   }
-  saveDB(d);
+  if (!(await persistDB(d))) return;
   renderTodos();
   renderDash();
 }
@@ -5842,7 +5876,7 @@ function openTodoArchiv() {
   openModal();
 }
 
-function restoreTodo(id) {
+async function restoreTodo(id) {
   var d = getDB();
   if (!d.todos_archiv) return;
   var idx = d.todos_archiv.findIndex(function(t){ return t.id===id; });
@@ -5851,24 +5885,24 @@ function restoreTodo(id) {
   t.erledigt_am = null;
   d.todos.push(t);
   d.todos_archiv.splice(idx, 1);
-  saveDB(d);
+  if (!(await persistDB(d))) return;
   openTodoArchiv();
   renderTodos();
 }
 
-function deleteArchivTodo(id) {
+async function deleteArchivTodo(id) {
   if (!confirm('Dauerhaft löschen?')) return;
   var d = getDB();
   d.todos_archiv = (d.todos_archiv||[]).filter(function(t){ return t.id!==id; });
-  saveDB(d);
+  if (!(await persistDB(d))) return;
   openTodoArchiv();
 }
 
-function deleteTodo(id) {
+async function deleteTodo(id) {
   if (!confirm('To-Do wirklich löschen?')) return;
   var d = getDB();
   d.todos = (d.todos||[]).filter(function(t){ return t.id!==id; });
-  saveDB(d);
+  if (!(await persistDB(d))) return;
   renderTodos();
 }
 
@@ -6124,14 +6158,14 @@ function switchVT(tab) {
   updateVP();
 }
 
-function saveV() {
-  var v = readVF(); var d = getDB(); d.vorlage=v; saveDB(d);
+async function saveV() {
+  var v = readVF(); var d = getDB(); d.vorlage=v; if (!(await persistDB(d))) return;
   var el = document.getElementById('v-alert');
   el.innerHTML = '<div class="alert success">&#10003; Vorlage gespeichert!</div>';
   setTimeout(function(){ el.innerHTML=''; }, 3000);
 }
 
-function resetV() { var d=getDB(); d.vorlage=dfV(); saveDB(d); loadVF(); }
+async function resetV() { var d=getDB(); d.vorlage=dfV(); if (!(await persistDB(d))) return; loadVF(); }
 
 // ================================================================
 // ZULASSUNG SCANNER
@@ -6261,7 +6295,7 @@ async function handleScan(file) {
   }
 }
 
-function createFromScan() {
+async function createFromScan() {
   var p = {
     name:         document.getElementById('sr-name').value,
     adresse:      document.getElementById('sr-adr').value,
@@ -6273,7 +6307,7 @@ function createFromScan() {
   var d = getDB(), kidNew = uid();
   d.kunden.push({id:kidNew, name:p.name||'Unbekannt', adresse:p.adresse||'', uid:'', email:''});
   d.fahrzeuge.push({id:uid(), kundeId:kidNew, kundeName:p.name||'Unbekannt', marke:p.marke||'', kennzeichen:p.kennzeichen||'', vin:p.vin||'', erstzulassung:p.erstzulassung||'', erstellt:new Date().toISOString()});
-  saveDB(d);
+  if (!(await persistDB(d))) return;
   closeModal();
   SP('kunden');
 }
@@ -6336,7 +6370,7 @@ document.getElementById('btn-test-api').addEventListener('click', async function
 // ================================================================
 // INIT
 // ================================================================
-function editKunde(id) {
+async function editKunde(id) {
   var d=getDB(), k=d.kunden.find(function(x){return x.id===id;});
   if(!k) return;
   var kFzList=d.fahrzeuge.filter(function(f){return f.kundeId===id;}).map(function(f){return {id:f.id,marke:f.marke||'',kz:f.kennzeichen||''};});
@@ -6366,17 +6400,17 @@ function editKunde(id) {
     '<div style="text-align:right;margin-top:1rem"><button class="btn primary" id="btn-save-kunde-edit">Speichern</button></div>';
   openModal(); renderKFz();
   document.getElementById('k-add-fz').onclick=function(){kFzList.push({marke:'',kz:''});renderKFz();};
-  document.getElementById('btn-save-kunde-edit').addEventListener('click',function(){
+  document.getElementById('btn-save-kunde-edit').addEventListener('click',async function(){
     var name=document.getElementById('k-name').value.trim();
     if(!name){alert('Name eingeben');return;}
     var d2=getDB(), ki=d2.kunden.findIndex(function(x){return x.id===id;});
     if(ki!==-1) d2.kunden[ki]=Object.assign(d2.kunden[ki],{name:name,adresse:document.getElementById('k-adr').value,uid:document.getElementById('k-uid').value,email:document.getElementById('k-email').value});
     d2.fahrzeuge=d2.fahrzeuge.filter(function(f){return f.kundeId!==id;});
     kFzList.forEach(function(fz){if(fz.marke||fz.kz){d2.fahrzeuge.push({id:uid(),kundeId:id,kundeName:name,marke:fz.marke,kennzeichen:fz.kz,vin:'',erstzulassung:'',erstellt:new Date().toISOString()});}});
-    saveDB(d2);closeModal();renderKunden();
+    if (!(await persistDB(d2))) return;closeModal();renderKunden();
   });
 }
-function editLief(id) {
+async function editLief(id) {
   var d=getDB(), l=d.lieferanten.find(function(x){return x.id===id;});
   if(!l) return;
   document.getElementById('modal-body').innerHTML=
@@ -6386,15 +6420,15 @@ function editLief(id) {
     '<div class="fr c2"><div class="fg"><label>UID</label><input id="l-uid" value="'+esc(l.uid||'')+'"></div><div class="fg"><label>E-Mail</label><input id="l-email" type="email" value="'+esc(l.email||'')+'"></div></div>'+
     '<div style="text-align:right;margin-top:1rem"><button class="btn primary" id="btn-save-lief-edit">Speichern</button></div>';
   openModal();
-  document.getElementById('btn-save-lief-edit').addEventListener('click',function(){
+  document.getElementById('btn-save-lief-edit').addEventListener('click',async function(){
     var name=document.getElementById('l-name').value.trim();
     if(!name){alert('Name eingeben');return;}
     var d2=getDB(), li=d2.lieferanten.findIndex(function(x){return x.id===id;});
     if(li!==-1) d2.lieferanten[li]=Object.assign(d2.lieferanten[li],{name:name,adresse:document.getElementById('l-adr').value,uid:document.getElementById('l-uid').value,email:document.getElementById('l-email').value});
-    saveDB(d2);closeModal();renderLief();
+    if (!(await persistDB(d2))) return;closeModal();renderLief();
   });
 }
-function editFz(id) {
+async function editFz(id) {
   var d=getDB(), f=d.fahrzeuge.find(function(x){return x.id===id;});
   if(!f) return;
   var kOpts=d.kunden.map(function(k){return '<option value="'+k.id+'"'+(k.id===f.kundeId?' selected':'')+'>'+esc(k.name)+'</option>';}).join('');
@@ -6405,14 +6439,14 @@ function editFz(id) {
     '<div class="fr c2"><div class="fg"><label>VIN</label><input id="fz-vin" value="'+esc(f.vin||'')+'"></div><div class="fg"><label>Erstzulassung</label><input id="fz-ez" value="'+esc(f.erstzulassung||'')+'"></div></div>'+
     '<div style="text-align:right;margin-top:1rem"><button class="btn primary" id="btn-save-fz-edit">Speichern</button></div>';
   openModal();
-  document.getElementById('btn-save-fz-edit').addEventListener('click',function(){
+  document.getElementById('btn-save-fz-edit').addEventListener('click',async function(){
     var d2=getDB(), fi=d2.fahrzeuge.findIndex(function(x){return x.id===id;});
     if(fi!==-1){
       var kid=document.getElementById('fz-kid').value;
       var kn=d2.kunden.find(function(x){return x.id===kid;});
       d2.fahrzeuge[fi]=Object.assign(d2.fahrzeuge[fi],{kundeId:kid,kundeName:kn?kn.name:'',marke:document.getElementById('fz-marke').value.trim(),kennzeichen:document.getElementById('fz-kz').value.trim(),vin:document.getElementById('fz-vin').value.trim(),erstzulassung:document.getElementById('fz-ez').value.trim()});
     }
-    saveDB(d2);closeModal();renderFahrzeuge();
+    if (!(await persistDB(d2))) return;closeModal();renderFahrzeuge();
   });
 }
 
@@ -7042,12 +7076,12 @@ function openKVKundeModal() {
     '<div class="fr c2"><div class="fg"><label>UID</label><input id="kvk-uid" type="text"></div><div class="fg"><label>E-Mail</label><input id="kvk-email" type="email"></div></div>' +
     '<div style="text-align:right;margin-top:1rem"><button class="btn primary" id="btn-kvk-save">Speichern</button></div>';
   openModal();
-  document.getElementById('btn-kvk-save').addEventListener('click', function(){
+  document.getElementById('btn-kvk-save').addEventListener('click', async function(){
     var name = document.getElementById('kvk-name').value.trim();
     if (!name) { alert('Name eingeben'); return; }
     var d = getDB();
     var newP = {id:uid(), name:name, adresse:document.getElementById('kvk-adr').value, uid:document.getElementById('kvk-uid').value, email:document.getElementById('kvk-email').value, erstellt:new Date().toISOString()};
-    d.kunden.push(newP); saveDB(d);
+    d.kunden.push(newP); if (!(await persistDB(d))) return;
     closeModal();
     kvPopulatePartner();
     var sel = document.getElementById('kv-partner');
@@ -7143,7 +7177,7 @@ function renderKVSum() {
   if (gesamtEl) gesamtEl.textContent = fmt(gesamt);
 }
 
-function saveKV() {
+async function saveKV() {
   var datum = (document.getElementById('kv-datum') || {value:''}).value;
   var pinfo = (document.getElementById('kv-pinfo') || {value:''}).value.trim();
   var mwstPct = parseFloat((document.getElementById('kv-mwst-pct') || {value:'20'}).value) || 20;
@@ -7195,7 +7229,7 @@ function saveKV() {
       });
     }
   });
-  saveDB(d);
+  if (!(await persistDB(d))) return;
   genKVPDF(kv);
   setTimeout(function(){ SP('kv-liste'); }, 600);
 }
@@ -7452,10 +7486,10 @@ function renderKVListe() {
   });
 }
 
-function delKV(id) {
+async function delKV(id) {
   if (!confirm('Angebot löschen?')) return;
   var d = getDB();
   d.kostenvoranschlaege = (d.kostenvoranschlaege || []).filter(function(k){ return k.id !== id; });
-  saveDB(d);
+  if (!(await persistDB(d))) return;
   renderKVListe();
 }
