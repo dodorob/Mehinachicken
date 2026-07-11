@@ -171,28 +171,9 @@ class BuchProDB {
   // ----------------------------------------------------------------
   saveAll(data) {
     const tx = this.db.transaction(() => {
-      // Invoices
-      this.db.prepare('DELETE FROM invoices').run();
-      if (data.invoices && data.invoices.length) {
-        const ins = this.db.prepare(`
-          INSERT OR REPLACE INTO invoices (
-            id, typ, nummer, lfd_nr, zahlungsart, privatkunde, flag_djevad, flag_helmut,
-            partner_id, partner_name, partner_info, datum, leistungsdatum, fz_marke, fz_kz,
-            faellig, status, notizen, kassenbeleg_nr, kassa_typ, materialkosten, mat_auto,
-            erstellt, er_liefnr, is_gutschrift, is_tageslosung, er_netto, er_ust, er_brutto,
-            er_ust_pct, file_b64, file_name, file_type, items, er_items,
-            is_sammel, sammel_beschreibung
-          ) VALUES (
-            @id, @typ, @nummer, @lfd_nr, @zahlungsart, @privatkunde, @flag_djevad, @flag_helmut,
-            @partner_id, @partner_name, @partner_info, @datum, @leistungsdatum, @fz_marke, @fz_kz,
-            @faellig, @status, @notizen, @kassenbeleg_nr, @kassa_typ, @materialkosten, @mat_auto,
-            @erstellt, @er_liefnr, @is_gutschrift, @is_tageslosung, @er_netto, @er_ust, @er_brutto,
-            @er_ust_pct, @file_b64, @file_name, @file_type, @items, @er_items,
-            @is_sammel, @sammel_beschreibung
-          )
-        `);
-        data.invoices.forEach(inv => ins.run(this._invoiceToRow(inv)));
-      }
+      // Invoices are intentionally ignored here. Normal invoice writes must use
+      // createInvoice/updateInvoice/deleteInvoice/updateInvoiceStatus so a stale
+      // renderer snapshot can never rebuild or truncate the invoices table.
 
       // Kunden
       this.db.prepare('DELETE FROM kunden').run();
@@ -248,6 +229,53 @@ class BuchProDB {
       }
     });
     tx();
+  }
+
+  _invoiceColumns() {
+    return [
+      'id', 'typ', 'nummer', 'lfd_nr', 'zahlungsart', 'privatkunde', 'flag_djevad', 'flag_helmut',
+      'partner_id', 'partner_name', 'partner_info', 'datum', 'leistungsdatum', 'fz_marke', 'fz_kz',
+      'faellig', 'status', 'notizen', 'kassenbeleg_nr', 'kassa_typ', 'materialkosten', 'mat_auto',
+      'erstellt', 'er_liefnr', 'is_gutschrift', 'is_tageslosung', 'er_netto', 'er_ust', 'er_brutto',
+      'er_ust_pct', 'file_b64', 'file_name', 'file_type', 'items', 'er_items', 'is_sammel',
+      'sammel_beschreibung',
+    ];
+  }
+
+  createInvoice(invoice) {
+    const row = this._invoiceToRow(invoice);
+    const columns = this._invoiceColumns();
+    const stmt = this.db.prepare(`INSERT INTO invoices (${columns.join(', ')}) VALUES (${columns.map(c => '@' + c).join(', ')})`);
+    const result = stmt.run(row);
+    if (result.changes !== 1) throw new Error('Rechnung konnte nicht erstellt werden.');
+  }
+
+  updateInvoice(invoice) {
+    const row = this._invoiceToRow(invoice);
+    const columns = this._invoiceColumns().filter(c => c !== 'id');
+    const stmt = this.db.prepare(`UPDATE invoices SET ${columns.map(c => c + ' = @' + c).join(', ')} WHERE id = @id`);
+    const result = stmt.run(row);
+    if (result.changes !== 1) throw new Error('Rechnung nicht gefunden: ' + row.id);
+  }
+
+  deleteInvoice(invoiceId) {
+    const result = this.db.prepare('DELETE FROM invoices WHERE id = ?').run(invoiceId);
+    if (result.changes !== 1) throw new Error('Rechnung nicht gefunden: ' + invoiceId);
+  }
+
+  updateInvoiceStatus(invoiceId, status) {
+    const result = this.db.prepare('UPDATE invoices SET status = @status WHERE id = @id').run({ id: invoiceId, status });
+    if (result.changes !== 1) throw new Error('Rechnung nicht gefunden: ' + invoiceId);
+  }
+
+  // This migration-only import may rebuild invoices while moving legacy localStorage
+  // data into a new SQLite database. It is deliberately not exposed to normal saves.
+  importInvoicesForMigration(invoices) {
+    const tx = this.db.transaction((list) => {
+      this.db.prepare('DELETE FROM invoices').run();
+      (list || []).forEach(inv => this.createInvoice(inv));
+    });
+    tx(invoices || []);
   }
 
   // ----------------------------------------------------------------
@@ -344,8 +372,8 @@ class BuchProDB {
             kv.id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
           }
         });
+        this.importInvoicesForMigration(buchproData.invoices || []);
         this.saveAll({
-          invoices:           buchproData.invoices           || [],
           kunden:             buchproData.kunden             || [],
           lieferanten:        buchproData.lieferanten        || [],
           zahlungen:          buchproData.zahlungen          || [],

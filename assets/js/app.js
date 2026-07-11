@@ -239,6 +239,87 @@ function saveDB(d) {
   return saveTask;
 }
 
+
+function persistInvoiceWrite(actionName, invoiceOrId, cacheUpdater, extraArg) {
+  var previous = cloneForSave(getDB());
+  var payload = (invoiceOrId && typeof invoiceOrId === 'object') ? cloneForSave(invoiceOrId) : invoiceOrId;
+  var saveTask = saveQueue.then(function() {
+    if (!(window.electronAPI && window.electronAPI.db && window.electronAPI.db[actionName])) {
+      throw new Error('Rechnungsspeicherung ist nur mit SQLite verfügbar.');
+    }
+    var apiCall = extraArg === undefined ? window.electronAPI.db[actionName](payload) : window.electronAPI.db[actionName](payload, extraArg);
+    return apiCall.then(function(result) {
+      if (!result || result.ok !== true) {
+        var message = result && result.error ? result.error : 'Rechnung speichern fehlgeschlagen';
+        var error = new Error(message);
+        error.result = result;
+        throw error;
+      }
+      if (typeof cacheUpdater === 'function') cacheUpdater(getDB());
+      return result;
+    });
+  });
+  saveQueue = saveTask.catch(function() {});
+  return saveTask.catch(function(e) {
+    _dbCache = previous;
+    throw e;
+  });
+}
+
+async function persistInvoiceCreate(invoice) {
+  try {
+    await persistInvoiceWrite('createInvoice', invoice, function(d) {
+      d.invoices = (d.invoices || []).concat([invoice]);
+    });
+    return true;
+  } catch (e) {
+    console.error('createInvoice error:', e);
+    alert('Rechnung speichern fehlgeschlagen: ' + (e && e.message ? e.message : String(e)));
+    return false;
+  }
+}
+
+async function persistInvoiceUpdate(invoice) {
+  try {
+    await persistInvoiceWrite('updateInvoice', invoice, function(d) {
+      var idx = (d.invoices || []).findIndex(function(i){ return i.id === invoice.id; });
+      if (idx !== -1) d.invoices[idx] = invoice;
+    });
+    return true;
+  } catch (e) {
+    console.error('updateInvoice error:', e);
+    alert('Rechnung speichern fehlgeschlagen: ' + (e && e.message ? e.message : String(e)));
+    return false;
+  }
+}
+
+async function persistInvoiceDelete(invoiceId) {
+  try {
+    await persistInvoiceWrite('deleteInvoice', invoiceId, function(d) {
+      d.invoices = (d.invoices || []).filter(function(i){ return i.id !== invoiceId; });
+    });
+    return true;
+  } catch (e) {
+    console.error('deleteInvoice error:', e);
+    alert('Rechnung löschen fehlgeschlagen: ' + (e && e.message ? e.message : String(e)));
+    return false;
+  }
+}
+
+async function persistInvoiceStatus(invoiceId, status) {
+  try {
+    await persistInvoiceWrite('updateInvoiceStatus', invoiceId, function(d) {
+      var inv = (d.invoices || []).find(function(i){ return i.id === invoiceId; });
+      if (inv) inv.status = status;
+    }, status);
+    return true;
+  } catch (e) {
+    console.error('updateInvoiceStatus error:', e);
+    alert('Rechnungsstatus speichern fehlgeschlagen: ' + (e && e.message ? e.message : String(e)));
+    return false;
+  }
+}
+
 async function persistDB(d) {
   try {
     await saveDB(d);
@@ -2024,8 +2105,8 @@ function renderDash() {
 async function dashBezahle(id) {
   var d = getDB(), inv = d.invoices.find(function(i){ return i.id===id; });
   if (!inv) return;
+  if (!(await persistInvoiceStatus(inv.id, 'bezahlt'))) return;
   inv.status = 'bezahlt';
-  if (!(await persistDB(d))) return;
   renderDash();
   renderTable(inv.typ);
 }
@@ -2173,16 +2254,16 @@ async function togStatus(id) {
   var d = getDB(), inv = d.invoices.find(function(i){ return i.id===id; });
   if (!inv) return;
   var s = ['offen','bezahlt','überfällig'];
-  inv.status = s[(s.indexOf(inv.status)+1) % s.length];
-  if (!(await persistDB(d))) return;
+  var newStatus = s[(s.indexOf(inv.status)+1) % s.length];
+  if (!(await persistInvoiceStatus(inv.id, newStatus))) return;
+  inv.status = newStatus;
   renderTable(inv.typ);
 }
 
 async function delInv(id) {
   if (!confirm('Rechnung löschen?')) return;
   var d = getDB(), inv = d.invoices.find(function(i){ return i.id===id; }), typ = inv ? inv.typ : 'ausgang';
-  d.invoices = d.invoices.filter(function(i){ return i.id!==id; });
-  if (!(await persistDB(d))) return;
+  if (!(await persistInvoiceDelete(id))) return;
   renderTable(typ);
 }
 
@@ -2590,12 +2671,14 @@ async function saveER() {
   var erFileName = window._erFileName || null;
   var erFileType = window._erFileType || null;
 
+  var invoiceWasEdit = !!editId;
+  var invoiceToPersist = null;
   if (editId) {
     // Update existing ER invoice
     var idx = d.invoices.findIndex(function(i){ return i.id===editId; });
     if (idx !== -1) {
       var existing = d.invoices[idx];
-      d.invoices[idx] = Object.assign({}, existing, {
+      invoiceToPersist = Object.assign({}, existing, {
         partner_name: lief, partner_info: lief,
         partner_id: liefPartnerId || existing.partner_id || '',
         datum: datum, faellig: faellig, status: status, notizen: notizen,
@@ -2632,10 +2715,15 @@ async function saveER() {
       file_type: erFileType,
       erstellt: new Date().toISOString()
     };
-    d.invoices.push(inv);
+    invoiceToPersist = inv;
   }
 
-  if (!(await persistDB(d))) return;
+  if (!invoiceToPersist) return;
+  if (invoiceWasEdit) {
+    if (!(await persistInvoiceUpdate(invoiceToPersist))) return;
+  } else {
+    if (!(await persistInvoiceCreate(invoiceToPersist))) return;
+  }
   refreshNumbers();
 
   var typLabel = isGutschrift ? 'Gutschrift' : 'Eingangsrechnung';
@@ -2690,8 +2778,7 @@ async function saveTageslosung() {
     erstellt: new Date().toISOString()
   };
 
-  d.invoices.push(inv);
-  if (!(await persistDB(d))) return;
+  if (!(await persistInvoiceCreate(inv))) return;
   refreshNumbers();
 
   document.getElementById('f-alerts').innerHTML = '<div class="alert success">&#10003; Tageslosung gespeichert!</div>';
@@ -3588,9 +3675,11 @@ async function saveInvoice() {
     }
   }
 
-  if (editId) d.invoices = d.invoices.map(function(i){ return i.id===editId ? inv : i; });
-  else d.invoices.push(inv);
-  if (!(await persistDB(d))) return;
+  if (editId) {
+    if (!(await persistInvoiceUpdate(inv))) return;
+  } else {
+    if (!(await persistInvoiceCreate(inv))) return;
+  }
   // Save beschreibung history
   if (!isSammel) {
     itemsData.forEach(function(it){

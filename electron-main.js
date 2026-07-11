@@ -450,6 +450,34 @@ ipcMain.handle('db-save-all', async (event, data) => {
   }
 });
 
+
+function invoiceHandler(methodName, label) {
+  return async (event, payload, extra) => {
+    if (!buchProDB) return { ok: false, error: 'Keine Datenbank geöffnet' };
+    try {
+      buchProDB[methodName](payload, extra);
+      return { ok: true };
+    } catch (e) {
+      console.error(label + ' error:', e);
+      return { ok: false, error: e.message };
+    }
+  };
+}
+
+ipcMain.handle('db-create-invoice', invoiceHandler('createInvoice', 'db-create-invoice'));
+ipcMain.handle('db-update-invoice', invoiceHandler('updateInvoice', 'db-update-invoice'));
+ipcMain.handle('db-delete-invoice', invoiceHandler('deleteInvoice', 'db-delete-invoice'));
+ipcMain.handle('db-update-invoice-status', async (event, invoiceId, status) => {
+  if (!buchProDB) return { ok: false, error: 'Keine Datenbank geöffnet' };
+  try {
+    buchProDB.updateInvoiceStatus(invoiceId, status);
+    return { ok: true };
+  } catch (e) {
+    console.error('db-update-invoice-status error:', e);
+    return { ok: false, error: e.message };
+  }
+});
+
 ipcMain.handle('db-save-setting', async (event, key, value) => {
   if (!buchProDB) return { ok: false };
   try {
