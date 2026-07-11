@@ -28,6 +28,13 @@ try {
 
 let buchProDB  = null;
 let appConfig  = null;
+let mainWindow = null;
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
 
 function loadUpdateTokenFromEnvFiles() {
   if (!dotenv) {
@@ -55,8 +62,26 @@ function sendUpdateStatus(event, payload) {
   });
 }
 
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+
+  mainWindow.show();
+  mainWindow.focus();
+}
+
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    showMainWindow();
+    return mainWindow;
+  }
+
+  mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     webPreferences: {
@@ -66,7 +91,13 @@ function createWindow() {
     },
   });
 
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
+
+  return mainWindow;
 }
 
 function setupAutoUpdates() {
@@ -472,32 +503,40 @@ ipcMain.handle('db-migrate-localstorage', async (event, lsData) => {
 
 // ----------------------------------------------------------------
 
-app.whenReady().then(() => {
-  // Init app config and DB module instances
-  if (AppConfig) {
-    appConfig = new AppConfig(app.getPath('userData'));
-  }
-  if (BuchProDB) {
-    buchProDB = new BuchProDB();
-  }
+if (gotSingleInstanceLock) {
+  app.on('second-instance', () => {
+    showMainWindow();
+  });
 
-  loadUpdateTokenFromEnvFiles();
-  createWindow();
-  setupAutoUpdates();
+  app.whenReady().then(() => {
+    // Init app config and DB module instances
+    if (AppConfig) {
+      appConfig = new AppConfig(app.getPath('userData'));
+    }
+    if (BuchProDB) {
+      buchProDB = new BuchProDB();
+    }
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+    loadUpdateTokenFromEnvFiles();
+    createWindow();
+    setupAutoUpdates();
+
+    app.on('activate', () => {
+      if (mainWindow === null) {
+        createWindow();
+      } else {
+        showMainWindow();
+      }
+    });
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit();
     }
   });
-});
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
-
-app.on('before-quit', () => {
-  if (buchProDB) buchProDB.close();
-});
+  app.on('before-quit', () => {
+    if (buchProDB) buchProDB.close();
+  });
+}
