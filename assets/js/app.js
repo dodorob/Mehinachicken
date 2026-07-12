@@ -2382,10 +2382,12 @@ async function delInv(id) {
 // INVOICE FORM
 // ================================================================
 var editId = null;
+var rnrManuallyEdited = false;
 var itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0}];
 
 function initForm() {
   editId = null;
+  rnrManuallyEdited = false;
   document.getElementById('form-title').textContent = 'Neue Rechnung';
   var now = new Date().toISOString().split('T')[0];
   document.getElementById('datum').value = now;
@@ -2447,8 +2449,16 @@ function wireFormButtons() {
   var kassaBtn = document.getElementById('toggle-kassa');
   var matAuto = document.getElementById('mat-auto');
   var partnerSel = document.getElementById('partner');
+  var rnrInput = document.getElementById('rnr');
 
   var sammelBtn = document.getElementById('toggle-sammel');
+  if (rnrInput && !rnrInput._manualEditWired) {
+    rnrInput._manualEditWired = true;
+    rnrInput.addEventListener('input', function(){
+      if (!editId) rnrManuallyEdited = true;
+    });
+  }
+
   if (arBtn) {
     arBtn.onclick = function(){ setTyp('ausgang'); };
     if (sammelBtn) sammelBtn.onclick = function(){ setTyp('sammel'); };
@@ -2975,7 +2985,7 @@ function refreshNumbers() {
     if (kbRow) kbRow.style.display = 'none';
   } else {
     if (rnrWrap) rnrWrap.style.display = '';
-    if (rnrEl) rnrEl.value = previewNum(typ);
+    if (rnrEl && !editId && !rnrManuallyEdited) rnrEl.value = previewNum(typ);
     if (lfdEl) lfdEl.value = 'lfd. ' + String(lfdNum).padStart(3,'0');
     if (kbRow) kbRow.style.display = (za === 'kassa') ? '' : 'none';
     if (kbEl && za === 'kassa' && !editId) kbEl.value = String(kbNum).padStart(4, '0');
@@ -3725,8 +3735,13 @@ async function saveInvoice() {
     nummer = dPre.invoices.find(function(i){ return i.id===editId; }).nummer;
   } else {
     var rnrFieldVal = (document.getElementById('rnr')||{value:''}).value.trim();
-    if (rnrFieldVal) { nummer = rnrFieldVal; numberingOptions = { numberMode: 'manual', requestedNumber: rnrFieldVal }; }
-    else { nummer = ''; }
+    if (typ === 'ausgang' && rnrManuallyEdited) {
+      nummer = rnrFieldVal;
+      numberingOptions = { numberMode: 'manual', requestedNumber: rnrFieldVal };
+    } else {
+      nummer = '';
+      numberingOptions = { numberMode: 'auto' };
+    }
   }
   var d = getDB();
   var inv = {
@@ -5706,6 +5721,7 @@ function editInv(id) {
   // Populate form after SP('neu') which calls initForm and resets editId
   // So we set editId again after:
   editId = id;
+  rnrManuallyEdited = false;
   document.getElementById('form-title').textContent = 'Rechnung bearbeiten';
 
   if (inv.is_sammel) {

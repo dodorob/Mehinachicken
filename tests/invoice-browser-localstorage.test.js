@@ -32,7 +32,51 @@ const createWithCounters = (inv, opts) => { let saved; return browserPersist(nex
 const updateCounters = vals => browserPersist(next => { next.counters = Object.assign({}, next.counters, vals); });
 const load = () => JSON.parse(localStorage.getItem(STORE_KEY));
 
+function invoiceNumberingOptionsFromField(typ, rnrValue, manuallyEdited) {
+  if (typ === 'ausgang' && manuallyEdited) return { numberMode: 'manual', requestedNumber: String(rnrValue || '').trim() };
+  return { numberMode: 'auto' };
+}
+
+function makeRnrState(counterValue) {
+  return { manuallyEdited: false, value: String(counterValue).padStart(3, '0') };
+}
+function refreshRnrState(state, counterValue) {
+  if (!state.manuallyEdited) state.value = String(counterValue).padStart(3, '0');
+}
+function userEditRnrState(state, value) {
+  state.manuallyEdited = true;
+  state.value = value;
+}
+function resetRnrState(state, counterValue) {
+  state.manuallyEdited = false;
+  state.value = String(counterValue).padStart(3, '0');
+}
+
+function assertManualPreviewState() {
+  let state = makeRnrState(7);
+  assert.deepStrictEqual(invoiceNumberingOptionsFromField('ausgang', state.value, state.manuallyEdited), { numberMode: 'auto' });
+
+  let next = { invoices: [], counters: { ausgang: 8, lfd_bank: 1, lfd_kassa: 1, kassenbeleg: 1 } };
+  const stalePreviewInvoice = applyNumbering(next, { id: 'STALE', typ: 'ausgang', nummer: state.value, zahlungsart: 'bank' }, invoiceNumberingOptionsFromField('ausgang', state.value, state.manuallyEdited));
+  assert.strictEqual(stalePreviewInvoice.nummer, '008');
+
+  userEditRnrState(state, 'SONDER-15');
+  assert.deepStrictEqual(invoiceNumberingOptionsFromField('ausgang', state.value, state.manuallyEdited), { numberMode: 'manual', requestedNumber: 'SONDER-15' });
+  next = { invoices: [], counters: { ausgang: 7, lfd_bank: 1, lfd_kassa: 1, kassenbeleg: 1 } };
+  const manualInvoice = applyNumbering(next, { id: 'MANUAL', typ: 'ausgang', nummer: state.value, zahlungsart: 'bank' }, invoiceNumberingOptionsFromField('ausgang', state.value, state.manuallyEdited));
+  assert.strictEqual(manualInvoice.nummer, 'SONDER-15');
+
+  refreshRnrState(state, 9);
+  assert.strictEqual(state.value, 'SONDER-15');
+  assert.strictEqual(state.manuallyEdited, true);
+
+  resetRnrState(state, 10);
+  assert.strictEqual(state.value, '010');
+  assert.deepStrictEqual(invoiceNumberingOptionsFromField('ausgang', state.value, state.manuallyEdited), { numberMode: 'auto' });
+}
+
 (async () => {
+  assertManualPreviewState();
   saveCount = 0;
   let inv = await createWithCounters({ id: 'A', typ: 'ausgang', zahlungsart: 'bank' }, { numberMode: 'auto' });
   assert.strictEqual(saveCount, 1);
