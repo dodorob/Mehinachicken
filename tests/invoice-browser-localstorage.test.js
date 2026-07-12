@@ -102,6 +102,16 @@ function assertManualPreviewState() {
   assert.strictEqual(inv.nummer, 'MAN-1');
   assert.strictEqual(load().counters.ausgang, 4);
 
+
+  const shared = { invoices: [], counters: { ausgang: 1, lfd_bank: 1, lfd_kassa: 1, kassenbeleg: 1 } };
+  const sharedAr = applyNumbering(shared, { id: 'SHARED-AR', typ: 'ausgang', zahlungsart: 'bank' }, { numberMode: 'auto' });
+  const sharedEr = applyNumbering(shared, { id: 'SHARED-ER', typ: 'eingang', nummer: '', zahlungsart: 'bank' }, { numberMode: 'auto' });
+  assert.strictEqual(sharedAr.nummer, '001');
+  assert.strictEqual(sharedEr.nummer, '');
+  assert.deepStrictEqual([sharedAr.lfd_nr, sharedEr.lfd_nr], ['1', '2']);
+  assert.strictEqual(shared.counters.ausgang, 2);
+  assert.strictEqual(shared.counters.lfd_bank, 3);
+
   await updateCounters({ ausgang: 50, lfd_bank: 60 });
   _dbCache = cloneForSave(load());
   assert.strictEqual(getDB().counters.ausgang, 50);

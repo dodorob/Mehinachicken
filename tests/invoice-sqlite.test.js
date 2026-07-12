@@ -214,6 +214,34 @@ async function testAtomicInvoiceCounters() {
     assert.strictEqual(t.db.loadAll().kunden[0].name, 'Other');
   } finally { t.cleanup(); }
 
+
+
+  t = tempDb();
+  try {
+    setCounters(t.db, { ausgang: 1, lfd_bank: 1, lfd_kassa: 1, kassenbeleg: 1 });
+    const ar = t.db.createInvoiceWithCounters(atomicInv('SHARED-AR', { typ: 'ausgang', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
+    const er = t.db.createInvoiceWithCounters(atomicInv('SHARED-ER', { typ: 'eingang', nummer: '', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
+    assert.strictEqual(ar.nummer, '001');
+    assert.strictEqual(er.nummer, null);
+    assert.deepStrictEqual([ar.lfd_nr, er.lfd_nr], ['1', '2']);
+    assert.strictEqual(counters(t.db).ausgang, 2);
+    assert.strictEqual(counters(t.db).lfd_bank, 3);
+  } finally { t.cleanup(); }
+
+  t = tempDb();
+  try {
+    setCounters(t.db, { ausgang: 1, lfd_bank: 1, lfd_kassa: 5, kassenbeleg: 20 });
+    const erKassa = t.db.createInvoiceWithCounters(atomicInv('SHARED-ER-KASSA', { typ: 'eingang', nummer: '', zahlungsart: 'kassa' }), { numberMode: 'auto' }).invoice;
+    const arKassa = t.db.createInvoiceWithCounters(atomicInv('SHARED-AR-KASSA', { typ: 'ausgang', zahlungsart: 'kassa' }), { numberMode: 'auto' }).invoice;
+    assert.strictEqual(erKassa.nummer, null);
+    assert.strictEqual(arKassa.nummer, '001');
+    assert.deepStrictEqual([erKassa.lfd_nr, arKassa.lfd_nr], ['5', '6']);
+    assert.strictEqual(arKassa.kassenbeleg_nr, '20');
+    assert.strictEqual(counters(t.db).ausgang, 2);
+    assert.strictEqual(counters(t.db).lfd_kassa, 7);
+    assert.strictEqual(counters(t.db).kassenbeleg, 21);
+  } finally { t.cleanup(); }
+
   t = tempDb();
   try {
     t.db.updateInvoiceCounters({ ausgang: 123, lfd_bank: 124 });
