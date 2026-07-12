@@ -214,11 +214,17 @@ function cloneForSave(d) {
   return JSON.parse(JSON.stringify(d));
 }
 
+function enqueueDbWrite(operation) {
+  var task = saveQueue.then(operation);
+  saveQueue = task.catch(function() {});
+  return task;
+}
+
 function saveDB(d) {
   _dbCache = d;
   var snapshot = cloneForSave(d);
 
-  var saveTask = saveQueue.then(function() {
+  return enqueueDbWrite(function() {
     if (window.electronAPI && window.electronAPI.db) {
       return window.electronAPI.db.saveAll(snapshot).then(function(result) {
         if (!result || result.ok !== true) {
@@ -234,9 +240,6 @@ function saveDB(d) {
     localStorage.setItem(STORE_KEY, JSON.stringify(snapshot));
     return { ok: true };
   });
-
-  saveQueue = saveTask.catch(function() {});
-  return saveTask;
 }
 
 async function persistDB(d) {
@@ -248,6 +251,128 @@ async function persistDB(d) {
     var message = e && e.message ? e.message : String(e);
     alert('Speichern fehlgeschlagen: ' + message);
     return false;
+  }
+}
+
+function _hasElectronDbInvoiceApi(method) {
+  return !!(window.electronAPI && window.electronAPI.db && typeof window.electronAPI.db[method] === 'function');
+}
+
+function _isElectronDbMode() {
+  return !!(window.electronAPI && window.electronAPI.db);
+}
+
+function _replaceInvoiceInCache(invoice) {
+  var d = getDB();
+  d.invoices = (d.invoices || []).filter(function(i){ return i.id !== invoice.id; });
+  d.invoices.push(invoice);
+  _dbCache = d;
+  return invoice;
+}
+
+function _removeInvoiceFromCache(invoiceId) {
+  var d = getDB();
+  d.invoices = (d.invoices || []).filter(function(i){ return i.id !== invoiceId; });
+  _dbCache = d;
+}
+
+function _mergeInvoiceForUpdate(invoice) {
+  var d = getDB();
+  var existing = (d.invoices || []).find(function(i){ return i.id === invoice.id; });
+  if (!existing) return invoice;
+  var merged = Object.assign({}, existing, invoice);
+  if (invoice.file_b64 == null && invoice.file_name == null && invoice.file_type == null) {
+    merged.file_b64 = existing.file_b64;
+    merged.file_name = existing.file_name;
+    merged.file_type = existing.file_type;
+  }
+  return merged;
+}
+
+async function _persistInvoiceBrowser(applyChange) {
+  var previous = cloneForSave(getDB());
+  var next = cloneForSave(previous);
+  try {
+    applyChange(next);
+    await saveDB(next);
+    _dbCache = next;
+    return next;
+  } catch (e) {
+    _dbCache = previous;
+    throw e;
+  }
+}
+
+async function persistInvoiceCreate(invoice) {
+  if (_hasElectronDbInvoiceApi('createInvoice')) {
+    return enqueueDbWrite(function(){
+      return window.electronAPI.db.createInvoice(invoice).then(function(result){
+        if (!result || result.ok !== true) throw new Error((result && result.error) || 'Rechnung konnte nicht erstellt werden');
+        return _replaceInvoiceInCache(result.invoice || invoice);
+      });
+    });
+  }
+  await _persistInvoiceBrowser(function(next){
+    next.invoices = (next.invoices || []).filter(function(i){ return i.id !== invoice.id; });
+    next.invoices.push(invoice);
+  });
+  return invoice;
+}
+
+async function persistInvoiceUpdate(invoice) {
+  var merged = _mergeInvoiceForUpdate(invoice);
+  if (_hasElectronDbInvoiceApi('updateInvoice')) {
+    return enqueueDbWrite(function(){
+      return window.electronAPI.db.updateInvoice(merged).then(function(result){
+        if (!result || result.ok !== true) throw new Error((result && result.error) || 'Rechnung konnte nicht gespeichert werden');
+        return _replaceInvoiceInCache(result.invoice || merged);
+      });
+    });
+  }
+  await _persistInvoiceBrowser(function(next){
+    next.invoices = (next.invoices || []).map(function(i){ return i.id === merged.id ? merged : i; });
+  });
+  return merged;
+}
+
+async function persistInvoiceDelete(invoiceId) {
+  if (_hasElectronDbInvoiceApi('deleteInvoice')) {
+    return enqueueDbWrite(function(){
+      return window.electronAPI.db.deleteInvoice(invoiceId).then(function(result){
+        if (!result || result.ok !== true) throw new Error((result && result.error) || 'Rechnung konnte nicht gelöscht werden');
+        _removeInvoiceFromCache(invoiceId);
+        return result.result || { id: invoiceId };
+      });
+    });
+  }
+  await _persistInvoiceBrowser(function(next){
+    next.invoices = (next.invoices || []).filter(function(i){ return i.id !== invoiceId; });
+  });
+  return { id: invoiceId };
+}
+
+async function persistInvoiceStatus(invoiceId, status) {
+  if (_hasElectronDbInvoiceApi('updateInvoiceStatus')) {
+    return enqueueDbWrite(function(){
+      return window.electronAPI.db.updateInvoiceStatus(invoiceId, status).then(function(result){
+        if (!result || result.ok !== true) throw new Error((result && result.error) || 'Rechnungsstatus konnte nicht gespeichert werden');
+        return _replaceInvoiceInCache(result.invoice || Object.assign({}, getDB().invoices.find(function(i){ return i.id === invoiceId; }), { id: invoiceId, status: status }));
+      });
+    });
+  }
+  await _persistInvoiceBrowser(function(next){
+    next.invoices = (next.invoices || []).map(function(i){ return i.id === invoiceId ? Object.assign({}, i, { status: status }) : i; });
+  });
+  return { id: invoiceId, status: status };
+}
+
+async function persistInvoiceAction(action) {
+  try {
+    return await action();
+  } catch (e) {
+    console.error('invoice persistence error:', e);
+    alert('Rechnung konnte nicht gespeichert werden: ' + (e && e.message ? e.message : String(e)));
+    return null;
   }
 }
 
@@ -2024,8 +2149,7 @@ function renderDash() {
 async function dashBezahle(id) {
   var d = getDB(), inv = d.invoices.find(function(i){ return i.id===id; });
   if (!inv) return;
-  inv.status = 'bezahlt';
-  if (!(await persistDB(d))) return;
+  if (!(await persistInvoiceAction(function(){ return persistInvoiceStatus(id, 'bezahlt'); }))) return;
   renderDash();
   renderTable(inv.typ);
 }
@@ -2173,16 +2297,14 @@ async function togStatus(id) {
   var d = getDB(), inv = d.invoices.find(function(i){ return i.id===id; });
   if (!inv) return;
   var s = ['offen','bezahlt','überfällig'];
-  inv.status = s[(s.indexOf(inv.status)+1) % s.length];
-  if (!(await persistDB(d))) return;
+  if (!(await persistInvoiceAction(function(){ return persistInvoiceStatus(id, s[(s.indexOf(inv.status)+1) % s.length]); }))) return;
   renderTable(inv.typ);
 }
 
 async function delInv(id) {
   if (!confirm('Rechnung löschen?')) return;
   var d = getDB(), inv = d.invoices.find(function(i){ return i.id===id; }), typ = inv ? inv.typ : 'ausgang';
-  d.invoices = d.invoices.filter(function(i){ return i.id!==id; });
-  if (!(await persistDB(d))) return;
+  if (!(await persistInvoiceAction(function(){ return persistInvoiceDelete(id); }))) return;
   renderTable(typ);
 }
 
@@ -2556,6 +2678,8 @@ function removeERItem(i) {
 }
 
 async function saveER() {
+  var wasEdit = !!editId;
+  var inv = null;
   var lief = document.getElementById('er-lief-name').value.trim() ||
     (function(){ var s=document.getElementById('er-partner'); return s&&s.selectedIndex>0?s.options[s.selectedIndex].text:''; })();
   var datum   = document.getElementById('er-datum').value;
@@ -2595,7 +2719,7 @@ async function saveER() {
     var idx = d.invoices.findIndex(function(i){ return i.id===editId; });
     if (idx !== -1) {
       var existing = d.invoices[idx];
-      d.invoices[idx] = Object.assign({}, existing, {
+      inv = Object.assign({}, existing, {
         partner_name: lief, partner_info: lief,
         partner_id: liefPartnerId || existing.partner_id || '',
         datum: datum, faellig: faellig, status: status, notizen: notizen,
@@ -2632,10 +2756,12 @@ async function saveER() {
       file_type: erFileType,
       erstellt: new Date().toISOString()
     };
-    d.invoices.push(inv);
   }
 
-  if (!(await persistDB(d))) return;
+  if (!inv) { alert('Rechnung nicht gefunden'); return; }
+  var savedInv = await persistInvoiceAction(function(){ return wasEdit ? persistInvoiceUpdate(inv) : persistInvoiceCreate(inv); });
+  if (!savedInv) return;
+  if (_isElectronDbMode() && !(await persistDB(d))) return;
   refreshNumbers();
 
   var typLabel = isGutschrift ? 'Gutschrift' : 'Eingangsrechnung';
@@ -2690,8 +2816,8 @@ async function saveTageslosung() {
     erstellt: new Date().toISOString()
   };
 
-  d.invoices.push(inv);
-  if (!(await persistDB(d))) return;
+  if (!(await persistInvoiceAction(function(){ return persistInvoiceCreate(inv); }))) return;
+  if (_isElectronDbMode() && !(await persistDB(d))) return;
   refreshNumbers();
 
   document.getElementById('f-alerts').innerHTML = '<div class="alert success">&#10003; Tageslosung gespeichert!</div>';
@@ -3473,6 +3599,7 @@ function renderSum() {
 }
 
 async function saveInvoice() {
+  var wasEdit = !!editId;
   var isSammel = !!window.isSammel;
 
   if (!isSammel) collectDateRows();  // sync arbeitsdaten/fahrzeitdaten into itemsData
@@ -3588,9 +3715,12 @@ async function saveInvoice() {
     }
   }
 
-  if (editId) d.invoices = d.invoices.map(function(i){ return i.id===editId ? inv : i; });
-  else d.invoices.push(inv);
-  if (!(await persistDB(d))) return;
+  if (wasEdit) {
+    var oldInv = d.invoices.find(function(i){ return i.id===editId; });
+    inv = Object.assign({}, oldInv || {}, inv, { erstellt: oldInv && oldInv.erstellt ? oldInv.erstellt : inv.erstellt });
+  }
+  if (!(await persistInvoiceAction(function(){ return wasEdit ? persistInvoiceUpdate(inv) : persistInvoiceCreate(inv); }))) return;
+  if (_isElectronDbMode() && !(await persistDB(d))) return;
   // Save beschreibung history
   if (!isSammel) {
     itemsData.forEach(function(it){
@@ -5342,8 +5472,8 @@ function renderZ() {
     '<th>Status</th>' + _th('zahlungen','Betrag','betrag') + '<th>Aktion</th>' +
     '</tr></thead><tbody>'+rows+'</tbody></table>';
   el.querySelectorAll('button[data-act]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      if (this.dataset.act==='status'){ togStatus(this.dataset.id); renderZ(); }
+    btn.addEventListener('click', async function(){
+      if (this.dataset.act==='status'){ await togStatus(this.dataset.id); renderZ(); }
       if (this.dataset.act==='pdf')   genPDF(this.dataset.id);
     });
   });

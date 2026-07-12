@@ -171,28 +171,9 @@ class BuchProDB {
   // ----------------------------------------------------------------
   saveAll(data) {
     const tx = this.db.transaction(() => {
-      // Invoices
-      this.db.prepare('DELETE FROM invoices').run();
-      if (data.invoices && data.invoices.length) {
-        const ins = this.db.prepare(`
-          INSERT OR REPLACE INTO invoices (
-            id, typ, nummer, lfd_nr, zahlungsart, privatkunde, flag_djevad, flag_helmut,
-            partner_id, partner_name, partner_info, datum, leistungsdatum, fz_marke, fz_kz,
-            faellig, status, notizen, kassenbeleg_nr, kassa_typ, materialkosten, mat_auto,
-            erstellt, er_liefnr, is_gutschrift, is_tageslosung, er_netto, er_ust, er_brutto,
-            er_ust_pct, file_b64, file_name, file_type, items, er_items,
-            is_sammel, sammel_beschreibung
-          ) VALUES (
-            @id, @typ, @nummer, @lfd_nr, @zahlungsart, @privatkunde, @flag_djevad, @flag_helmut,
-            @partner_id, @partner_name, @partner_info, @datum, @leistungsdatum, @fz_marke, @fz_kz,
-            @faellig, @status, @notizen, @kassenbeleg_nr, @kassa_typ, @materialkosten, @mat_auto,
-            @erstellt, @er_liefnr, @is_gutschrift, @is_tageslosung, @er_netto, @er_ust, @er_brutto,
-            @er_ust_pct, @file_b64, @file_name, @file_type, @items, @er_items,
-            @is_sammel, @sammel_beschreibung
-          )
-        `);
-        data.invoices.forEach(inv => ins.run(this._invoiceToRow(inv)));
-      }
+      // In Electron/SQLite mode invoices are persisted exclusively through
+      // targeted CRUD methods. The browser/localStorage fallback does not use
+      // database.js, so data.invoices is intentionally ignored here.
 
       // Kunden
       this.db.prepare('DELETE FROM kunden').run();
@@ -248,6 +229,68 @@ class BuchProDB {
       }
     });
     tx();
+  }
+
+  _invoiceColumns() {
+    return [
+      'id', 'typ', 'nummer', 'lfd_nr', 'zahlungsart', 'privatkunde', 'flag_djevad', 'flag_helmut',
+      'partner_id', 'partner_name', 'partner_info', 'datum', 'leistungsdatum', 'fz_marke', 'fz_kz',
+      'faellig', 'status', 'notizen', 'kassenbeleg_nr', 'kassa_typ', 'materialkosten', 'mat_auto',
+      'erstellt', 'er_liefnr', 'is_gutschrift', 'is_tageslosung', 'er_netto', 'er_ust', 'er_brutto',
+      'er_ust_pct', 'file_b64', 'file_name', 'file_type', 'items', 'er_items',
+      'is_sammel', 'sammel_beschreibung',
+    ];
+  }
+
+  getInvoice(id) {
+    const row = this.db.prepare('SELECT * FROM invoices WHERE id = ?').get(id);
+    return row ? this._invoiceFromRow(row) : null;
+  }
+
+  createInvoice(invoice) {
+    const row = this._invoiceToRow(invoice || {});
+    const cols = this._invoiceColumns();
+    const sql = `INSERT INTO invoices (${cols.join(', ')}) VALUES (${cols.map(c => '@' + c).join(', ')})`;
+    this.db.prepare(sql).run(row);
+    return this.getInvoice(row.id);
+  }
+
+  updateInvoice(invoice) {
+    if (!invoice || !invoice.id) throw new Error('Rechnungs-ID fehlt');
+    const existing = this.getInvoice(invoice.id);
+    if (!existing) throw new Error('Rechnung nicht gefunden: ' + invoice.id);
+    const merged = Object.assign({}, existing, invoice);
+    if (invoice.file_b64 == null && invoice.file_name == null && invoice.file_type == null) {
+      merged.file_b64 = existing.file_b64;
+      merged.file_name = existing.file_name;
+      merged.file_type = existing.file_type;
+    }
+    const row = this._invoiceToRow(merged);
+    const cols = this._invoiceColumns().filter(c => c !== 'id');
+    const info = this.db.prepare(`UPDATE invoices SET ${cols.map(c => c + ' = @' + c).join(', ')} WHERE id = @id`).run(row);
+    if (info.changes !== 1) throw new Error('Rechnung konnte nicht aktualisiert werden: ' + invoice.id);
+    return this.getInvoice(invoice.id);
+  }
+
+  deleteInvoice(invoiceId) {
+    const info = this.db.prepare('DELETE FROM invoices WHERE id = ?').run(invoiceId);
+    if (info.changes !== 1) throw new Error('Rechnung nicht gefunden: ' + invoiceId);
+    return { id: invoiceId };
+  }
+
+  updateInvoiceStatus(invoiceId, status) {
+    const info = this.db.prepare('UPDATE invoices SET status = ? WHERE id = ?').run(status, invoiceId);
+    if (info.changes !== 1) throw new Error('Rechnung nicht gefunden: ' + invoiceId);
+    return this.getInvoice(invoiceId);
+  }
+
+  importInvoicesForMigration(invoices) {
+    const tx = this.db.transaction((list) => {
+      const cols = this._invoiceColumns();
+      const ins = this.db.prepare(`INSERT INTO invoices (${cols.join(', ')}) VALUES (${cols.map(c => '@' + c).join(', ')})`);
+      (list || []).forEach(inv => ins.run(this._invoiceToRow(inv)));
+    });
+    tx(invoices || []);
   }
 
   // ----------------------------------------------------------------
@@ -345,7 +388,7 @@ class BuchProDB {
           }
         });
         this.saveAll({
-          invoices:           buchproData.invoices           || [],
+          invoices:           [],
           kunden:             buchproData.kunden             || [],
           lieferanten:        buchproData.lieferanten        || [],
           zahlungen:          buchproData.zahlungen          || [],
@@ -356,6 +399,7 @@ class BuchProDB {
           counters:           buchproData.counters           || {},
           vorlage:            buchproData.vorlage            || null,
         });
+        this.importInvoicesForMigration(buchproData.invoices || []);
       }
     }
 
