@@ -192,16 +192,13 @@ function getDB() {
   if (!d.lieferanten) d.lieferanten = [];
   if (!d.zahlungen)   d.zahlungen   = [];
   if (!d.fahrzeuge)   d.fahrzeuge   = [];
-  if (!d.counters)    d.counters    = {ausgang:1, eingang:1, fortlaufend:1};
+  if (!d.counters)    d.counters    = d.invoices.length === 0 ? {ausgang:1, eingang:1, fortlaufend:1, kassenbeleg:1} : {};
   // Migration: ensure counters exist
-  if (!d.counters.fortlaufend) d.counters.fortlaufend = 1;
-  if (!d.counters.kassenbeleg) d.counters.kassenbeleg = 1;
+  if (!d.counters.fortlaufend && d.invoices.length === 0) d.counters.fortlaufend = 1;
+  if (!d.counters.kassenbeleg && d.invoices.length === 0) d.counters.kassenbeleg = 1;
   if (!d.counters.lfd_bank)    d.counters.lfd_bank    = 1;
   if (!d.counters.lfd_kassa)   d.counters.lfd_kassa   = 1;
-  if (!d.counters.ausgang) {
-    var arCount = d.invoices.filter(function(i){ return i.typ==='ausgang'; }).length;
-    d.counters.ausgang = arCount + 1;
-  }
+  if (!d.counters.ausgang && d.invoices.length === 0) d.counters.ausgang = 1;
   if (!d.vorlage)       d.vorlage       = dfV();
   if (!d.todos)         d.todos         = [];
   if (!d.todos_archiv)  d.todos_archiv  = [];
@@ -318,33 +315,68 @@ function _invoiceNumberingOptions(invoice) {
   return manual ? { numberMode: 'manual', requestedNumber: String(invoice.nummer).trim() } : { numberMode: 'auto' };
 }
 
+
+function _padInvoiceNumber(value) {
+  return String(value).padStart(3, '0');
+}
+function _numericInvoiceValue(value) {
+  var s = String(value == null ? '' : value).trim();
+  return /^\d+$/.test(s) ? Number(s) : null;
+}
+function _sameInvoiceNumber(a, b) {
+  var na = _numericInvoiceValue(a), nb = _numericInvoiceValue(b);
+  if (na != null && nb != null) return na === nb;
+  return String(a == null ? '' : a).trim() === String(b == null ? '' : b).trim();
+}
+function _assertNoInvoiceNumberDuplicate(list, getter, value, message) {
+  if ((list || []).some(function(i){ return _sameInvoiceNumber(getter(i), value); })) throw new Error(message);
+}
+function _requireStateCounter(next, key) {
+  var value = next.counters ? Number(next.counters[key]) : NaN;
+  if (Number.isInteger(value) && value > 0) return value;
+  if (!next.invoices || next.invoices.length === 0) {
+    if (!next.counters) next.counters = {};
+    next.counters[key] = 1;
+    return 1;
+  }
+  throw new Error('Der Rechnungszähler "' + key + '" fehlt oder ist ungültig. Bitte tragen Sie die nächste gültige Nummer in den Einstellungen ein.');
+}
+
 function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
   if (!next.counters) next.counters = {};
-  if (!next.counters.ausgang) next.counters.ausgang = 1;
-  if (!next.counters.fortlaufend) next.counters.fortlaufend = 1;
-  if (!next.counters.kassenbeleg) next.counters.kassenbeleg = 1;
+  var ausgangCounter = _requireStateCounter(next, 'ausgang');
+  var fortlaufendCounter = _requireStateCounter(next, 'fortlaufend');
+  var kassenbelegCounter = _requireStateCounter(next, 'kassenbeleg');
   var za = invoice.zahlungsart === 'kassa' ? 'kassa' : 'bank';
   var finalInvoice = Object.assign({}, invoice);
+  if ((next.invoices || []).some(function(i){ return i.id === finalInvoice.id; })) throw new Error('Rechnungs-ID existiert bereits: ' + finalInvoice.id);
   if (finalInvoice.typ === 'ausgang') {
     if (numberingOptions && numberingOptions.numberMode === 'manual') {
       var requested = String(numberingOptions.requestedNumber || finalInvoice.nummer || '').trim();
       if (!requested) throw new Error('Manuelle Rechnungsnummer fehlt');
       finalInvoice.nummer = requested;
     } else {
-      finalInvoice.nummer = String(next.counters.ausgang).padStart(3, '0');
+      finalInvoice.nummer = _padInvoiceNumber(ausgangCounter);
     }
-    next.counters.ausgang += 1;
-    if ((next.invoices || []).some(function(i){ return i.typ === 'ausgang' && i.nummer === finalInvoice.nummer && i.id !== finalInvoice.id; })) {
-      throw new Error('Rechnungsnummer bereits vorhanden: ' + finalInvoice.nummer);
-    }
+    _assertNoInvoiceNumberDuplicate((next.invoices || []).filter(function(i){ return i.typ === 'ausgang'; }), function(i){ return i.nummer; }, finalInvoice.nummer, 'Die Ausgangsrechnungsnummer ' + finalInvoice.nummer + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
+    next.counters.ausgang = ausgangCounter + 1;
   } else {
     finalInvoice.nummer = finalInvoice.nummer || '';
   }
-  finalInvoice.lfd_nr = String(next.counters.fortlaufend || 1);
-  next.counters.fortlaufend = (next.counters.fortlaufend || 1) + 1;
+  finalInvoice.lfd_nr = _padInvoiceNumber(fortlaufendCounter);
+  _assertNoInvoiceNumberDuplicate(next.invoices || [], function(i){ return i.lfd_nr; }, finalInvoice.lfd_nr, 'Die laufende Nummer ' + finalInvoice.lfd_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
+  next.counters.fortlaufend = fortlaufendCounter + 1;
   if (za === 'kassa' && finalInvoice.typ === 'ausgang') {
-    finalInvoice.kassenbeleg_nr = String(next.counters.kassenbeleg || 1);
-    next.counters.kassenbeleg = (next.counters.kassenbeleg || 1) + 1;
+    if (numberingOptions && numberingOptions.kassenbelegMode === 'manual') {
+      var kbValue = _numericInvoiceValue(numberingOptions.requestedKassenbeleg);
+      if (!Number.isInteger(kbValue) || kbValue < 1) throw new Error('Die Kassenbelegnummer muss eine positive ganze Zahl sein.');
+      finalInvoice.kassenbeleg_nr = _padInvoiceNumber(kbValue);
+      next.counters.kassenbeleg = Math.max(kassenbelegCounter, kbValue + 1);
+    } else {
+      finalInvoice.kassenbeleg_nr = _padInvoiceNumber(kassenbelegCounter);
+      next.counters.kassenbeleg = kassenbelegCounter + 1;
+    }
+    _assertNoInvoiceNumberDuplicate((next.invoices || []).filter(function(i){ return i.typ === 'ausgang' && i.zahlungsart === 'kassa'; }), function(i){ return i.kassenbeleg_nr; }, finalInvoice.kassenbeleg_nr, 'Die Kassenbelegnummer ' + finalInvoice.kassenbeleg_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
   } else {
     finalInvoice.kassenbeleg_nr = '';
   }
@@ -382,7 +414,12 @@ async function persistInvoiceCounters(counterValues) {
   }
   await _persistInvoiceBrowser(function(next){
     if (!next.counters) next.counters = {};
-    Object.keys(counterValues || {}).forEach(function(key){ next.counters[key] = counterValues[key]; });
+    Object.keys(counterValues || {}).forEach(function(key){
+      if (INVOICE_COUNTER_KEYS.indexOf(key) === -1) throw new Error('Unbekannter Rechnungszähler: ' + key);
+      var value = Number(counterValues[key]);
+      if (!Number.isInteger(value) || value < 1) throw new Error('Ungültiger Rechnungszähler: ' + key);
+      next.counters[key] = value;
+    });
   });
   return getDB().counters;
 }
@@ -2380,11 +2417,13 @@ async function delInv(id) {
 // ================================================================
 var editId = null;
 var rnrManuallyEdited = false;
+var kassenbelegManuallyEdited = false;
 var itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0}];
 
 function initForm() {
   editId = null;
   rnrManuallyEdited = false;
+  kassenbelegManuallyEdited = false;
   document.getElementById('form-title').textContent = 'Neue Rechnung';
   var now = new Date().toISOString().split('T')[0];
   document.getElementById('datum').value = now;
@@ -2447,12 +2486,20 @@ function wireFormButtons() {
   var matAuto = document.getElementById('mat-auto');
   var partnerSel = document.getElementById('partner');
   var rnrInput = document.getElementById('rnr');
+  var kbInput = document.getElementById('kassa-beleg-nr');
 
   var sammelBtn = document.getElementById('toggle-sammel');
   if (rnrInput && !rnrInput._manualEditWired) {
     rnrInput._manualEditWired = true;
     rnrInput.addEventListener('input', function(){
       if (!editId) rnrManuallyEdited = true;
+    });
+  }
+
+  if (kbInput && !kbInput._manualEditWired) {
+    kbInput._manualEditWired = true;
+    kbInput.addEventListener('input', function(){
+      if (!editId) kassenbelegManuallyEdited = true;
     });
   }
 
@@ -2981,7 +3028,7 @@ function refreshNumbers() {
     if (rnrEl && !editId && !rnrManuallyEdited) rnrEl.value = previewNum(typ);
     if (lfdEl) lfdEl.value = 'lfd. ' + String(lfdNum).padStart(3,'0');
     if (kbRow) kbRow.style.display = (za === 'kassa') ? '' : 'none';
-    if (kbEl && za === 'kassa' && !editId) kbEl.value = String(kbNum).padStart(4, '0');
+    if (kbEl && za === 'kassa' && !editId && !kassenbelegManuallyEdited) kbEl.value = _padInvoiceNumber(kbNum);
   }
 }
 
@@ -3735,6 +3782,10 @@ async function saveInvoice() {
       nummer = '';
       numberingOptions = { numberMode: 'auto' };
     }
+  }
+  if (!wasEdit && typ === 'ausgang' && (document.getElementById('zahlungsart')||{value:'bank'}).value === 'kassa' && kassenbelegManuallyEdited) {
+    numberingOptions.kassenbelegMode = 'manual';
+    numberingOptions.requestedKassenbeleg = (document.getElementById('kassa-beleg-nr')||{value:''}).value.trim();
   }
   var d = getDB();
   var inv = {
@@ -5715,6 +5766,7 @@ function editInv(id) {
   // So we set editId again after:
   editId = id;
   rnrManuallyEdited = false;
+  kassenbelegManuallyEdited = false;
   document.getElementById('form-title').textContent = 'Rechnung bearbeiten';
 
   if (inv.is_sammel) {

@@ -22,9 +22,9 @@ function applyNumbering(next, inv, opts) {
     if (!out.nummer) throw new Error('manual missing');
     next.counters.ausgang++;
   } else out.nummer = out.nummer || '';
-  out.lfd_nr = String(next.counters.fortlaufend);
+  out.lfd_nr = String(next.counters.fortlaufend).padStart(3, '0');
   next.counters.fortlaufend++;
-  if (out.typ === 'ausgang' && za === 'kassa') { out.kassenbeleg_nr = String(next.counters.kassenbeleg); next.counters.kassenbeleg++; }
+  if (out.typ === 'ausgang' && za === 'kassa') { out.kassenbeleg_nr = String(next.counters.kassenbeleg).padStart(3, '0'); next.counters.kassenbeleg++; }
   return out;
 }
 const createWithCounters = (inv, opts) => { let saved; return browserPersist(next => { saved = applyNumbering(next, inv, opts); next.invoices = next.invoices.filter(i => i.id !== saved.id); next.invoices.push(saved); }).then(() => saved); };
@@ -80,12 +80,12 @@ function assertManualPreviewState() {
   let inv = await createWithCounters({ id: 'A', typ: 'ausgang', zahlungsart: 'bank' }, { numberMode: 'auto' });
   assert.strictEqual(saveCount, 1);
   assert.strictEqual(inv.nummer, '001');
-  assert.strictEqual(inv.lfd_nr, '1');
+  assert.strictEqual(inv.lfd_nr, '001');
   assert.strictEqual(load().counters.ausgang, 2);
   assert.ok(load().invoices.find(i => i.id === 'A'));
 
   inv = await createWithCounters({ id: 'K', typ: 'ausgang', zahlungsart: 'kassa' }, { numberMode: 'auto' });
-  assert.strictEqual(inv.kassenbeleg_nr, '1');
+  assert.strictEqual(inv.kassenbeleg_nr, '001');
   assert.strictEqual(load().counters.fortlaufend, 3);
   assert.strictEqual(load().counters.lfd_kassa, 1);
   assert.strictEqual(load().counters.kassenbeleg, 2);
@@ -108,7 +108,7 @@ function assertManualPreviewState() {
   const sharedEr = applyNumbering(shared, { id: 'SHARED-ER', typ: 'eingang', nummer: '', zahlungsart: 'bank' }, { numberMode: 'auto' });
   assert.strictEqual(sharedAr.nummer, '001');
   assert.strictEqual(sharedEr.nummer, '');
-  assert.deepStrictEqual([sharedAr.lfd_nr, sharedEr.lfd_nr], ['10', '11']);
+  assert.deepStrictEqual([sharedAr.lfd_nr, sharedEr.lfd_nr], ['010', '011']);
   assert.strictEqual(shared.counters.ausgang, 2);
   assert.strictEqual(shared.counters.fortlaufend, 12);
   assert.strictEqual(shared.counters.lfd_bank, 500);

@@ -281,6 +281,45 @@ class BuchProDB {
     this.db.prepare('INSERT OR REPLACE INTO counters (name, value) VALUES (?, ?)').run(name, value);
   }
 
+
+  _invoiceCount() {
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM invoices').get();
+    return row ? row.n : 0;
+  }
+
+  _requireActiveCounter(name) {
+    if (!INVOICE_COUNTER_KEY_SET.has(name)) throw new Error('Unbekannter Rechnungszähler: ' + name);
+    const row = this.db.prepare('SELECT value FROM counters WHERE name = ?').get(name);
+    const value = row ? Number(row.value) : NaN;
+    if (Number.isInteger(value) && value > 0) return value;
+    if (this._invoiceCount() === 0) {
+      this._setCounterValue(name, 1);
+      return 1;
+    }
+    throw new Error('Der Rechnungszähler "' + name + '" fehlt oder ist ungültig. Bitte tragen Sie die nächste gültige Nummer in den Einstellungen ein.');
+  }
+
+  _padNumber(value) {
+    return String(value).padStart(3, '0');
+  }
+
+  _numericValue(value) {
+    const s = String(value == null ? '' : value).trim();
+    return /^\d+$/.test(s) ? Number(s) : null;
+  }
+
+  _sameNumber(a, b) {
+    const na = this._numericValue(a);
+    const nb = this._numericValue(b);
+    if (na != null && nb != null) return na === nb;
+    return String(a == null ? '' : a).trim() === String(b == null ? '' : b).trim();
+  }
+
+  _assertNoDuplicateNumber(sql, value, message) {
+    const rows = this.db.prepare(sql).all();
+    if (rows.some(r => this._sameNumber(r.value, value))) throw new Error(message);
+  }
+
   _invoiceCounterPlan(invoice) {
     const za = invoice && invoice.zahlungsart === 'kassa' ? 'kassa' : 'bank';
     const isAusgang = invoice && invoice.typ === 'ausgang';
@@ -301,9 +340,10 @@ class BuchProDB {
     const mode = opts.numberMode === 'manual' ? 'manual' : 'auto';
     const tx = this.db.transaction(() => {
       if (this.getInvoice(invoice.id)) throw new Error('Rechnungs-ID existiert bereits: ' + invoice.id);
+      INVOICE_COUNTER_KEYS.forEach(key => { this._requireActiveCounter(key); });
       const plan = this._invoiceCounterPlan(invoice);
       const counters = {};
-      plan.keys.forEach(key => { counters[key] = this._getCounterValue(key); });
+      plan.keys.forEach(key => { counters[key] = this._requireActiveCounter(key); });
 
       const finalInvoice = Object.assign({}, invoice);
       if (plan.isAusgang) {
@@ -312,16 +352,27 @@ class BuchProDB {
           if (!requested) throw new Error('Manuelle Rechnungsnummer fehlt');
           finalInvoice.nummer = requested;
         } else {
-          finalInvoice.nummer = String(counters.ausgang).padStart(3, '0');
+          finalInvoice.nummer = this._padNumber(counters.ausgang);
         }
-        const dup = this.db.prepare('SELECT id FROM invoices WHERE nummer = ? AND typ = ? LIMIT 1').get(finalInvoice.nummer, 'ausgang');
-        if (dup) throw new Error('Rechnungsnummer bereits vorhanden: ' + finalInvoice.nummer);
+        this._assertNoDuplicateNumber("SELECT nummer AS value FROM invoices WHERE typ = 'ausgang' AND nummer IS NOT NULL AND nummer != ''", finalInvoice.nummer, 'Die Ausgangsrechnungsnummer ' + finalInvoice.nummer + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
       } else {
         finalInvoice.nummer = finalInvoice.nummer || '';
       }
-      finalInvoice.lfd_nr = String(counters.fortlaufend || 1);
-      if (plan.isKassa && plan.isAusgang) finalInvoice.kassenbeleg_nr = String(counters.kassenbeleg || 1);
-      else finalInvoice.kassenbeleg_nr = '';
+      finalInvoice.lfd_nr = this._padNumber(counters.fortlaufend);
+      this._assertNoDuplicateNumber("SELECT lfd_nr AS value FROM invoices WHERE lfd_nr IS NOT NULL AND lfd_nr != ''", finalInvoice.lfd_nr, 'Die laufende Nummer ' + finalInvoice.lfd_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
+      let nextKassenbeleg = null;
+      if (plan.isKassa && plan.isAusgang) {
+        if (opts.kassenbelegMode === 'manual') {
+          const kbValue = this._numericValue(opts.requestedKassenbeleg);
+          if (!Number.isInteger(kbValue) || kbValue < 1) throw new Error('Die Kassenbelegnummer muss eine positive ganze Zahl sein.');
+          finalInvoice.kassenbeleg_nr = this._padNumber(kbValue);
+          nextKassenbeleg = Math.max(counters.kassenbeleg, kbValue + 1);
+        } else {
+          finalInvoice.kassenbeleg_nr = this._padNumber(counters.kassenbeleg);
+          nextKassenbeleg = counters.kassenbeleg + 1;
+        }
+        this._assertNoDuplicateNumber("SELECT kassenbeleg_nr AS value FROM invoices WHERE typ = 'ausgang' AND zahlungsart = 'kassa' AND kassenbeleg_nr IS NOT NULL AND kassenbeleg_nr != ''", finalInvoice.kassenbeleg_nr, 'Die Kassenbelegnummer ' + finalInvoice.kassenbeleg_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
+      } else finalInvoice.kassenbeleg_nr = '';
 
       const row = this._invoiceToRow(finalInvoice);
       const cols = this._invoiceColumns();
@@ -330,7 +381,7 @@ class BuchProDB {
 
       if (plan.isAusgang) this._setCounterValue('ausgang', counters.ausgang + 1);
       this._setCounterValue('fortlaufend', counters.fortlaufend + 1);
-      if (plan.isKassa && plan.isAusgang) this._setCounterValue('kassenbeleg', counters.kassenbeleg + 1);
+      if (plan.isKassa && plan.isAusgang) this._setCounterValue('kassenbeleg', nextKassenbeleg);
 
       const currentCounters = {};
       INVOICE_COUNTER_KEYS.forEach(key => { currentCounters[key] = this._getCounterValue(key); });
@@ -500,6 +551,12 @@ class BuchProDB {
           vorlage:            buchproData.vorlage            || null,
         });
         this.importInvoicesForMigration(buchproData.invoices || []);
+        const importedCounters = {};
+        ['ausgang', 'fortlaufend', 'kassenbeleg'].forEach(key => {
+          const value = Number((buchproData.counters || {})[key]);
+          if (Number.isInteger(value) && value > 0) importedCounters[key] = value;
+        });
+        if (Object.keys(importedCounters).length) this.updateInvoiceCounters(importedCounters);
       }
     }
 
