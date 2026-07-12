@@ -319,7 +319,7 @@ class BuchProDB {
           if (!requested) throw new Error('Manuelle Rechnungsnummer fehlt');
           finalInvoice.nummer = requested;
         } else {
-          finalInvoice.nummer = String(counters.ausgang).padStart(2, '0');
+          finalInvoice.nummer = String(counters.ausgang).padStart(3, '0');
         }
         const dup = this.db.prepare('SELECT id FROM invoices WHERE nummer = ? AND typ = ? LIMIT 1').get(finalInvoice.nummer, 'ausgang');
         if (dup) throw new Error('Rechnungsnummer bereits vorhanden: ' + finalInvoice.nummer);

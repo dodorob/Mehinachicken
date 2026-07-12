@@ -19,7 +19,7 @@ function applyNumbering(next, inv, opts) {
   const out = Object.assign({}, inv);
   if (out.typ === 'ausgang') {
     if (opts && opts.numberMode === 'manual') out.nummer = String(opts.requestedNumber || out.nummer).trim();
-    else out.nummer = String(next.counters.ausgang).padStart(2, '0');
+    else out.nummer = String(next.counters.ausgang).padStart(3, '0');
     if (!out.nummer) throw new Error('manual missing');
     next.counters.ausgang++;
   } else out.nummer = out.nummer || '';
@@ -36,7 +36,7 @@ const load = () => JSON.parse(localStorage.getItem(STORE_KEY));
   saveCount = 0;
   let inv = await createWithCounters({ id: 'A', typ: 'ausgang', zahlungsart: 'bank' }, { numberMode: 'auto' });
   assert.strictEqual(saveCount, 1);
-  assert.strictEqual(inv.nummer, '01');
+  assert.strictEqual(inv.nummer, '001');
   assert.strictEqual(inv.lfd_nr, '1');
   assert.strictEqual(load().counters.ausgang, 2);
   assert.ok(load().invoices.find(i => i.id === 'A'));

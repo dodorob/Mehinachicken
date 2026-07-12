@@ -333,7 +333,7 @@ function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
       if (!requested) throw new Error('Manuelle Rechnungsnummer fehlt');
       finalInvoice.nummer = requested;
     } else {
-      finalInvoice.nummer = String(next.counters.ausgang).padStart(2, '0');
+      finalInvoice.nummer = String(next.counters.ausgang).padStart(3, '0');
     }
     next.counters.ausgang += 1;
     if ((next.invoices || []).some(function(i){ return i.typ === 'ausgang' && i.nummer === finalInvoice.nummer && i.id !== finalInvoice.id; })) {
@@ -558,7 +558,7 @@ function previewNum(typ) {
   var d = getDB();
   if (typ === 'ausgang') {
     var num = (d.counters && d.counters.ausgang) || 1;
-    return String(num).padStart(2, '0');
+    return String(num).padStart(3, '0');
   }
   return '';
 }
@@ -3913,7 +3913,7 @@ function genPDFData(inv) {
   doc.setFontSize(12);
   var rNr = inv.nummer || '';
   var nrMatch = rNr.match(/(\d+)$/);
-  var nrDisplay = nrMatch ? (parseInt(nrMatch[1]) < 10 ? String(parseInt(nrMatch[1])).padStart(2,'0') : String(parseInt(nrMatch[1]))) : rNr;
+  var nrDisplay = nrMatch ? String(parseInt(nrMatch[1])).padStart(3,'0') : rNr;
   doc.text('Rechnung Nr.: ' + nrDisplay, xL, 100);
   doc.setFont('times', 'normal');
   doc.setFontSize(10);
@@ -4242,7 +4242,7 @@ function genSammelPDF(inv) {
   doc.setFontSize(12);
   var rNr = inv.nummer || '';
   var nrMatch = rNr.match(/(\d+)$/);
-  var nrDisplay = nrMatch ? (parseInt(nrMatch[1]) < 10 ? String(parseInt(nrMatch[1])).padStart(2,'0') : String(parseInt(nrMatch[1]))) : rNr;
+  var nrDisplay = nrMatch ? String(parseInt(nrMatch[1])).padStart(3,'0') : rNr;
   doc.text('Rechnung Nr.: ' + nrDisplay, xL, 100);
   doc.setFont('times', 'normal');
   doc.setFontSize(10);
