@@ -450,6 +450,38 @@ ipcMain.handle('db-save-all', async (event, data) => {
   }
 });
 
+
+function invoiceResult(handler) {
+  try {
+    const value = handler();
+    if (value && value.id && !value.invoice) return { ok: true, result: value };
+    return { ok: true, invoice: value };
+  } catch (e) {
+    console.error('invoice persistence error:', e);
+    return { ok: false, error: e && e.message ? e.message : String(e) };
+  }
+}
+
+ipcMain.handle('db-create-invoice', async (event, invoice) => {
+  if (!buchProDB) return { ok: false, error: 'Datenbank nicht geöffnet' };
+  return invoiceResult(() => buchProDB.createInvoice(invoice));
+});
+
+ipcMain.handle('db-update-invoice', async (event, invoice) => {
+  if (!buchProDB) return { ok: false, error: 'Datenbank nicht geöffnet' };
+  return invoiceResult(() => buchProDB.updateInvoice(invoice));
+});
+
+ipcMain.handle('db-delete-invoice', async (event, invoiceId) => {
+  if (!buchProDB) return { ok: false, error: 'Datenbank nicht geöffnet' };
+  return invoiceResult(() => buchProDB.deleteInvoice(invoiceId));
+});
+
+ipcMain.handle('db-update-invoice-status', async (event, invoiceId, status) => {
+  if (!buchProDB) return { ok: false, error: 'Datenbank nicht geöffnet' };
+  return invoiceResult(() => buchProDB.updateInvoiceStatus(invoiceId, status));
+});
+
 ipcMain.handle('db-save-setting', async (event, key, value) => {
   if (!buchProDB) return { ok: false };
   try {
