@@ -17,7 +17,7 @@ var _fixkostenCache = [];     // fixed costs
 var _posBadgesCache = null;   // position badges (null = use default)
 var _dbInitialized  = false;
 var saveQueue       = Promise.resolve();
-var INVOICE_COUNTER_KEYS = ['ausgang', 'lfd_bank', 'lfd_kassa', 'kassenbeleg'];
+var INVOICE_COUNTER_KEYS = ['ausgang', 'fortlaufend', 'kassenbeleg'];
 
 // ================================================================
 // BACKUP
@@ -194,7 +194,7 @@ function getDB() {
   if (!d.fahrzeuge)   d.fahrzeuge   = [];
   if (!d.counters)    d.counters    = {ausgang:1, eingang:1, fortlaufend:1};
   // Migration: ensure counters exist
-  if (!d.counters.fortlaufend) d.counters.fortlaufend = d.invoices.length + 1;
+  if (!d.counters.fortlaufend) d.counters.fortlaufend = 1;
   if (!d.counters.kassenbeleg) d.counters.kassenbeleg = 1;
   if (!d.counters.lfd_bank)    d.counters.lfd_bank    = 1;
   if (!d.counters.lfd_kassa)   d.counters.lfd_kassa   = 1;
@@ -321,11 +321,9 @@ function _invoiceNumberingOptions(invoice) {
 function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
   if (!next.counters) next.counters = {};
   if (!next.counters.ausgang) next.counters.ausgang = 1;
-  if (!next.counters.lfd_bank) next.counters.lfd_bank = 1;
-  if (!next.counters.lfd_kassa) next.counters.lfd_kassa = 1;
+  if (!next.counters.fortlaufend) next.counters.fortlaufend = 1;
   if (!next.counters.kassenbeleg) next.counters.kassenbeleg = 1;
   var za = invoice.zahlungsart === 'kassa' ? 'kassa' : 'bank';
-  var lfdKey = za === 'kassa' ? 'lfd_kassa' : 'lfd_bank';
   var finalInvoice = Object.assign({}, invoice);
   if (finalInvoice.typ === 'ausgang') {
     if (numberingOptions && numberingOptions.numberMode === 'manual') {
@@ -342,11 +340,13 @@ function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
   } else {
     finalInvoice.nummer = finalInvoice.nummer || '';
   }
-  finalInvoice.lfd_nr = String(next.counters[lfdKey] || 1);
-  next.counters[lfdKey] = (next.counters[lfdKey] || 1) + 1;
+  finalInvoice.lfd_nr = String(next.counters.fortlaufend || 1);
+  next.counters.fortlaufend = (next.counters.fortlaufend || 1) + 1;
   if (za === 'kassa' && finalInvoice.typ === 'ausgang') {
     finalInvoice.kassenbeleg_nr = String(next.counters.kassenbeleg || 1);
     next.counters.kassenbeleg = (next.counters.kassenbeleg || 1) + 1;
+  } else {
+    finalInvoice.kassenbeleg_nr = '';
   }
   return finalInvoice;
 }
@@ -1089,23 +1089,20 @@ function initEinstellungen() {
     var db = getDB();
     var c = db.counters || {};
     var elAusgang   = document.getElementById('counter-ausgang');
-    var elLfdBank   = document.getElementById('counter-lfd-bank');
-    var elLfdKassa  = document.getElementById('counter-lfd-kassa');
-    var elKb        = document.getElementById('counter-kassenbeleg');
-    if (elAusgang)  elAusgang.value  = c.ausgang       || 1;
-    if (elLfdBank)  elLfdBank.value  = c.lfd_bank      || 1;
-    if (elLfdKassa) elLfdKassa.value = c.lfd_kassa     || 1;
-    if (elKb)       elKb.value       = c.kassenbeleg   || 1;
+    var elFortlaufend = document.getElementById('counter-fortlaufend');
+    var elKb          = document.getElementById('counter-kassenbeleg');
+    if (elAusgang)     elAusgang.value     = c.ausgang       || 1;
+    if (elFortlaufend) elFortlaufend.value = c.fortlaufend   || 1;
+    if (elKb)          elKb.value          = c.kassenbeleg   || 1;
 
     var btnSaveCounters = document.getElementById('btn-save-counters');
     if (btnSaveCounters) btnSaveCounters.onclick = async function() {
       var d2 = getDB();
       var newAusgang  = parseInt((document.getElementById('counter-ausgang')||{value:'1'}).value) || 1;
-      var newLfdBank  = parseInt((document.getElementById('counter-lfd-bank')||{value:'1'}).value) || 1;
-      var newLfdKassa = parseInt((document.getElementById('counter-lfd-kassa')||{value:'1'}).value) || 1;
-      var newKb       = parseInt((document.getElementById('counter-kassenbeleg')||{value:'1'}).value) || 1;
+      var newFortlaufend = parseInt((document.getElementById('counter-fortlaufend')||{value:'1'}).value) || 1;
+      var newKb          = parseInt((document.getElementById('counter-kassenbeleg')||{value:'1'}).value) || 1;
       try {
-        await persistInvoiceCounters({ ausgang: newAusgang, lfd_bank: newLfdBank, lfd_kassa: newLfdKassa, kassenbeleg: newKb });
+        await persistInvoiceCounters({ ausgang: newAusgang, fortlaufend: newFortlaufend, kassenbeleg: newKb });
       } catch (e) { alert('Zähler konnten nicht gespeichert werden: ' + (e && e.message ? e.message : String(e))); return; }
       var info = document.getElementById('counter-info');
       if (info) { info.textContent = '\u2713 Zähler gespeichert'; setTimeout(function(){ info.textContent = ''; }, 2500); }
@@ -2492,9 +2489,7 @@ function wireFormButtons() {
   if (btnFixC) btnFixC.addEventListener('click', async function(){
     var d = getDB();
     var arInvs = d.invoices.filter(function(i){ return i.typ === 'ausgang'; });
-    var allInvs = d.invoices;
     var repairedAusgang = arInvs.length + 1;
-    d.counters.fortlaufend = allInvs.length + 1;
     if (!d.counters.eingang) d.counters.eingang = 1;
     try { await persistInvoiceCounters({ ausgang: repairedAusgang }); } catch (e) { alert('Zähler konnten nicht repariert werden: ' + (e && e.message ? e.message : String(e))); return; }
     d.counters.ausgang = repairedAusgang;
@@ -2788,7 +2783,6 @@ async function saveER() {
   var d = getDB();
   if (!d.counters) d.counters = {};
   var zaER = (document.getElementById('zahlungsart')||{value:'bank'}).value;
-  var lfdKeyER = zaER === 'kassa' ? 'lfd_kassa' : 'lfd_bank';
 
   var liefPartnerId = (function(){ var s=document.getElementById('er-partner'); return s&&s.selectedIndex>0?s.options[s.selectedIndex].value:''; })();
 
@@ -2973,8 +2967,7 @@ function refreshNumbers() {
   var rnrEl  = document.getElementById('rnr');
   var rnrWrap = rnrEl ? rnrEl.closest('.fg') : null;
   var lfdEl  = document.getElementById('lfd-nr');
-  var lfdKey = za === 'kassa' ? 'lfd_kassa' : 'lfd_bank';
-  var lfdNum = db.counters[lfdKey] || 1;
+  var lfdNum = db.counters.fortlaufend || 1;
   var kbEl  = document.getElementById('kassa-beleg-nr');
   var kbRow = document.getElementById('kassa-beleg-row');
   var kbNum = db.counters.kassenbeleg || 1;

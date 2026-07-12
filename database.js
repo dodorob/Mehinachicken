@@ -4,7 +4,7 @@ const Database = require('better-sqlite3');
 
 // Invoice counters are the counters consumed while creating new invoices.
 // They must never be overwritten by stale renderer saveAll() snapshots.
-const INVOICE_COUNTER_KEYS = Object.freeze(['ausgang', 'lfd_bank', 'lfd_kassa', 'kassenbeleg']);
+const INVOICE_COUNTER_KEYS = Object.freeze(['ausgang', 'fortlaufend', 'kassenbeleg']);
 const INVOICE_COUNTER_KEY_SET = new Set(INVOICE_COUNTER_KEYS);
 
 class BuchProDB {
@@ -283,18 +283,11 @@ class BuchProDB {
 
   _invoiceCounterPlan(invoice) {
     const za = invoice && invoice.zahlungsart === 'kassa' ? 'kassa' : 'bank';
-    const lfdKey = za === 'kassa' ? 'lfd_kassa' : 'lfd_bank';
+    const isAusgang = invoice && invoice.typ === 'ausgang';
     return {
-      isAusgang: invoice && invoice.typ === 'ausgang',
+      isAusgang,
       isKassa: za === 'kassa',
-      lfdKey,
-      keys: ['ausgang', 'lfd_bank', 'lfd_kassa', 'kassenbeleg'].filter((key) => {
-        if (key === 'ausgang') return invoice && invoice.typ === 'ausgang';
-        if (key === 'lfd_bank') return lfdKey === 'lfd_bank';
-        if (key === 'lfd_kassa') return lfdKey === 'lfd_kassa';
-        if (key === 'kassenbeleg') return za === 'kassa' && invoice && invoice.typ === 'ausgang';
-        return false;
-      })
+      keys: ['fortlaufend'].concat(isAusgang ? ['ausgang'] : [], (za === 'kassa' && isAusgang) ? ['kassenbeleg'] : [])
     };
   }
 
@@ -326,9 +319,9 @@ class BuchProDB {
       } else {
         finalInvoice.nummer = finalInvoice.nummer || '';
       }
-      finalInvoice.lfd_nr = String(counters[plan.lfdKey] || 1);
+      finalInvoice.lfd_nr = String(counters.fortlaufend || 1);
       if (plan.isKassa && plan.isAusgang) finalInvoice.kassenbeleg_nr = String(counters.kassenbeleg || 1);
-      else finalInvoice.kassenbeleg_nr = finalInvoice.kassenbeleg_nr || '';
+      else finalInvoice.kassenbeleg_nr = '';
 
       const row = this._invoiceToRow(finalInvoice);
       const cols = this._invoiceColumns();
@@ -336,7 +329,7 @@ class BuchProDB {
       this.db.prepare(sql).run(row);
 
       if (plan.isAusgang) this._setCounterValue('ausgang', counters.ausgang + 1);
-      this._setCounterValue(plan.lfdKey, counters[plan.lfdKey] + 1);
+      this._setCounterValue('fortlaufend', counters.fortlaufend + 1);
       if (plan.isKassa && plan.isAusgang) this._setCounterValue('kassenbeleg', counters.kassenbeleg + 1);
 
       const currentCounters = {};

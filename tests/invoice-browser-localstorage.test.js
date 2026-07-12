@@ -3,7 +3,7 @@
 const assert = require('assert');
 
 let saveQueue = Promise.resolve();
-let _dbCache = { invoices: [], counters: { ausgang: 1, lfd_bank: 1, lfd_kassa: 1, kassenbeleg: 1 } };
+let _dbCache = { invoices: [], counters: { ausgang: 1, fortlaufend: 1, kassenbeleg: 1, lfd_bank: 1, lfd_kassa: 1 } };
 let saveCount = 0;
 const STORE_KEY = 'buchpro_v1';
 const localStorage = { data: {}, fail: false, setItem(k, v) { if (this.fail) throw new Error('QuotaExceeded'); this.data[k] = v; }, getItem(k) { return this.data[k] || null; } };
@@ -13,9 +13,8 @@ function enqueueDbWrite(operation) { const task = saveQueue.then(operation); sav
 function saveDB(d) { _dbCache = d; const snapshot = cloneForSave(d); return enqueueDbWrite(() => { saveCount++; localStorage.setItem(STORE_KEY, JSON.stringify(snapshot)); return { ok: true }; }); }
 async function browserPersist(applyChange) { const previous = cloneForSave(getDB()); const next = cloneForSave(previous); try { applyChange(next); await saveDB(next); _dbCache = next; return next; } catch (e) { _dbCache = previous; throw e; } }
 function applyNumbering(next, inv, opts) {
-  next.counters = Object.assign({ ausgang: 1, lfd_bank: 1, lfd_kassa: 1, kassenbeleg: 1 }, next.counters || {});
+  next.counters = Object.assign({ ausgang: 1, fortlaufend: 1, kassenbeleg: 1, lfd_bank: 1, lfd_kassa: 1 }, next.counters || {});
   const za = inv.zahlungsart === 'kassa' ? 'kassa' : 'bank';
-  const lfdKey = za === 'kassa' ? 'lfd_kassa' : 'lfd_bank';
   const out = Object.assign({}, inv);
   if (out.typ === 'ausgang') {
     if (opts && opts.numberMode === 'manual') out.nummer = String(opts.requestedNumber || out.nummer).trim();
@@ -23,8 +22,8 @@ function applyNumbering(next, inv, opts) {
     if (!out.nummer) throw new Error('manual missing');
     next.counters.ausgang++;
   } else out.nummer = out.nummer || '';
-  out.lfd_nr = String(next.counters[lfdKey]);
-  next.counters[lfdKey]++;
+  out.lfd_nr = String(next.counters.fortlaufend);
+  next.counters.fortlaufend++;
   if (out.typ === 'ausgang' && za === 'kassa') { out.kassenbeleg_nr = String(next.counters.kassenbeleg); next.counters.kassenbeleg++; }
   return out;
 }
@@ -56,13 +55,13 @@ function assertManualPreviewState() {
   let state = makeRnrState(7);
   assert.deepStrictEqual(invoiceNumberingOptionsFromField('ausgang', state.value, state.manuallyEdited), { numberMode: 'auto' });
 
-  let next = { invoices: [], counters: { ausgang: 8, lfd_bank: 1, lfd_kassa: 1, kassenbeleg: 1 } };
+  let next = { invoices: [], counters: { ausgang: 8, fortlaufend: 1, lfd_bank: 1, lfd_kassa: 1, kassenbeleg: 1 } };
   const stalePreviewInvoice = applyNumbering(next, { id: 'STALE', typ: 'ausgang', nummer: state.value, zahlungsart: 'bank' }, invoiceNumberingOptionsFromField('ausgang', state.value, state.manuallyEdited));
   assert.strictEqual(stalePreviewInvoice.nummer, '008');
 
   userEditRnrState(state, 'SONDER-15');
   assert.deepStrictEqual(invoiceNumberingOptionsFromField('ausgang', state.value, state.manuallyEdited), { numberMode: 'manual', requestedNumber: 'SONDER-15' });
-  next = { invoices: [], counters: { ausgang: 7, lfd_bank: 1, lfd_kassa: 1, kassenbeleg: 1 } };
+  next = { invoices: [], counters: { ausgang: 7, fortlaufend: 1, lfd_bank: 1, lfd_kassa: 1, kassenbeleg: 1 } };
   const manualInvoice = applyNumbering(next, { id: 'MANUAL', typ: 'ausgang', nummer: state.value, zahlungsart: 'bank' }, invoiceNumberingOptionsFromField('ausgang', state.value, state.manuallyEdited));
   assert.strictEqual(manualInvoice.nummer, 'SONDER-15');
 
@@ -87,7 +86,8 @@ function assertManualPreviewState() {
 
   inv = await createWithCounters({ id: 'K', typ: 'ausgang', zahlungsart: 'kassa' }, { numberMode: 'auto' });
   assert.strictEqual(inv.kassenbeleg_nr, '1');
-  assert.strictEqual(load().counters.lfd_kassa, 2);
+  assert.strictEqual(load().counters.fortlaufend, 3);
+  assert.strictEqual(load().counters.lfd_kassa, 1);
   assert.strictEqual(load().counters.kassenbeleg, 2);
 
   const before = cloneForSave(getDB());
@@ -103,18 +103,21 @@ function assertManualPreviewState() {
   assert.strictEqual(load().counters.ausgang, 4);
 
 
-  const shared = { invoices: [], counters: { ausgang: 1, lfd_bank: 1, lfd_kassa: 1, kassenbeleg: 1 } };
+  const shared = { invoices: [], counters: { ausgang: 1, fortlaufend: 10, lfd_bank: 500, lfd_kassa: 700, kassenbeleg: 1 } };
   const sharedAr = applyNumbering(shared, { id: 'SHARED-AR', typ: 'ausgang', zahlungsart: 'bank' }, { numberMode: 'auto' });
   const sharedEr = applyNumbering(shared, { id: 'SHARED-ER', typ: 'eingang', nummer: '', zahlungsart: 'bank' }, { numberMode: 'auto' });
   assert.strictEqual(sharedAr.nummer, '001');
   assert.strictEqual(sharedEr.nummer, '');
-  assert.deepStrictEqual([sharedAr.lfd_nr, sharedEr.lfd_nr], ['1', '2']);
+  assert.deepStrictEqual([sharedAr.lfd_nr, sharedEr.lfd_nr], ['10', '11']);
   assert.strictEqual(shared.counters.ausgang, 2);
-  assert.strictEqual(shared.counters.lfd_bank, 3);
+  assert.strictEqual(shared.counters.fortlaufend, 12);
+  assert.strictEqual(shared.counters.lfd_bank, 500);
+  assert.strictEqual(shared.counters.lfd_kassa, 700);
 
-  await updateCounters({ ausgang: 50, lfd_bank: 60 });
+  await updateCounters({ ausgang: 50, fortlaufend: 60, kassenbeleg: 70 });
   _dbCache = cloneForSave(load());
   assert.strictEqual(getDB().counters.ausgang, 50);
-  assert.strictEqual(getDB().counters.lfd_bank, 60);
+  assert.strictEqual(getDB().counters.fortlaufend, 60);
+  assert.strictEqual(getDB().counters.kassenbeleg, 70);
   console.log('invoice browser localStorage tests passed');
 })();

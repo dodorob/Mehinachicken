@@ -112,80 +112,89 @@ function atomicInv(id, extra) { return Object.assign({ id, typ: 'ausgang', zahlu
 async function testAtomicInvoiceCounters() {
   let t = tempDb();
   try {
-    setCounters(t.db, { ausgang: 7, lfd_bank: 20, lfd_kassa: 30, kassenbeleg: 40 });
-    let r = t.db.createInvoiceWithCounters(atomicInv('AR1'), { numberMode: 'auto' });
-    assert.strictEqual(r.invoice.nummer, '007');
-    assert.strictEqual(r.invoice.lfd_nr, '20');
-    assert.strictEqual(counters(t.db).ausgang, 8);
-    assert.strictEqual(counters(t.db).lfd_bank, 21);
+    setCounters(t.db, { ausgang: 1, fortlaufend: 10, kassenbeleg: 50 });
+    const ar = t.db.createInvoiceWithCounters(atomicInv('BANK-AR', { typ: 'ausgang', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
+    const er = t.db.createInvoiceWithCounters(atomicInv('BANK-ER', { typ: 'eingang', nummer: '', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
+    assert.strictEqual(ar.nummer, '001');
+    assert.strictEqual(ar.lfd_nr, '10');
+    assert.strictEqual(er.nummer, null);
+    assert.strictEqual(er.lfd_nr, '11');
+    assert.strictEqual(counters(t.db).ausgang, 2);
+    assert.strictEqual(counters(t.db).fortlaufend, 12);
   } finally { t.cleanup(); }
 
   t = tempDb();
   try {
-    setCounters(t.db, { ausgang: 9, lfd_kassa: 5, kassenbeleg: 88 });
-    let r = t.db.createInvoiceWithCounters(atomicInv('K1', { zahlungsart: 'kassa' }), { numberMode: 'auto' });
-    assert.strictEqual(r.invoice.nummer, '009');
-    assert.strictEqual(r.invoice.lfd_nr, '5');
-    assert.strictEqual(r.invoice.kassenbeleg_nr, '88');
-    assert.strictEqual(counters(t.db).ausgang, 10);
-    assert.strictEqual(counters(t.db).lfd_kassa, 6);
-    assert.strictEqual(counters(t.db).kassenbeleg, 89);
+    setCounters(t.db, { ausgang: 1, fortlaufend: 20, kassenbeleg: 50 });
+    const erBank = t.db.createInvoiceWithCounters(atomicInv('BANK-ER-2', { typ: 'eingang', nummer: '', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
+    const arKassa = t.db.createInvoiceWithCounters(atomicInv('KASSA-AR', { typ: 'ausgang', zahlungsart: 'kassa' }), { numberMode: 'auto' }).invoice;
+    const arBank = t.db.createInvoiceWithCounters(atomicInv('BANK-AR-2', { typ: 'ausgang', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
+    assert.deepStrictEqual([erBank.lfd_nr, arKassa.lfd_nr, arBank.lfd_nr], ['20', '21', '22']);
+    assert.strictEqual(arKassa.kassenbeleg_nr, '50');
+    assert.strictEqual(counters(t.db).fortlaufend, 23);
+    assert.strictEqual(counters(t.db).kassenbeleg, 51);
   } finally { t.cleanup(); }
 
   t = tempDb();
   try {
-    setCounters(t.db, { ausgang: 4, lfd_bank: 11 });
-    let r = t.db.createInvoiceWithCounters(atomicInv('ER1', { typ: 'eingang', nummer: '' }), { numberMode: 'auto' });
-    assert.strictEqual(r.invoice.nummer, null);
-    assert.strictEqual(r.invoice.lfd_nr, '11');
-    assert.strictEqual(counters(t.db).ausgang, 4);
-    assert.strictEqual(counters(t.db).lfd_bank, 12);
+    t.db.saveAll({ counters: { lfd_bank: 500, lfd_kassa: 700 }, kunden: [] });
+    setCounters(t.db, { ausgang: 1, fortlaufend: 30, kassenbeleg: 80 });
+    const erKassa = t.db.createInvoiceWithCounters(atomicInv('KASSA-ER', { typ: 'eingang', nummer: '', zahlungsart: 'kassa' }), { numberMode: 'auto' }).invoice;
+    const arBank = t.db.createInvoiceWithCounters(atomicInv('OLD-LFD-AR', { typ: 'ausgang', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
+    const tl = t.db.createInvoiceWithCounters(atomicInv('TL', { typ: 'eingang', nummer: '', zahlungsart: 'bank', is_tageslosung: true }), { numberMode: 'auto' }).invoice;
+    assert.deepStrictEqual([erKassa.lfd_nr, arBank.lfd_nr, tl.lfd_nr], ['30', '31', '32']);
+    assert.strictEqual(erKassa.kassenbeleg_nr, null);
+    const c = counters(t.db);
+    assert.strictEqual(c.fortlaufend, 33);
+    assert.strictEqual(c.lfd_bank, 500);
+    assert.strictEqual(c.lfd_kassa, 700);
   } finally { t.cleanup(); }
 
   t = tempDb();
   try {
-    setCounters(t.db, { ausgang: 1, lfd_bank: 1 });
+    setCounters(t.db, { ausgang: 1, fortlaufend: 1, kassenbeleg: 1 });
     t.db.createInvoice(atomicInv('EXISTING', { nummer: '001', lfd_nr: 'old' }));
     await assertRejects(() => t.db.createInvoiceWithCounters(atomicInv('DUPNR'), { numberMode: 'auto' }));
     assert.ok(!t.db.getInvoice('DUPNR'));
     assert.strictEqual(counters(t.db).ausgang, 1);
-    assert.strictEqual(counters(t.db).lfd_bank, 1);
+    assert.strictEqual(counters(t.db).fortlaufend, 1);
+    assert.strictEqual(counters(t.db).kassenbeleg, 1);
   } finally { t.cleanup(); }
 
   t = tempDb();
   try {
-    setCounters(t.db, { ausgang: 3, lfd_bank: 7 });
+    setCounters(t.db, { ausgang: 3, fortlaufend: 7, kassenbeleg: 9 });
     const before = counters(t.db);
-    await assertRejects(() => t.db.createInvoiceWithCounters(atomicInv('A', { id: 'X' }), { numberMode: 'manual', requestedNumber: '' }));
+    await assertRejects(() => t.db.createInvoiceWithCounters(atomicInv('X'), { numberMode: 'manual', requestedNumber: '' }));
     assert.deepStrictEqual(counters(t.db), before);
     assert.ok(!t.db.getInvoice('X'));
   } finally { t.cleanup(); }
 
   t = tempDb();
   try {
-    setCounters(t.db, { ausgang: 1, lfd_bank: 10 });
+    setCounters(t.db, { ausgang: 1, fortlaufend: 10, kassenbeleg: 1 });
     const a = t.db.createInvoiceWithCounters(atomicInv('A'), { numberMode: 'auto' }).invoice;
     await assertRejects(() => t.db.createInvoiceWithCounters(atomicInv('B', { nummer: '' }), { numberMode: 'manual', requestedNumber: '' }));
     const c = t.db.createInvoiceWithCounters(atomicInv('C'), { numberMode: 'auto' }).invoice;
     assert.deepStrictEqual([a.nummer, c.nummer], ['001', '002']);
     assert.deepStrictEqual([a.lfd_nr, c.lfd_nr], ['10', '11']);
     assert.strictEqual(counters(t.db).ausgang, 3);
-    assert.strictEqual(counters(t.db).lfd_bank, 12);
+    assert.strictEqual(counters(t.db).fortlaufend, 12);
   } finally { t.cleanup(); }
 
   t = tempDb();
   try {
-    setCounters(t.db, { ausgang: 1, lfd_bank: 1 });
+    setCounters(t.db, { ausgang: 1, fortlaufend: 1, kassenbeleg: 1 });
     const nums = ['Q1','Q2','Q3'].map(id => t.db.createInvoiceWithCounters(atomicInv(id), { numberMode: 'auto' }).invoice);
     assert.deepStrictEqual(nums.map(i => i.nummer), ['001','002','003']);
     assert.deepStrictEqual(nums.map(i => i.lfd_nr), ['1','2','3']);
     assert.strictEqual(counters(t.db).ausgang, 4);
-    assert.strictEqual(counters(t.db).lfd_bank, 4);
+    assert.strictEqual(counters(t.db).fortlaufend, 4);
   } finally { t.cleanup(); }
 
   t = tempDb();
   try {
-    setCounters(t.db, { ausgang: 1, lfd_bank: 1 });
+    setCounters(t.db, { ausgang: 1, fortlaufend: 1, kassenbeleg: 1 });
     t.db.createInvoiceWithCounters(atomicInv('OLDPREVIEW'), { numberMode: 'auto' });
     const r = t.db.createInvoiceWithCounters(atomicInv('NEW'), { numberMode: 'auto' });
     assert.strictEqual(r.invoice.nummer, '002');
@@ -193,60 +202,36 @@ async function testAtomicInvoiceCounters() {
 
   t = tempDb();
   try {
-    setCounters(t.db, { ausgang: 5, lfd_bank: 6 });
+    setCounters(t.db, { ausgang: 5, fortlaufend: 6, kassenbeleg: 1 });
     const r = t.db.createInvoiceWithCounters(atomicInv('MAN'), { numberMode: 'manual', requestedNumber: 'MAN-77' });
     assert.strictEqual(r.invoice.nummer, 'MAN-77');
     assert.strictEqual(r.invoice.lfd_nr, '6');
     assert.strictEqual(counters(t.db).ausgang, 6);
-    assert.strictEqual(counters(t.db).lfd_bank, 7);
+    assert.strictEqual(counters(t.db).fortlaufend, 7);
   } finally { t.cleanup(); }
 
   t = tempDb();
   try {
-    setCounters(t.db, { ausgang: 10, lfd_bank: 20, lfd_kassa: 30, kassenbeleg: 40 });
-    const stale = { counters: { ausgang: 1, lfd_bank: 2, lfd_kassa: 3, kassenbeleg: 4, fortlaufend: 99 }, kunden: [{ id: 'K2', name: 'Other' }] };
+    setCounters(t.db, { ausgang: 10, fortlaufend: 20, kassenbeleg: 40 });
+    const stale = { counters: { ausgang: 1, fortlaufend: 2, kassenbeleg: 4, lfd_bank: 99 }, kunden: [{ id: 'K2', name: 'Other' }] };
     t.db.createInvoiceWithCounters(atomicInv('SAFE'), { numberMode: 'auto' });
     t.db.saveAll(stale);
     assert.ok(t.db.getInvoice('SAFE'));
     assert.strictEqual(counters(t.db).ausgang, 11);
-    assert.strictEqual(counters(t.db).lfd_bank, 21);
-    assert.strictEqual(counters(t.db).fortlaufend, 99);
+    assert.strictEqual(counters(t.db).fortlaufend, 21);
+    assert.strictEqual(counters(t.db).kassenbeleg, 40);
+    assert.strictEqual(counters(t.db).lfd_bank, 99);
     assert.strictEqual(t.db.loadAll().kunden[0].name, 'Other');
   } finally { t.cleanup(); }
 
-
-
   t = tempDb();
   try {
-    setCounters(t.db, { ausgang: 1, lfd_bank: 1, lfd_kassa: 1, kassenbeleg: 1 });
-    const ar = t.db.createInvoiceWithCounters(atomicInv('SHARED-AR', { typ: 'ausgang', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
-    const er = t.db.createInvoiceWithCounters(atomicInv('SHARED-ER', { typ: 'eingang', nummer: '', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
-    assert.strictEqual(ar.nummer, '001');
-    assert.strictEqual(er.nummer, null);
-    assert.deepStrictEqual([ar.lfd_nr, er.lfd_nr], ['1', '2']);
-    assert.strictEqual(counters(t.db).ausgang, 2);
-    assert.strictEqual(counters(t.db).lfd_bank, 3);
-  } finally { t.cleanup(); }
-
-  t = tempDb();
-  try {
-    setCounters(t.db, { ausgang: 1, lfd_bank: 1, lfd_kassa: 5, kassenbeleg: 20 });
-    const erKassa = t.db.createInvoiceWithCounters(atomicInv('SHARED-ER-KASSA', { typ: 'eingang', nummer: '', zahlungsart: 'kassa' }), { numberMode: 'auto' }).invoice;
-    const arKassa = t.db.createInvoiceWithCounters(atomicInv('SHARED-AR-KASSA', { typ: 'ausgang', zahlungsart: 'kassa' }), { numberMode: 'auto' }).invoice;
-    assert.strictEqual(erKassa.nummer, null);
-    assert.strictEqual(arKassa.nummer, '001');
-    assert.deepStrictEqual([erKassa.lfd_nr, arKassa.lfd_nr], ['5', '6']);
-    assert.strictEqual(arKassa.kassenbeleg_nr, '20');
-    assert.strictEqual(counters(t.db).ausgang, 2);
-    assert.strictEqual(counters(t.db).lfd_kassa, 7);
-    assert.strictEqual(counters(t.db).kassenbeleg, 21);
-  } finally { t.cleanup(); }
-
-  t = tempDb();
-  try {
-    t.db.updateInvoiceCounters({ ausgang: 123, lfd_bank: 124 });
+    t.db.updateInvoiceCounters({ ausgang: 123, fortlaufend: 124, kassenbeleg: 125 });
     assert.strictEqual(counters(t.db).ausgang, 123);
+    assert.strictEqual(counters(t.db).fortlaufend, 124);
+    assert.strictEqual(counters(t.db).kassenbeleg, 125);
     await assertRejects(() => t.db.updateInvoiceCounters({ unknown: 1 }));
+    await assertRejects(() => t.db.updateInvoiceCounters({ lfd_bank: 1 }));
     await assertRejects(() => t.db.updateInvoiceCounters({ ausgang: 0 }));
   } finally { t.cleanup(); }
 }
