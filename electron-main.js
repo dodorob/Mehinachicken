@@ -467,6 +467,27 @@ ipcMain.handle('db-create-invoice', async (event, invoice) => {
   return invoiceResult(() => buchProDB.createInvoice(invoice));
 });
 
+ipcMain.handle('db-create-invoice-with-counters', async (event, invoice, numberingOptions) => {
+  if (!buchProDB) return { ok: false, error: 'Datenbank nicht geöffnet' };
+  try {
+    const result = buchProDB.createInvoiceWithCounters(invoice, numberingOptions || {});
+    return { ok: true, invoice: result.invoice, counters: result.counters };
+  } catch (e) {
+    console.error('atomic invoice persistence error:', e);
+    return { ok: false, error: e && e.message ? e.message : 'Rechnung und Nummern konnten nicht gespeichert werden' };
+  }
+});
+
+ipcMain.handle('db-update-invoice-counters', async (event, counterValues) => {
+  if (!buchProDB) return { ok: false, error: 'Datenbank nicht geöffnet' };
+  try {
+    return { ok: true, counters: buchProDB.updateInvoiceCounters(counterValues || {}) };
+  } catch (e) {
+    console.error('invoice counter update error:', e);
+    return { ok: false, error: e && e.message ? e.message : 'Rechnungszähler konnten nicht gespeichert werden' };
+  }
+});
+
 ipcMain.handle('db-update-invoice', async (event, invoice) => {
   if (!buchProDB) return { ok: false, error: 'Datenbank nicht geöffnet' };
   return invoiceResult(() => buchProDB.updateInvoice(invoice));

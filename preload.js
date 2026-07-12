@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getPath:              ()           => ipcRenderer.invoke('db-get-path'),
     saveAll:              (data)       => ipcRenderer.invoke('db-save-all', data),
     createInvoice:        (invoice)    => ipcRenderer.invoke('db-create-invoice', invoice),
+    createInvoiceWithCounters: (invoice, numberingOptions) => ipcRenderer.invoke('db-create-invoice-with-counters', invoice, numberingOptions),
+    updateInvoiceCounters: (counterValues) => ipcRenderer.invoke('db-update-invoice-counters', counterValues),
     updateInvoice:        (invoice)    => ipcRenderer.invoke('db-update-invoice', invoice),
     deleteInvoice:        (invoiceId)  => ipcRenderer.invoke('db-delete-invoice', invoiceId),
     updateInvoiceStatus:  (invoiceId, status) => ipcRenderer.invoke('db-update-invoice-status', invoiceId, status),
