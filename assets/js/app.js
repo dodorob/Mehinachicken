@@ -2298,7 +2298,7 @@ function renderTable(typ) {
   if (bis)    invs = invs.filter(function(i){ return i.datum <= bis; });
   if (status) invs = invs.filter(function(i){ return i.status === status; });
   invs = invs.filter(function(i){ var b=brutto(i); return b>=minB && b<=maxB; });
-  var sort = window._tableSort[typ] || {col:'datum', dir:'desc'};
+  var sort = window._tableSort[typ] || {col:'created', dir:'desc'};
   invs = invs.slice().sort(function(a, b) {
     var va, vb;
     if      (sort.col==='lfd')     { va=a.lfd_nr||0;               vb=b.lfd_nr||0; }
@@ -2309,8 +2309,11 @@ function renderTable(typ) {
     else if (sort.col==='netto')   { va=netto(a); vb=netto(b); }
     else if (sort.col==='brutto')  { va=brutto(a); vb=brutto(b); }
     else if (sort.col==='status')  { va=a.status||''; vb=b.status||''; }
+    else if (sort.col==='created') { va=a.erstellt||a.id||''; vb=b.erstellt||b.id||''; }
     else                           { va=a.datum||''; vb=b.datum||''; }
-    return _cmp(va, vb, sort.dir);
+    var primary = _cmp(va, vb, sort.dir);
+    if (primary !== 0) return primary;
+    return _cmp(a.erstellt||a.id||'', b.erstellt||b.id||'', 'desc');
   });
   var el = document.getElementById('tbl-'+typ);
   if (!invs.length) { el.innerHTML = '<div class="empty">Keine Rechnungen</div>'; return; }
@@ -2829,6 +2832,7 @@ async function saveER() {
   if (!inv) { alert('Rechnung nicht gefunden'); return; }
   var savedInv = await persistInvoiceAction(function(){ return wasEdit ? persistInvoiceUpdate(inv) : persistInvoiceCreateWithCounters(inv, { numberMode: 'auto' }); });
   if (!savedInv) return;
+  if (!wasEdit && window._tableSort) window._tableSort.eingang = {col:'created', dir:'desc'};
   if (_isElectronDbMode() && !(await persistDB(d))) return;
   refreshNumbers();
 
@@ -2885,6 +2889,7 @@ async function saveTageslosung() {
   var savedTl = await persistInvoiceAction(function(){ return persistInvoiceCreateWithCounters(inv, { numberMode: 'auto' }); });
   if (!savedTl) return;
   inv = savedTl;
+  if (window._tableSort) window._tableSort.eingang = {col:'created', dir:'desc'};
   if (_isElectronDbMode() && !(await persistDB(d))) return;
   refreshNumbers();
 
@@ -3789,6 +3794,7 @@ async function saveInvoice() {
   var savedInv = await persistInvoiceAction(function(){ return wasEdit ? persistInvoiceUpdate(inv) : persistInvoiceCreateWithCounters(inv, numberingOptions); });
   if (!savedInv) return;
   inv = savedInv;
+  if (!wasEdit && window._tableSort) window._tableSort[typ] = {col:'created', dir:'desc'};
   if (_isElectronDbMode() && !(await persistDB(d))) return;
   // Save beschreibung history
   if (!isSammel) {
