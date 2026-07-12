@@ -2,6 +2,11 @@
 
 const Database = require('better-sqlite3');
 
+// Invoice counters are the counters consumed while creating new invoices.
+// They must never be overwritten by stale renderer saveAll() snapshots.
+const INVOICE_COUNTER_KEYS = Object.freeze(['ausgang', 'lfd_bank', 'lfd_kassa', 'kassenbeleg']);
+const INVOICE_COUNTER_KEY_SET = new Set(INVOICE_COUNTER_KEYS);
+
 class BuchProDB {
   constructor() {
     this.db = null;
@@ -217,10 +222,16 @@ class BuchProDB {
       }
 
       // Counters
-      this.db.prepare('DELETE FROM counters').run();
+      // Stale renderer saveAll() snapshots must not reset counters that are
+      // consumed by atomic invoice creation. Persist only non-invoice counters.
       if (data.counters) {
-        const ins = this.db.prepare('INSERT INTO counters (name, value) VALUES (@name, @value)');
-        Object.entries(data.counters).forEach(([name, value]) => ins.run({ name, value: value || 0 }));
+        const del = this.db.prepare('DELETE FROM counters WHERE name = ?');
+        const ins = this.db.prepare('INSERT OR REPLACE INTO counters (name, value) VALUES (@name, @value)');
+        Object.entries(data.counters).forEach(([name, value]) => {
+          if (INVOICE_COUNTER_KEY_SET.has(name)) return;
+          del.run(name);
+          ins.run({ name, value: value || 0 });
+        });
       }
 
       // Vorlage
@@ -247,12 +258,108 @@ class BuchProDB {
     return row ? this._invoiceFromRow(row) : null;
   }
 
+  // Insert an already completely numbered invoice (migration/import/tests).
+  // Normal UI-created invoices must use createInvoiceWithCounters().
   createInvoice(invoice) {
     const row = this._invoiceToRow(invoice || {});
     const cols = this._invoiceColumns();
     const sql = `INSERT INTO invoices (${cols.join(', ')}) VALUES (${cols.map(c => '@' + c).join(', ')})`;
     this.db.prepare(sql).run(row);
     return this.getInvoice(row.id);
+  }
+
+
+  _getCounterValue(name) {
+    if (!INVOICE_COUNTER_KEY_SET.has(name)) throw new Error('Unbekannter Rechnungszähler: ' + name);
+    const row = this.db.prepare('SELECT value FROM counters WHERE name = ?').get(name);
+    return row && Number.isInteger(row.value) && row.value > 0 ? row.value : 1;
+  }
+
+  _setCounterValue(name, value) {
+    if (!INVOICE_COUNTER_KEY_SET.has(name)) throw new Error('Unbekannter Rechnungszähler: ' + name);
+    if (!Number.isInteger(value) || value < 1) throw new Error('Ungültiger Rechnungszähler: ' + name);
+    this.db.prepare('INSERT OR REPLACE INTO counters (name, value) VALUES (?, ?)').run(name, value);
+  }
+
+  _invoiceCounterPlan(invoice) {
+    const za = invoice && invoice.zahlungsart === 'kassa' ? 'kassa' : 'bank';
+    const lfdKey = za === 'kassa' ? 'lfd_kassa' : 'lfd_bank';
+    return {
+      isAusgang: invoice && invoice.typ === 'ausgang',
+      isKassa: za === 'kassa',
+      lfdKey,
+      keys: ['ausgang', 'lfd_bank', 'lfd_kassa', 'kassenbeleg'].filter((key) => {
+        if (key === 'ausgang') return invoice && invoice.typ === 'ausgang';
+        if (key === 'lfd_bank') return lfdKey === 'lfd_bank';
+        if (key === 'lfd_kassa') return lfdKey === 'lfd_kassa';
+        if (key === 'kassenbeleg') return za === 'kassa' && invoice && invoice.typ === 'ausgang';
+        return false;
+      })
+    };
+  }
+
+  // Normal new invoice creation with atomic number assignment. The transaction
+  // reads the current counters, assigns final nummer/lfd_nr/kassenbeleg_nr,
+  // inserts the invoice, advances all consumed counters exactly once, and returns
+  // the saved invoice plus current protected counter values.
+  createInvoiceWithCounters(invoice, numberingOptions) {
+    if (!invoice || !invoice.id) throw new Error('Rechnungs-ID fehlt');
+    const opts = numberingOptions || {};
+    const mode = opts.numberMode === 'manual' ? 'manual' : 'auto';
+    const tx = this.db.transaction(() => {
+      if (this.getInvoice(invoice.id)) throw new Error('Rechnungs-ID existiert bereits: ' + invoice.id);
+      const plan = this._invoiceCounterPlan(invoice);
+      const counters = {};
+      plan.keys.forEach(key => { counters[key] = this._getCounterValue(key); });
+
+      const finalInvoice = Object.assign({}, invoice);
+      if (plan.isAusgang) {
+        if (mode === 'manual') {
+          const requested = String(opts.requestedNumber != null ? opts.requestedNumber : finalInvoice.nummer || '').trim();
+          if (!requested) throw new Error('Manuelle Rechnungsnummer fehlt');
+          finalInvoice.nummer = requested;
+        } else {
+          finalInvoice.nummer = String(counters.ausgang).padStart(2, '0');
+        }
+        const dup = this.db.prepare('SELECT id FROM invoices WHERE nummer = ? AND typ = ? LIMIT 1').get(finalInvoice.nummer, 'ausgang');
+        if (dup) throw new Error('Rechnungsnummer bereits vorhanden: ' + finalInvoice.nummer);
+      } else {
+        finalInvoice.nummer = finalInvoice.nummer || '';
+      }
+      finalInvoice.lfd_nr = String(counters[plan.lfdKey] || 1);
+      if (plan.isKassa && plan.isAusgang) finalInvoice.kassenbeleg_nr = String(counters.kassenbeleg || 1);
+      else finalInvoice.kassenbeleg_nr = finalInvoice.kassenbeleg_nr || '';
+
+      const row = this._invoiceToRow(finalInvoice);
+      const cols = this._invoiceColumns();
+      const sql = `INSERT INTO invoices (${cols.join(', ')}) VALUES (${cols.map(c => '@' + c).join(', ')})`;
+      this.db.prepare(sql).run(row);
+
+      if (plan.isAusgang) this._setCounterValue('ausgang', counters.ausgang + 1);
+      this._setCounterValue(plan.lfdKey, counters[plan.lfdKey] + 1);
+      if (plan.isKassa && plan.isAusgang) this._setCounterValue('kassenbeleg', counters.kassenbeleg + 1);
+
+      const currentCounters = {};
+      INVOICE_COUNTER_KEYS.forEach(key => { currentCounters[key] = this._getCounterValue(key); });
+      return { invoice: this.getInvoice(row.id), counters: currentCounters };
+    });
+    return tx();
+  }
+
+  updateInvoiceCounters(counterValues) {
+    if (!counterValues || typeof counterValues !== 'object' || Array.isArray(counterValues)) throw new Error('Ungültige Rechnungszähler');
+    const tx = this.db.transaction(() => {
+      Object.entries(counterValues).forEach(([name, raw]) => {
+        if (!INVOICE_COUNTER_KEY_SET.has(name)) throw new Error('Unbekannter Rechnungszähler: ' + name);
+        const value = Number(raw);
+        if (!Number.isInteger(value) || value < 1) throw new Error('Ungültiger Rechnungszähler: ' + name);
+        this._setCounterValue(name, value);
+      });
+      const current = {};
+      INVOICE_COUNTER_KEYS.forEach(key => { current[key] = this._getCounterValue(key); });
+      return current;
+    });
+    return tx();
   }
 
   updateInvoice(invoice) {
@@ -506,3 +613,5 @@ class BuchProDB {
 }
 
 module.exports = BuchProDB;
+module.exports.INVOICE_COUNTER_KEYS = INVOICE_COUNTER_KEYS;
+

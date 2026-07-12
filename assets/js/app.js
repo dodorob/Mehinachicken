@@ -17,6 +17,7 @@ var _fixkostenCache = [];     // fixed costs
 var _posBadgesCache = null;   // position badges (null = use default)
 var _dbInitialized  = false;
 var saveQueue       = Promise.resolve();
+var INVOICE_COUNTER_KEYS = ['ausgang', 'lfd_bank', 'lfd_kassa', 'kassenbeleg'];
 
 // ================================================================
 // BACKUP
@@ -303,6 +304,89 @@ async function _persistInvoiceBrowser(applyChange) {
   }
 }
 
+
+function _mergeReturnedCounters(counters) {
+  if (!counters) return;
+  var d = getDB();
+  if (!d.counters) d.counters = {};
+  INVOICE_COUNTER_KEYS.forEach(function(key){ if (counters[key] != null) d.counters[key] = counters[key]; });
+  _dbCache = d;
+}
+
+function _invoiceNumberingOptions(invoice) {
+  var manual = invoice && invoice.typ === 'ausgang' && invoice.nummer && String(invoice.nummer).trim();
+  return manual ? { numberMode: 'manual', requestedNumber: String(invoice.nummer).trim() } : { numberMode: 'auto' };
+}
+
+function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
+  if (!next.counters) next.counters = {};
+  if (!next.counters.ausgang) next.counters.ausgang = 1;
+  if (!next.counters.lfd_bank) next.counters.lfd_bank = 1;
+  if (!next.counters.lfd_kassa) next.counters.lfd_kassa = 1;
+  if (!next.counters.kassenbeleg) next.counters.kassenbeleg = 1;
+  var za = invoice.zahlungsart === 'kassa' ? 'kassa' : 'bank';
+  var lfdKey = za === 'kassa' ? 'lfd_kassa' : 'lfd_bank';
+  var finalInvoice = Object.assign({}, invoice);
+  if (finalInvoice.typ === 'ausgang') {
+    if (numberingOptions && numberingOptions.numberMode === 'manual') {
+      var requested = String(numberingOptions.requestedNumber || finalInvoice.nummer || '').trim();
+      if (!requested) throw new Error('Manuelle Rechnungsnummer fehlt');
+      finalInvoice.nummer = requested;
+    } else {
+      finalInvoice.nummer = String(next.counters.ausgang).padStart(2, '0');
+    }
+    next.counters.ausgang += 1;
+    if ((next.invoices || []).some(function(i){ return i.typ === 'ausgang' && i.nummer === finalInvoice.nummer && i.id !== finalInvoice.id; })) {
+      throw new Error('Rechnungsnummer bereits vorhanden: ' + finalInvoice.nummer);
+    }
+  } else {
+    finalInvoice.nummer = finalInvoice.nummer || '';
+  }
+  finalInvoice.lfd_nr = String(next.counters[lfdKey] || 1);
+  next.counters[lfdKey] = (next.counters[lfdKey] || 1) + 1;
+  if (za === 'kassa' && finalInvoice.typ === 'ausgang') {
+    finalInvoice.kassenbeleg_nr = String(next.counters.kassenbeleg || 1);
+    next.counters.kassenbeleg = (next.counters.kassenbeleg || 1) + 1;
+  }
+  return finalInvoice;
+}
+
+async function persistInvoiceCreateWithCounters(invoice, numberingOptions) {
+  if (_hasElectronDbInvoiceApi('createInvoiceWithCounters')) {
+    return enqueueDbWrite(function(){
+      return window.electronAPI.db.createInvoiceWithCounters(invoice, numberingOptions || _invoiceNumberingOptions(invoice)).then(function(result){
+        if (!result || result.ok !== true) throw new Error((result && result.error) || 'Rechnung und Nummern konnten nicht gespeichert werden');
+        _mergeReturnedCounters(result.counters);
+        return _replaceInvoiceInCache(result.invoice || invoice);
+      });
+    });
+  }
+  var savedInvoice = null;
+  await _persistInvoiceBrowser(function(next){
+    savedInvoice = _applyInvoiceNumberingToState(next, invoice, numberingOptions || _invoiceNumberingOptions(invoice));
+    next.invoices = (next.invoices || []).filter(function(i){ return i.id !== savedInvoice.id; });
+    next.invoices.push(savedInvoice);
+  });
+  return savedInvoice;
+}
+
+async function persistInvoiceCounters(counterValues) {
+  if (_hasElectronDbInvoiceApi('updateInvoiceCounters')) {
+    return enqueueDbWrite(function(){
+      return window.electronAPI.db.updateInvoiceCounters(counterValues).then(function(result){
+        if (!result || result.ok !== true) throw new Error((result && result.error) || 'Rechnungszähler konnten nicht gespeichert werden');
+        _mergeReturnedCounters(result.counters);
+        return result.counters;
+      });
+    });
+  }
+  await _persistInvoiceBrowser(function(next){
+    if (!next.counters) next.counters = {};
+    Object.keys(counterValues || {}).forEach(function(key){ next.counters[key] = counterValues[key]; });
+  });
+  return getDB().counters;
+}
+
 async function persistInvoiceCreate(invoice) {
   if (_hasElectronDbInvoiceApi('createInvoice')) {
     return enqueueDbWrite(function(){
@@ -460,28 +544,13 @@ function savePDFToFolder(doc, filename, folderPath, fallback) {
 }
 
 async function nextNum(typ) {
+  // Deprecated compatibility helper: mutates only the in-memory state and never
+  // persists by itself. Normal invoice creation uses persistInvoiceCreateWithCounters().
   var d = getDB();
-  if (!d.counters) d.counters = {};
-  if (!d.counters.ausgang)   d.counters.ausgang   = 1;
-  if (!d.counters.lfd_bank)  d.counters.lfd_bank  = 1;
-  if (!d.counters.lfd_kassa) d.counters.lfd_kassa = 1;
-
-  var za = (document.getElementById('zahlungsart')||{value:'bank'}).value;
-  var lfdKey = za === 'kassa' ? 'lfd_kassa' : 'lfd_bank';
-
-  if (typ === 'ausgang') {
-    var num = d.counters.ausgang;
-    d.counters.ausgang = num + 1;
-    d.counters[lfdKey] = (d.counters[lfdKey] || 1) + 1;
-    if (za === 'kassa') d.counters.kassenbeleg = (d.counters.kassenbeleg || 1) + 1;
-    if (!(await persistDB(d))) return;
-    return String(num).padStart(2, '0');
-  } else {
-    // ER: no AR number, but lfd still increments
-    d.counters[lfdKey] = (d.counters[lfdKey] || 1) + 1;
-    if (!(await persistDB(d))) return;
-    return '';
-  }
+  var invoice = { typ: typ, zahlungsart: (document.getElementById('zahlungsart')||{value:'bank'}).value };
+  var finalInvoice = _applyInvoiceNumberingToState(d, invoice, { numberMode: 'auto' });
+  _dbCache = d;
+  return finalInvoice.nummer || '';
 }
 
 
@@ -1035,11 +1104,9 @@ function initEinstellungen() {
       var newLfdBank  = parseInt((document.getElementById('counter-lfd-bank')||{value:'1'}).value) || 1;
       var newLfdKassa = parseInt((document.getElementById('counter-lfd-kassa')||{value:'1'}).value) || 1;
       var newKb       = parseInt((document.getElementById('counter-kassenbeleg')||{value:'1'}).value) || 1;
-      d2.counters.ausgang     = newAusgang;
-      d2.counters.lfd_bank    = newLfdBank;
-      d2.counters.lfd_kassa   = newLfdKassa;
-      d2.counters.kassenbeleg = newKb;
-      if (!(await persistDB(d2))) return;
+      try {
+        await persistInvoiceCounters({ ausgang: newAusgang, lfd_bank: newLfdBank, lfd_kassa: newLfdKassa, kassenbeleg: newKb });
+      } catch (e) { alert('Zähler konnten nicht gespeichert werden: ' + (e && e.message ? e.message : String(e))); return; }
       var info = document.getElementById('counter-info');
       if (info) { info.textContent = '\u2713 Zähler gespeichert'; setTimeout(function(){ info.textContent = ''; }, 2500); }
     };
@@ -2413,9 +2480,11 @@ function wireFormButtons() {
     var d = getDB();
     var arInvs = d.invoices.filter(function(i){ return i.typ === 'ausgang'; });
     var allInvs = d.invoices;
-    d.counters.ausgang = arInvs.length + 1;
+    var repairedAusgang = arInvs.length + 1;
     d.counters.fortlaufend = allInvs.length + 1;
     if (!d.counters.eingang) d.counters.eingang = 1;
+    try { await persistInvoiceCounters({ ausgang: repairedAusgang }); } catch (e) { alert('Zähler konnten nicht repariert werden: ' + (e && e.message ? e.message : String(e))); return; }
+    d.counters.ausgang = repairedAusgang;
     if (!(await persistDB(d))) return;
     refreshNumbers();
     this.textContent = '✓ Repariert!';
@@ -2736,7 +2805,6 @@ async function saveER() {
     }
     editId = null;
   } else {
-    d.counters[lfdKeyER] = (d.counters[lfdKeyER] || 1) + 1;
     var inv = {
       id: uid(), typ: 'eingang', nummer: '',
       lfd_nr: (document.getElementById('lfd-nr')||{value:''}).value.replace('lfd. ','').trim(),
@@ -2759,7 +2827,7 @@ async function saveER() {
   }
 
   if (!inv) { alert('Rechnung nicht gefunden'); return; }
-  var savedInv = await persistInvoiceAction(function(){ return wasEdit ? persistInvoiceUpdate(inv) : persistInvoiceCreate(inv); });
+  var savedInv = await persistInvoiceAction(function(){ return wasEdit ? persistInvoiceUpdate(inv) : persistInvoiceCreateWithCounters(inv, { numberMode: 'auto' }); });
   if (!savedInv) return;
   if (_isElectronDbMode() && !(await persistDB(d))) return;
   refreshNumbers();
@@ -2798,8 +2866,6 @@ async function saveTageslosung() {
 
   var d = getDB();
   if (!d.counters) d.counters = {};
-  // Tageslosung always uses bank counter
-  d.counters['lfd_bank'] = (d.counters['lfd_bank'] || 1) + 1;
 
   var inv = {
     id: uid(), typ: 'eingang', nummer: '',
@@ -2816,7 +2882,9 @@ async function saveTageslosung() {
     erstellt: new Date().toISOString()
   };
 
-  if (!(await persistInvoiceAction(function(){ return persistInvoiceCreate(inv); }))) return;
+  var savedTl = await persistInvoiceAction(function(){ return persistInvoiceCreateWithCounters(inv, { numberMode: 'auto' }); });
+  if (!savedTl) return;
+  inv = savedTl;
   if (_isElectronDbMode() && !(await persistDB(d))) return;
   refreshNumbers();
 
@@ -3646,16 +3714,15 @@ async function saveInvoice() {
   }
 
   var nummer;
+  var numberingOptions = { numberMode: 'auto' };
   if (editId) {
     var dPre = getDB();
     nummer = dPre.invoices.find(function(i){ return i.id===editId; }).nummer;
   } else {
-    if (await nextNum(typ) === undefined) return;  // increments correct counter based on zahlungsart
-    // Use manually entered value from rnr field if present, else use auto-generated
     var rnrFieldVal = (document.getElementById('rnr')||{value:''}).value.trim();
-    nummer = rnrFieldVal || String(getDB().counters.ausgang - 1).padStart(2,'0');
+    if (rnrFieldVal) { nummer = rnrFieldVal; numberingOptions = { numberMode: 'manual', requestedNumber: rnrFieldVal }; }
+    else { nummer = ''; }
   }
-  // Read FRESH from localStorage AFTER nextNum incremented the counters
   var d = getDB();
   var inv = {
     id: editId || uid(),
@@ -3719,7 +3786,9 @@ async function saveInvoice() {
     var oldInv = d.invoices.find(function(i){ return i.id===editId; });
     inv = Object.assign({}, oldInv || {}, inv, { erstellt: oldInv && oldInv.erstellt ? oldInv.erstellt : inv.erstellt });
   }
-  if (!(await persistInvoiceAction(function(){ return wasEdit ? persistInvoiceUpdate(inv) : persistInvoiceCreate(inv); }))) return;
+  var savedInv = await persistInvoiceAction(function(){ return wasEdit ? persistInvoiceUpdate(inv) : persistInvoiceCreateWithCounters(inv, numberingOptions); });
+  if (!savedInv) return;
+  inv = savedInv;
   if (_isElectronDbMode() && !(await persistDB(d))) return;
   // Save beschreibung history
   if (!isSammel) {

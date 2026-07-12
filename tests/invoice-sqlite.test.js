@@ -104,6 +104,125 @@ function enqueueFactory(log) {
 }
 function delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
+
+function setCounters(db, values) { db.updateInvoiceCounters(values); }
+function counters(db) { return db.loadAll().counters; }
+function atomicInv(id, extra) { return Object.assign({ id, typ: 'ausgang', zahlungsart: 'bank', partner_name: 'P', datum: '2026-01-01', status: 'offen', items: [] }, extra || {}); }
+
+async function testAtomicInvoiceCounters() {
+  let t = tempDb();
+  try {
+    setCounters(t.db, { ausgang: 7, lfd_bank: 20, lfd_kassa: 30, kassenbeleg: 40 });
+    let r = t.db.createInvoiceWithCounters(atomicInv('AR1'), { numberMode: 'auto' });
+    assert.strictEqual(r.invoice.nummer, '07');
+    assert.strictEqual(r.invoice.lfd_nr, '20');
+    assert.strictEqual(counters(t.db).ausgang, 8);
+    assert.strictEqual(counters(t.db).lfd_bank, 21);
+  } finally { t.cleanup(); }
+
+  t = tempDb();
+  try {
+    setCounters(t.db, { ausgang: 9, lfd_kassa: 5, kassenbeleg: 88 });
+    let r = t.db.createInvoiceWithCounters(atomicInv('K1', { zahlungsart: 'kassa' }), { numberMode: 'auto' });
+    assert.strictEqual(r.invoice.nummer, '09');
+    assert.strictEqual(r.invoice.lfd_nr, '5');
+    assert.strictEqual(r.invoice.kassenbeleg_nr, '88');
+    assert.strictEqual(counters(t.db).ausgang, 10);
+    assert.strictEqual(counters(t.db).lfd_kassa, 6);
+    assert.strictEqual(counters(t.db).kassenbeleg, 89);
+  } finally { t.cleanup(); }
+
+  t = tempDb();
+  try {
+    setCounters(t.db, { ausgang: 4, lfd_bank: 11 });
+    let r = t.db.createInvoiceWithCounters(atomicInv('ER1', { typ: 'eingang', nummer: '' }), { numberMode: 'auto' });
+    assert.strictEqual(r.invoice.nummer, null);
+    assert.strictEqual(r.invoice.lfd_nr, '11');
+    assert.strictEqual(counters(t.db).ausgang, 4);
+    assert.strictEqual(counters(t.db).lfd_bank, 12);
+  } finally { t.cleanup(); }
+
+  t = tempDb();
+  try {
+    setCounters(t.db, { ausgang: 1, lfd_bank: 1 });
+    t.db.createInvoice(atomicInv('EXISTING', { nummer: '01', lfd_nr: 'old' }));
+    await assertRejects(() => t.db.createInvoiceWithCounters(atomicInv('DUPNR'), { numberMode: 'auto' }));
+    assert.ok(!t.db.getInvoice('DUPNR'));
+    assert.strictEqual(counters(t.db).ausgang, 1);
+    assert.strictEqual(counters(t.db).lfd_bank, 1);
+  } finally { t.cleanup(); }
+
+  t = tempDb();
+  try {
+    setCounters(t.db, { ausgang: 3, lfd_bank: 7 });
+    const before = counters(t.db);
+    await assertRejects(() => t.db.createInvoiceWithCounters(atomicInv('A', { id: 'X' }), { numberMode: 'manual', requestedNumber: '' }));
+    assert.deepStrictEqual(counters(t.db), before);
+    assert.ok(!t.db.getInvoice('X'));
+  } finally { t.cleanup(); }
+
+  t = tempDb();
+  try {
+    setCounters(t.db, { ausgang: 1, lfd_bank: 10 });
+    const a = t.db.createInvoiceWithCounters(atomicInv('A'), { numberMode: 'auto' }).invoice;
+    await assertRejects(() => t.db.createInvoiceWithCounters(atomicInv('B', { nummer: '' }), { numberMode: 'manual', requestedNumber: '' }));
+    const c = t.db.createInvoiceWithCounters(atomicInv('C'), { numberMode: 'auto' }).invoice;
+    assert.deepStrictEqual([a.nummer, c.nummer], ['01', '02']);
+    assert.deepStrictEqual([a.lfd_nr, c.lfd_nr], ['10', '11']);
+    assert.strictEqual(counters(t.db).ausgang, 3);
+    assert.strictEqual(counters(t.db).lfd_bank, 12);
+  } finally { t.cleanup(); }
+
+  t = tempDb();
+  try {
+    setCounters(t.db, { ausgang: 1, lfd_bank: 1 });
+    const nums = ['Q1','Q2','Q3'].map(id => t.db.createInvoiceWithCounters(atomicInv(id), { numberMode: 'auto' }).invoice);
+    assert.deepStrictEqual(nums.map(i => i.nummer), ['01','02','03']);
+    assert.deepStrictEqual(nums.map(i => i.lfd_nr), ['1','2','3']);
+    assert.strictEqual(counters(t.db).ausgang, 4);
+    assert.strictEqual(counters(t.db).lfd_bank, 4);
+  } finally { t.cleanup(); }
+
+  t = tempDb();
+  try {
+    setCounters(t.db, { ausgang: 1, lfd_bank: 1 });
+    t.db.createInvoiceWithCounters(atomicInv('OLDPREVIEW'), { numberMode: 'auto' });
+    const r = t.db.createInvoiceWithCounters(atomicInv('NEW'), { numberMode: 'auto' });
+    assert.strictEqual(r.invoice.nummer, '02');
+  } finally { t.cleanup(); }
+
+  t = tempDb();
+  try {
+    setCounters(t.db, { ausgang: 5, lfd_bank: 6 });
+    const r = t.db.createInvoiceWithCounters(atomicInv('MAN'), { numberMode: 'manual', requestedNumber: 'MAN-77' });
+    assert.strictEqual(r.invoice.nummer, 'MAN-77');
+    assert.strictEqual(r.invoice.lfd_nr, '6');
+    assert.strictEqual(counters(t.db).ausgang, 6);
+    assert.strictEqual(counters(t.db).lfd_bank, 7);
+  } finally { t.cleanup(); }
+
+  t = tempDb();
+  try {
+    setCounters(t.db, { ausgang: 10, lfd_bank: 20, lfd_kassa: 30, kassenbeleg: 40 });
+    const stale = { counters: { ausgang: 1, lfd_bank: 2, lfd_kassa: 3, kassenbeleg: 4, fortlaufend: 99 }, kunden: [{ id: 'K2', name: 'Other' }] };
+    t.db.createInvoiceWithCounters(atomicInv('SAFE'), { numberMode: 'auto' });
+    t.db.saveAll(stale);
+    assert.ok(t.db.getInvoice('SAFE'));
+    assert.strictEqual(counters(t.db).ausgang, 11);
+    assert.strictEqual(counters(t.db).lfd_bank, 21);
+    assert.strictEqual(counters(t.db).fortlaufend, 99);
+    assert.strictEqual(t.db.loadAll().kunden[0].name, 'Other');
+  } finally { t.cleanup(); }
+
+  t = tempDb();
+  try {
+    t.db.updateInvoiceCounters({ ausgang: 123, lfd_bank: 124 });
+    assert.strictEqual(counters(t.db).ausgang, 123);
+    await assertRejects(() => t.db.updateInvoiceCounters({ unknown: 1 }));
+    await assertRejects(() => t.db.updateInvoiceCounters({ ausgang: 0 }));
+  } finally { t.cleanup(); }
+}
+
 async function testQueue() {
   const log = [];
   const enqueue = enqueueFactory(log);
@@ -121,6 +240,7 @@ async function testQueue() {
 
 (async () => {
   await testCrudAndSafety();
+  await testAtomicInvoiceCounters();
   await testQueue();
   console.log('invoice sqlite tests passed');
 })();
