@@ -24,7 +24,7 @@ function applyNumbering(next, inv, opts) {
   } else out.nummer = out.nummer || '';
   out.lfd_nr = String(next.counters.fortlaufend).padStart(3, '0');
   next.counters.fortlaufend++;
-  if (out.typ === 'ausgang' && za === 'kassa') { out.kassenbeleg_nr = String(next.counters.kassenbeleg).padStart(3, '0'); next.counters.kassenbeleg++; }
+  if (za === 'kassa') { out.zahlungs_lfd_nr = String(next.counters.kassenbeleg).padStart(3, '0'); out.kassenbeleg_nr = out.zahlungs_lfd_nr; next.counters.kassenbeleg++; } else { out.zahlungs_lfd_nr = String(next.counters.lfd_bank).padStart(3, '0'); next.counters.lfd_bank++; out.kassenbeleg_nr = ''; }
   return out;
 }
 const createWithCounters = (inv, opts) => { let saved; return browserPersist(next => { saved = applyNumbering(next, inv, opts); next.invoices = next.invoices.filter(i => i.id !== saved.id); next.invoices.push(saved); }).then(() => saved); };
@@ -49,6 +49,66 @@ function userEditRnrState(state, value) {
 function resetRnrState(state, counterValue) {
   state.manuallyEdited = false;
   state.value = String(counterValue).padStart(3, '0');
+}
+
+
+function previewFormState(state) {
+  const counters = state.counters;
+  const typ = state.typ || 'ausgang';
+  const za = state.zahlungsart || 'bank';
+  const edit = state.editInvoice || null;
+  const out = {
+    arVisible: typ !== 'eingang',
+    ar: '',
+    lfd: '',
+    bankRowVisible: za === 'bank',
+    bank: '',
+    kassaRowVisible: za === 'kassa',
+    kassa: '',
+    counters: cloneForSave(counters),
+  };
+  if (edit) {
+    out.ar = edit.nummer || '';
+    out.lfd = edit.lfd_nr || '';
+    if (za === 'bank') out.bank = edit.zahlungs_lfd_nr || '';
+    if (za === 'kassa') out.kassa = edit.kassenbeleg_nr || edit.zahlungs_lfd_nr || '';
+    return out;
+  }
+  if (out.arVisible) out.ar = String(counters.ausgang).padStart(3, '0');
+  out.lfd = String(counters.fortlaufend).padStart(3, '0');
+  if (za === 'bank') out.bank = String(counters.lfd_bank).padStart(3, '0');
+  if (za === 'kassa') out.kassa = String(counters.kassenbeleg).padStart(3, '0');
+  return out;
+}
+
+function assertPaymentPreviewState() {
+  let state = previewFormState({ typ: 'ausgang', zahlungsart: 'bank', counters: { ausgang: 145, fortlaufend: 320, lfd_bank: 80, kassenbeleg: 50 } });
+  assert.deepStrictEqual({ ar: state.ar, lfd: state.lfd, bank: state.bank, bankRowVisible: state.bankRowVisible, kassaRowVisible: state.kassaRowVisible }, { ar: '145', lfd: '320', bank: '080', bankRowVisible: true, kassaRowVisible: false });
+
+  state = previewFormState({ typ: 'ausgang', zahlungsart: 'kassa', counters: { ausgang: 146, fortlaufend: 321, lfd_bank: 80, kassenbeleg: 50 } });
+  assert.deepStrictEqual({ ar: state.ar, lfd: state.lfd, kassa: state.kassa, bankRowVisible: state.bankRowVisible, kassaRowVisible: state.kassaRowVisible }, { ar: '146', lfd: '321', kassa: '050', bankRowVisible: false, kassaRowVisible: true });
+
+  const switchedToKassa = previewFormState({ typ: 'ausgang', zahlungsart: 'kassa', counters: { ausgang: 1, fortlaufend: 1, lfd_bank: 80, kassenbeleg: 50 } });
+  const switchedToBank = previewFormState({ typ: 'ausgang', zahlungsart: 'bank', counters: { ausgang: 1, fortlaufend: 1, lfd_bank: 80, kassenbeleg: 50 } });
+  assert.strictEqual(switchedToKassa.bankRowVisible, false);
+  assert.strictEqual(switchedToKassa.kassaRowVisible, true);
+  assert.strictEqual(switchedToBank.kassaRowVisible, false);
+  assert.strictEqual(switchedToBank.bankRowVisible, true);
+
+  state = previewFormState({ typ: 'eingang', zahlungsart: 'bank', counters: { ausgang: 1, fortlaufend: 322, lfd_bank: 81, kassenbeleg: 51 } });
+  assert.deepStrictEqual({ arVisible: state.arVisible, lfd: state.lfd, bank: state.bank, bankRowVisible: state.bankRowVisible, kassaRowVisible: state.kassaRowVisible }, { arVisible: false, lfd: '322', bank: '081', bankRowVisible: true, kassaRowVisible: false });
+
+  state = previewFormState({ typ: 'eingang', zahlungsart: 'kassa', counters: { ausgang: 1, fortlaufend: 323, lfd_bank: 82, kassenbeleg: 51 } });
+  assert.deepStrictEqual({ arVisible: state.arVisible, lfd: state.lfd, kassa: state.kassa, bankRowVisible: state.bankRowVisible, kassaRowVisible: state.kassaRowVisible }, { arVisible: false, lfd: '323', kassa: '051', bankRowVisible: false, kassaRowVisible: true });
+
+  const countersBeforeEdit = { ausgang: 200, fortlaufend: 400, lfd_bank: 900, kassenbeleg: 700 };
+  state = previewFormState({ typ: 'ausgang', zahlungsart: 'bank', counters: countersBeforeEdit, editInvoice: { nummer: '145', lfd_nr: '320', zahlungs_lfd_nr: '080' } });
+  assert.strictEqual(state.bank, '080');
+  assert.deepStrictEqual(countersBeforeEdit, state.counters);
+
+  state = previewFormState({ typ: 'ausgang', zahlungsart: 'kassa', counters: countersBeforeEdit, editInvoice: { nummer: '146', lfd_nr: '321', zahlungs_lfd_nr: '050', kassenbeleg_nr: '050' } });
+  assert.strictEqual(state.kassa, '050');
+  assert.deepStrictEqual(countersBeforeEdit, state.counters);
 }
 
 function assertManualPreviewState() {
@@ -76,15 +136,19 @@ function assertManualPreviewState() {
 
 (async () => {
   assertManualPreviewState();
+  assertPaymentPreviewState();
   saveCount = 0;
   let inv = await createWithCounters({ id: 'A', typ: 'ausgang', zahlungsart: 'bank' }, { numberMode: 'auto' });
   assert.strictEqual(saveCount, 1);
   assert.strictEqual(inv.nummer, '001');
   assert.strictEqual(inv.lfd_nr, '001');
+  assert.strictEqual(inv.zahlungs_lfd_nr, '001');
   assert.strictEqual(load().counters.ausgang, 2);
+  assert.strictEqual(load().invoices.find(i => i.id === 'A').zahlungs_lfd_nr, '001');
   assert.ok(load().invoices.find(i => i.id === 'A'));
 
   inv = await createWithCounters({ id: 'K', typ: 'ausgang', zahlungsart: 'kassa' }, { numberMode: 'auto' });
+  assert.strictEqual(inv.zahlungs_lfd_nr, '001');
   assert.strictEqual(inv.kassenbeleg_nr, '001');
   assert.strictEqual(load().counters.fortlaufend, 3);
   assert.strictEqual(load().counters.lfd_kassa, 1);
@@ -111,13 +175,15 @@ function assertManualPreviewState() {
   assert.deepStrictEqual([sharedAr.lfd_nr, sharedEr.lfd_nr], ['010', '011']);
   assert.strictEqual(shared.counters.ausgang, 2);
   assert.strictEqual(shared.counters.fortlaufend, 12);
-  assert.strictEqual(shared.counters.lfd_bank, 500);
+  assert.deepStrictEqual([sharedAr.zahlungs_lfd_nr, sharedEr.zahlungs_lfd_nr], ['500', '501']);
+  assert.strictEqual(shared.counters.lfd_bank, 502);
   assert.strictEqual(shared.counters.lfd_kassa, 700);
 
-  await updateCounters({ ausgang: 50, fortlaufend: 60, kassenbeleg: 70 });
+  await updateCounters({ ausgang: 50, fortlaufend: 60, lfd_bank: 65, kassenbeleg: 70 });
   _dbCache = cloneForSave(load());
   assert.strictEqual(getDB().counters.ausgang, 50);
   assert.strictEqual(getDB().counters.fortlaufend, 60);
+  assert.strictEqual(getDB().counters.lfd_bank, 65);
   assert.strictEqual(getDB().counters.kassenbeleg, 70);
   console.log('invoice browser localStorage tests passed');
 })();

@@ -4,7 +4,7 @@ const Database = require('better-sqlite3');
 
 // Invoice counters are the counters consumed while creating new invoices.
 // They must never be overwritten by stale renderer saveAll() snapshots.
-const INVOICE_COUNTER_KEYS = Object.freeze(['ausgang', 'fortlaufend', 'kassenbeleg']);
+const INVOICE_COUNTER_KEYS = Object.freeze(['ausgang', 'fortlaufend', 'lfd_bank', 'kassenbeleg']);
 const INVOICE_COUNTER_KEY_SET = new Set(INVOICE_COUNTER_KEYS);
 
 class BuchProDB {
@@ -52,6 +52,7 @@ class BuchProDB {
         status         TEXT,
         notizen        TEXT,
         kassenbeleg_nr TEXT,
+        zahlungs_lfd_nr TEXT,
         kassa_typ      TEXT,
         materialkosten REAL DEFAULT 0,
         mat_auto       INTEGER DEFAULT 0,
@@ -131,6 +132,7 @@ class BuchProDB {
     `);
     // Schema migrations (safe to run multiple times)
     try { this.db.exec('ALTER TABLE invoices ADD COLUMN is_sammel INTEGER DEFAULT 0'); } catch(_) {}
+    try { this.db.exec('ALTER TABLE invoices ADD COLUMN zahlungs_lfd_nr TEXT'); } catch(_) {}
     try { this.db.exec('ALTER TABLE invoices ADD COLUMN sammel_beschreibung TEXT'); } catch(_) {}
     try { this.db.exec('ALTER TABLE fixkosten ADD COLUMN fk_id TEXT'); } catch(_) {}
     try { this.db.exec('ALTER TABLE fixkosten ADD COLUMN bezahlt_am TEXT'); } catch(_) {}
@@ -246,7 +248,7 @@ class BuchProDB {
     return [
       'id', 'typ', 'nummer', 'lfd_nr', 'zahlungsart', 'privatkunde', 'flag_djevad', 'flag_helmut',
       'partner_id', 'partner_name', 'partner_info', 'datum', 'leistungsdatum', 'fz_marke', 'fz_kz',
-      'faellig', 'status', 'notizen', 'kassenbeleg_nr', 'kassa_typ', 'materialkosten', 'mat_auto',
+      'faellig', 'status', 'notizen', 'kassenbeleg_nr', 'zahlungs_lfd_nr', 'kassa_typ', 'materialkosten', 'mat_auto',
       'erstellt', 'er_liefnr', 'is_gutschrift', 'is_tageslosung', 'er_netto', 'er_ust', 'er_brutto',
       'er_ust_pct', 'file_b64', 'file_name', 'file_type', 'items', 'er_items',
       'is_sammel', 'sammel_beschreibung',
@@ -326,12 +328,12 @@ class BuchProDB {
     return {
       isAusgang,
       isKassa: za === 'kassa',
-      keys: ['fortlaufend'].concat(isAusgang ? ['ausgang'] : [], (za === 'kassa' && isAusgang) ? ['kassenbeleg'] : [])
+      keys: ['fortlaufend', za === 'kassa' ? 'kassenbeleg' : 'lfd_bank'].concat(isAusgang ? ['ausgang'] : [])
     };
   }
 
   // Normal new invoice creation with atomic number assignment. The transaction
-  // reads the current counters, assigns final nummer/lfd_nr/kassenbeleg_nr,
+  // reads the current counters, assigns final nummer/lfd_nr/zahlungs_lfd_nr/kassenbeleg_nr,
   // inserts the invoice, advances all consumed counters exactly once, and returns
   // the saved invoice plus current protected counter values.
   createInvoiceWithCounters(invoice, numberingOptions) {
@@ -361,18 +363,25 @@ class BuchProDB {
       finalInvoice.lfd_nr = this._padNumber(counters.fortlaufend);
       this._assertNoDuplicateNumber("SELECT lfd_nr AS value FROM invoices WHERE lfd_nr IS NOT NULL AND lfd_nr != ''", finalInvoice.lfd_nr, 'Die laufende Nummer ' + finalInvoice.lfd_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
       let nextKassenbeleg = null;
-      if (plan.isKassa && plan.isAusgang) {
+      if (plan.isKassa) {
+        let kassaNumber;
         if (opts.kassenbelegMode === 'manual') {
-          const kbValue = this._numericValue(opts.requestedKassenbeleg);
-          if (!Number.isInteger(kbValue) || kbValue < 1) throw new Error('Die Kassenbelegnummer muss eine positive ganze Zahl sein.');
-          finalInvoice.kassenbeleg_nr = this._padNumber(kbValue);
+          const kbValue = this._numericValue(opts.requestedKassenbeleg != null ? opts.requestedKassenbeleg : finalInvoice.kassenbeleg_nr || finalInvoice.zahlungs_lfd_nr);
+          if (!Number.isInteger(kbValue) || kbValue < 1) throw new Error('Die Kassa-/Registrierkassennummer muss eine positive ganze Zahl sein.');
+          kassaNumber = this._padNumber(kbValue);
           nextKassenbeleg = Math.max(counters.kassenbeleg, kbValue + 1);
         } else {
-          finalInvoice.kassenbeleg_nr = this._padNumber(counters.kassenbeleg);
+          kassaNumber = this._padNumber(counters.kassenbeleg);
           nextKassenbeleg = counters.kassenbeleg + 1;
         }
-        this._assertNoDuplicateNumber("SELECT kassenbeleg_nr AS value FROM invoices WHERE typ = 'ausgang' AND zahlungsart = 'kassa' AND kassenbeleg_nr IS NOT NULL AND kassenbeleg_nr != ''", finalInvoice.kassenbeleg_nr, 'Die Kassenbelegnummer ' + finalInvoice.kassenbeleg_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
-      } else finalInvoice.kassenbeleg_nr = '';
+        finalInvoice.zahlungs_lfd_nr = kassaNumber;
+        finalInvoice.kassenbeleg_nr = kassaNumber;
+        this._assertNoDuplicateNumber("SELECT COALESCE(NULLIF(kassenbeleg_nr, ''), zahlungs_lfd_nr) AS value FROM invoices WHERE zahlungsart = 'kassa' AND COALESCE(NULLIF(kassenbeleg_nr, ''), zahlungs_lfd_nr) IS NOT NULL AND COALESCE(NULLIF(kassenbeleg_nr, ''), zahlungs_lfd_nr) != ''", kassaNumber, 'Die Kassa-/Registrierkassennummer ' + kassaNumber + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
+      } else {
+        finalInvoice.zahlungs_lfd_nr = this._padNumber(counters.lfd_bank);
+        finalInvoice.kassenbeleg_nr = '';
+        this._assertNoDuplicateNumber("SELECT zahlungs_lfd_nr AS value FROM invoices WHERE (zahlungsart IS NULL OR zahlungsart != 'kassa') AND zahlungs_lfd_nr IS NOT NULL AND zahlungs_lfd_nr != ''", finalInvoice.zahlungs_lfd_nr, 'Die Bank-Fortlaufnummer ' + finalInvoice.zahlungs_lfd_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
+      }
 
       const row = this._invoiceToRow(finalInvoice);
       const cols = this._invoiceColumns();
@@ -381,7 +390,8 @@ class BuchProDB {
 
       if (plan.isAusgang) this._setCounterValue('ausgang', counters.ausgang + 1);
       this._setCounterValue('fortlaufend', counters.fortlaufend + 1);
-      if (plan.isKassa && plan.isAusgang) this._setCounterValue('kassenbeleg', nextKassenbeleg);
+      if (plan.isKassa) this._setCounterValue('kassenbeleg', nextKassenbeleg);
+      else this._setCounterValue('lfd_bank', counters.lfd_bank + 1);
 
       const currentCounters = {};
       INVOICE_COUNTER_KEYS.forEach(key => { currentCounters[key] = this._getCounterValue(key); });
@@ -552,7 +562,7 @@ class BuchProDB {
         });
         this.importInvoicesForMigration(buchproData.invoices || []);
         const importedCounters = {};
-        ['ausgang', 'fortlaufend', 'kassenbeleg'].forEach(key => {
+        INVOICE_COUNTER_KEYS.forEach(key => {
           const value = Number((buchproData.counters || {})[key]);
           if (Number.isInteger(value) && value > 0) importedCounters[key] = value;
         });
@@ -619,6 +629,7 @@ class BuchProDB {
       status:         inv.status         || null,
       notizen:        inv.notizen        || null,
       kassenbeleg_nr: inv.kassenbeleg_nr || null,
+      zahlungs_lfd_nr: inv.zahlungs_lfd_nr || null,
       kassa_typ:      inv.kassa_typ      || null,
       materialkosten: inv.materialkosten || 0,
       mat_auto:       inv.mat_auto       ? 1 : 0,
