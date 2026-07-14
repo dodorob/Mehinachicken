@@ -344,12 +344,12 @@ function _requireStateCounter(next, key) {
 
 function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
   if (!next.counters) next.counters = {};
-  var ausgangCounter = _requireStateCounter(next, 'ausgang');
-  var fortlaufendCounter = _requireStateCounter(next, 'fortlaufend');
-  var bankCounter = _requireStateCounter(next, 'lfd_bank');
-  var kassenbelegCounter = _requireStateCounter(next, 'kassenbeleg');
   var za = invoice.zahlungsart === 'kassa' ? 'kassa' : 'bank';
   var finalInvoice = Object.assign({}, invoice);
+  var ausgangCounter = finalInvoice.typ === 'ausgang' ? _requireStateCounter(next, 'ausgang') : null;
+  var fortlaufendCounter = za === 'kassa' ? _requireStateCounter(next, 'fortlaufend') : null;
+  var bankCounter = za === 'kassa' ? null : _requireStateCounter(next, 'lfd_bank');
+  var kassenbelegCounter = za === 'kassa' ? _requireStateCounter(next, 'kassenbeleg') : null;
   if ((next.invoices || []).some(function(i){ return i.id === finalInvoice.id; })) throw new Error('Rechnungs-ID existiert bereits: ' + finalInvoice.id);
   if (finalInvoice.typ === 'ausgang') {
     if (numberingOptions && numberingOptions.numberMode === 'manual') {
@@ -364,10 +364,10 @@ function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
   } else {
     finalInvoice.nummer = finalInvoice.nummer || '';
   }
-  finalInvoice.lfd_nr = _padInvoiceNumber(fortlaufendCounter);
-  _assertNoInvoiceNumberDuplicate(next.invoices || [], function(i){ return i.lfd_nr; }, finalInvoice.lfd_nr, 'Die laufende Nummer ' + finalInvoice.lfd_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
-  next.counters.fortlaufend = fortlaufendCounter + 1;
   if (za === 'kassa') {
+    finalInvoice.lfd_nr = _padInvoiceNumber(fortlaufendCounter);
+    _assertNoInvoiceNumberDuplicate((next.invoices || []).filter(function(i){ return i.zahlungsart === 'kassa'; }), function(i){ return i.lfd_nr; }, finalInvoice.lfd_nr, 'Die laufende Nummer ' + finalInvoice.lfd_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
+    next.counters.fortlaufend = fortlaufendCounter + 1;
     var kassaNumber;
     if (numberingOptions && numberingOptions.kassenbelegMode === 'manual') {
       var kbValue = _numericInvoiceValue(numberingOptions.requestedKassenbeleg || finalInvoice.kassenbeleg_nr || finalInvoice.zahlungs_lfd_nr);
@@ -382,6 +382,7 @@ function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
     finalInvoice.kassenbeleg_nr = kassaNumber;
     _assertNoInvoiceNumberDuplicate((next.invoices || []).filter(function(i){ return i.zahlungsart === 'kassa'; }), function(i){ return i.kassenbeleg_nr || i.zahlungs_lfd_nr; }, kassaNumber, 'Die Kassa-/Registrierkassennummer ' + kassaNumber + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
   } else {
+    finalInvoice.lfd_nr = '';
     finalInvoice.zahlungs_lfd_nr = _padInvoiceNumber(bankCounter);
     finalInvoice.kassenbeleg_nr = '';
     next.counters.lfd_bank = bankCounter + 1;
@@ -3034,7 +3035,12 @@ function refreshNumbers() {
 
   if (rnrWrap) rnrWrap.style.display = (typ === 'eingang') ? 'none' : '';
   if (rnrEl && typ !== 'eingang' && !editId && !rnrManuallyEdited) rnrEl.value = previewNum(typ);
-  if (lfdEl && !editId) lfdEl.value = 'lfd. ' + String(lfdNum).padStart(3,'0');
+  if (lfdEl) {
+    var lfdWrap = lfdEl.closest ? lfdEl.closest('.fg') : null;
+    if (lfdWrap) lfdWrap.style.display = (za === 'kassa') ? '' : 'none';
+    if (za === 'kassa' && !editId) lfdEl.value = 'lfd. ' + String(lfdNum).padStart(3,'0');
+    if (za !== 'kassa' && !editId) lfdEl.value = '';
+  }
 
   if (za === 'kassa') {
     if (bankRow) bankRow.style.display = 'none';
