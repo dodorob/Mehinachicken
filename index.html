@@ -141,11 +141,16 @@
         </div>
         <div style="flex:1;min-width:220px">
           <div class="fr c2">
-            <div class="fg"><label>Rechnungsnummer (AR)</label><input type="text" id="rnr" style="font-family:'Courier New',monospace;font-weight:600" placeholder="wird automatisch gesetzt"></div>
-            <div class="fg"><label>Fortlaufende Nr. <span style="font-size:10px;color:#aaa">(nur intern)</span></label><input type="text" id="lfd-nr" style="font-family:'Courier New',monospace" placeholder="wird automatisch gesetzt"></div>
-          </div>
-          <div id="kassa-beleg-row" style="display:none;margin-top:8px">
-            <div class="fg"><label>Kassenbeleg Nr.</label><input type="text" id="kassa-beleg-nr" style="font-family:'Courier New',monospace;font-weight:600" placeholder="wird automatisch gesetzt"></div>
+            <div>
+              <div class="fg"><label>Rechnungsnummer (AR)</label><input type="text" id="rnr" style="font-family:'Courier New',monospace;font-weight:600" placeholder="wird automatisch gesetzt"></div>
+              <div id="bank-lfd-row" style="display:none;margin-top:8px">
+                <div class="fg"><label>Bank fortlaufende Nr.</label><input type="text" id="bank-lfd-nr" readonly style="font-family:'Courier New',monospace;font-weight:600" placeholder="wird automatisch gesetzt"></div>
+              </div>
+              <div id="kassa-beleg-row" style="display:none;margin-top:8px">
+                <div class="fg"><label>Kassa-/Registrierkassennummer</label><input type="text" id="kassa-beleg-nr" style="font-family:'Courier New',monospace;font-weight:600" placeholder="wird automatisch gesetzt"></div>
+              </div>
+            </div>
+            <div class="fg"><label>Allgemeine fortlaufende Nr. <span style="font-size:10px;color:#aaa">(nur intern)</span></label><input type="text" id="lfd-nr" style="font-family:'Courier New',monospace" placeholder="wird automatisch gesetzt"></div>
           </div>
         </div>
       </div>

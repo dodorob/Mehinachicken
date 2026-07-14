@@ -3025,20 +3025,25 @@ function refreshNumbers() {
   var rnrWrap = rnrEl ? rnrEl.closest('.fg') : null;
   var lfdEl  = document.getElementById('lfd-nr');
   var lfdNum = db.counters.fortlaufend || 1;
+  var bankEl  = document.getElementById('bank-lfd-nr');
+  var bankRow = document.getElementById('bank-lfd-row');
+  var bankNum = db.counters.lfd_bank || 1;
   var kbEl  = document.getElementById('kassa-beleg-nr');
   var kbRow = document.getElementById('kassa-beleg-row');
   var kbNum = db.counters.kassenbeleg || 1;
 
-  if (typ === 'eingang') {
-    if (rnrWrap) rnrWrap.style.display = 'none';
-    if (lfdEl) lfdEl.value = 'lfd. ' + String(lfdNum).padStart(3,'0');
-    if (kbRow) kbRow.style.display = 'none';
+  if (rnrWrap) rnrWrap.style.display = (typ === 'eingang') ? 'none' : '';
+  if (rnrEl && typ !== 'eingang' && !editId && !rnrManuallyEdited) rnrEl.value = previewNum(typ);
+  if (lfdEl && !editId) lfdEl.value = 'lfd. ' + String(lfdNum).padStart(3,'0');
+
+  if (za === 'kassa') {
+    if (bankRow) bankRow.style.display = 'none';
+    if (kbRow) kbRow.style.display = '';
+    if (kbEl && !editId && !kassenbelegManuallyEdited) kbEl.value = _padInvoiceNumber(kbNum);
   } else {
-    if (rnrWrap) rnrWrap.style.display = '';
-    if (rnrEl && !editId && !rnrManuallyEdited) rnrEl.value = previewNum(typ);
-    if (lfdEl) lfdEl.value = 'lfd. ' + String(lfdNum).padStart(3,'0');
-    if (kbRow) kbRow.style.display = (za === 'kassa') ? '' : 'none';
-    if (kbEl && za === 'kassa' && !editId && !kassenbelegManuallyEdited) kbEl.value = _padInvoiceNumber(kbNum);
+    if (kbRow) kbRow.style.display = 'none';
+    if (bankRow) bankRow.style.display = '';
+    if (bankEl && !editId) bankEl.value = _padInvoiceNumber(bankNum);
   }
 }
 
@@ -5790,8 +5795,18 @@ function editInv(id) {
     setTyp('eingang');
   }
   document.getElementById('rnr').value = inv.nummer;
+  var lfdElEdit = document.getElementById('lfd-nr');
+  if (lfdElEdit) lfdElEdit.value = inv.lfd_nr ? ('lfd. ' + inv.lfd_nr) : '';
   document.getElementById('zahlungsart').value = inv.zahlungsart || 'bank';
   setPay(inv.zahlungsart || 'bank');
+  if ((inv.zahlungsart || 'bank') === 'bank') {
+    var bankElEdit = document.getElementById('bank-lfd-nr');
+    var bankRowEdit = document.getElementById('bank-lfd-row');
+    var kbRowEditBank = document.getElementById('kassa-beleg-row');
+    if (bankElEdit) bankElEdit.value = inv.zahlungs_lfd_nr || '';
+    if (bankRowEdit) bankRowEdit.style.display = '';
+    if (kbRowEditBank) kbRowEditBank.style.display = 'none';
+  }
   if (inv.zahlungsart === 'kassa' && inv.kassa_typ) {
     setKassaTyp(inv.kassa_typ);
   }
@@ -5812,11 +5827,13 @@ function editInv(id) {
   if (inv.privatkunde) { var pc=document.getElementById('inv-privat'); if(pc) pc.checked=true; }
   if (inv.flag_djevad) { var pd=document.getElementById('inv-djevad'); if(pd) pd.checked=true; }
   if (inv.flag_helmut) { var ph=document.getElementById('inv-helmut'); if(ph) ph.checked=true; }
-  if (inv.kassenbeleg_nr) {
+  if ((inv.zahlungsart || 'bank') === 'kassa') {
     var kbEl2 = document.getElementById('kassa-beleg-nr');
     var kbRow2 = document.getElementById('kassa-beleg-row');
-    if (kbEl2) kbEl2.value = inv.kassenbeleg_nr;
+    var bankRowEditKassa = document.getElementById('bank-lfd-row');
+    if (kbEl2) kbEl2.value = inv.kassenbeleg_nr || inv.zahlungs_lfd_nr || '';
     if (kbRow2) kbRow2.style.display = '';
+    if (bankRowEditKassa) bankRowEditKassa.style.display = 'none';
   }
 
   if (inv.is_sammel) {
