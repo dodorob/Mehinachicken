@@ -17,7 +17,7 @@ var _fixkostenCache = [];     // fixed costs
 var _posBadgesCache = null;   // position badges (null = use default)
 var _dbInitialized  = false;
 var saveQueue       = Promise.resolve();
-var INVOICE_COUNTER_KEYS = ['ausgang', 'fortlaufend', 'kassenbeleg'];
+var INVOICE_COUNTER_KEYS = ['ausgang', 'fortlaufend', 'lfd_bank', 'kassenbeleg'];
 
 // ================================================================
 // BACKUP
@@ -192,7 +192,7 @@ function getDB() {
   if (!d.lieferanten) d.lieferanten = [];
   if (!d.zahlungen)   d.zahlungen   = [];
   if (!d.fahrzeuge)   d.fahrzeuge   = [];
-  if (!d.counters)    d.counters    = d.invoices.length === 0 ? {ausgang:1, eingang:1, fortlaufend:1, kassenbeleg:1} : {};
+  if (!d.counters)    d.counters    = d.invoices.length === 0 ? {ausgang:1, eingang:1, fortlaufend:1, lfd_bank:1, kassenbeleg:1} : {};
   // Migration: ensure counters exist
   if (!d.counters.fortlaufend && d.invoices.length === 0) d.counters.fortlaufend = 1;
   if (!d.counters.kassenbeleg && d.invoices.length === 0) d.counters.kassenbeleg = 1;
@@ -346,6 +346,7 @@ function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
   if (!next.counters) next.counters = {};
   var ausgangCounter = _requireStateCounter(next, 'ausgang');
   var fortlaufendCounter = _requireStateCounter(next, 'fortlaufend');
+  var bankCounter = _requireStateCounter(next, 'lfd_bank');
   var kassenbelegCounter = _requireStateCounter(next, 'kassenbeleg');
   var za = invoice.zahlungsart === 'kassa' ? 'kassa' : 'bank';
   var finalInvoice = Object.assign({}, invoice);
@@ -366,19 +367,25 @@ function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
   finalInvoice.lfd_nr = _padInvoiceNumber(fortlaufendCounter);
   _assertNoInvoiceNumberDuplicate(next.invoices || [], function(i){ return i.lfd_nr; }, finalInvoice.lfd_nr, 'Die laufende Nummer ' + finalInvoice.lfd_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
   next.counters.fortlaufend = fortlaufendCounter + 1;
-  if (za === 'kassa' && finalInvoice.typ === 'ausgang') {
+  if (za === 'kassa') {
+    var kassaNumber;
     if (numberingOptions && numberingOptions.kassenbelegMode === 'manual') {
-      var kbValue = _numericInvoiceValue(numberingOptions.requestedKassenbeleg);
-      if (!Number.isInteger(kbValue) || kbValue < 1) throw new Error('Die Kassenbelegnummer muss eine positive ganze Zahl sein.');
-      finalInvoice.kassenbeleg_nr = _padInvoiceNumber(kbValue);
+      var kbValue = _numericInvoiceValue(numberingOptions.requestedKassenbeleg || finalInvoice.kassenbeleg_nr || finalInvoice.zahlungs_lfd_nr);
+      if (!Number.isInteger(kbValue) || kbValue < 1) throw new Error('Die Kassa-/Registrierkassennummer muss eine positive ganze Zahl sein.');
+      kassaNumber = _padInvoiceNumber(kbValue);
       next.counters.kassenbeleg = Math.max(kassenbelegCounter, kbValue + 1);
     } else {
-      finalInvoice.kassenbeleg_nr = _padInvoiceNumber(kassenbelegCounter);
+      kassaNumber = _padInvoiceNumber(kassenbelegCounter);
       next.counters.kassenbeleg = kassenbelegCounter + 1;
     }
-    _assertNoInvoiceNumberDuplicate((next.invoices || []).filter(function(i){ return i.typ === 'ausgang' && i.zahlungsart === 'kassa'; }), function(i){ return i.kassenbeleg_nr; }, finalInvoice.kassenbeleg_nr, 'Die Kassenbelegnummer ' + finalInvoice.kassenbeleg_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
+    finalInvoice.zahlungs_lfd_nr = kassaNumber;
+    finalInvoice.kassenbeleg_nr = kassaNumber;
+    _assertNoInvoiceNumberDuplicate((next.invoices || []).filter(function(i){ return i.zahlungsart === 'kassa'; }), function(i){ return i.kassenbeleg_nr || i.zahlungs_lfd_nr; }, kassaNumber, 'Die Kassa-/Registrierkassennummer ' + kassaNumber + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
   } else {
+    finalInvoice.zahlungs_lfd_nr = _padInvoiceNumber(bankCounter);
     finalInvoice.kassenbeleg_nr = '';
+    next.counters.lfd_bank = bankCounter + 1;
+    _assertNoInvoiceNumberDuplicate((next.invoices || []).filter(function(i){ return i.zahlungsart !== 'kassa'; }), function(i){ return i.zahlungs_lfd_nr; }, finalInvoice.zahlungs_lfd_nr, 'Die Bank-Fortlaufnummer ' + finalInvoice.zahlungs_lfd_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
   }
   return finalInvoice;
 }
@@ -1127,9 +1134,11 @@ function initEinstellungen() {
     var c = db.counters || {};
     var elAusgang   = document.getElementById('counter-ausgang');
     var elFortlaufend = document.getElementById('counter-fortlaufend');
+    var elBank        = document.getElementById('counter-lfd-bank');
     var elKb          = document.getElementById('counter-kassenbeleg');
     if (elAusgang)     elAusgang.value     = c.ausgang       || 1;
     if (elFortlaufend) elFortlaufend.value = c.fortlaufend   || 1;
+    if (elBank)       elBank.value       = c.lfd_bank      || 1;
     if (elKb)          elKb.value          = c.kassenbeleg   || 1;
 
     var btnSaveCounters = document.getElementById('btn-save-counters');
@@ -1137,9 +1146,10 @@ function initEinstellungen() {
       var d2 = getDB();
       var newAusgang  = parseInt((document.getElementById('counter-ausgang')||{value:'1'}).value) || 1;
       var newFortlaufend = parseInt((document.getElementById('counter-fortlaufend')||{value:'1'}).value) || 1;
+      var newBank        = parseInt((document.getElementById('counter-lfd-bank')||{value:'1'}).value) || 1;
       var newKb          = parseInt((document.getElementById('counter-kassenbeleg')||{value:'1'}).value) || 1;
       try {
-        await persistInvoiceCounters({ ausgang: newAusgang, fortlaufend: newFortlaufend, kassenbeleg: newKb });
+        await persistInvoiceCounters({ ausgang: newAusgang, fortlaufend: newFortlaufend, lfd_bank: newBank, kassenbeleg: newKb });
       } catch (e) { alert('Zähler konnten nicht gespeichert werden: ' + (e && e.message ? e.message : String(e))); return; }
       var info = document.getElementById('counter-info');
       if (info) { info.textContent = '\u2713 Zähler gespeichert'; setTimeout(function(){ info.textContent = ''; }, 2500); }
@@ -3807,6 +3817,9 @@ async function saveInvoice() {
     faellig: document.getElementById('faellig').value,
     status: document.getElementById('status').value,
     notizen: document.getElementById('notizen').value,
+    zahlungs_lfd_nr: (document.getElementById('zahlungsart').value === 'kassa')
+      ? ((document.getElementById('kassa-beleg-nr')||{value:''}).value || '')
+      : '',
     kassenbeleg_nr: (document.getElementById('zahlungsart').value === 'kassa')
       ? ((document.getElementById('kassa-beleg-nr')||{value:''}).value || '')
       : '',
@@ -6773,7 +6786,7 @@ function _loadCachesFromResult(result) {
     todos:               d.todos               || [],
     todos_archiv:        d.todos_archiv        || [],
     kostenvoranschlaege: d.kostenvoranschlaege || [],
-    counters: d.counters || {ausgang:1, eingang:1, fortlaufend:1, kassenbeleg:1, lfd_bank:1, lfd_kassa:1},
+    counters: d.counters || {ausgang:1, eingang:1, fortlaufend:1, lfd_bank:1, kassenbeleg:1, lfd_kassa:1},
     vorlage:             d.vorlage             || null,
   };
   _settingsCache  = result.settings  || {};

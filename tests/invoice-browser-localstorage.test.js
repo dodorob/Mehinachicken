@@ -24,7 +24,7 @@ function applyNumbering(next, inv, opts) {
   } else out.nummer = out.nummer || '';
   out.lfd_nr = String(next.counters.fortlaufend).padStart(3, '0');
   next.counters.fortlaufend++;
-  if (out.typ === 'ausgang' && za === 'kassa') { out.kassenbeleg_nr = String(next.counters.kassenbeleg).padStart(3, '0'); next.counters.kassenbeleg++; }
+  if (za === 'kassa') { out.zahlungs_lfd_nr = String(next.counters.kassenbeleg).padStart(3, '0'); out.kassenbeleg_nr = out.zahlungs_lfd_nr; next.counters.kassenbeleg++; } else { out.zahlungs_lfd_nr = String(next.counters.lfd_bank).padStart(3, '0'); next.counters.lfd_bank++; out.kassenbeleg_nr = ''; }
   return out;
 }
 const createWithCounters = (inv, opts) => { let saved; return browserPersist(next => { saved = applyNumbering(next, inv, opts); next.invoices = next.invoices.filter(i => i.id !== saved.id); next.invoices.push(saved); }).then(() => saved); };
@@ -81,10 +81,12 @@ function assertManualPreviewState() {
   assert.strictEqual(saveCount, 1);
   assert.strictEqual(inv.nummer, '001');
   assert.strictEqual(inv.lfd_nr, '001');
+  assert.strictEqual(inv.zahlungs_lfd_nr, '001');
   assert.strictEqual(load().counters.ausgang, 2);
   assert.ok(load().invoices.find(i => i.id === 'A'));
 
   inv = await createWithCounters({ id: 'K', typ: 'ausgang', zahlungsart: 'kassa' }, { numberMode: 'auto' });
+  assert.strictEqual(inv.zahlungs_lfd_nr, '001');
   assert.strictEqual(inv.kassenbeleg_nr, '001');
   assert.strictEqual(load().counters.fortlaufend, 3);
   assert.strictEqual(load().counters.lfd_kassa, 1);
@@ -111,13 +113,15 @@ function assertManualPreviewState() {
   assert.deepStrictEqual([sharedAr.lfd_nr, sharedEr.lfd_nr], ['010', '011']);
   assert.strictEqual(shared.counters.ausgang, 2);
   assert.strictEqual(shared.counters.fortlaufend, 12);
-  assert.strictEqual(shared.counters.lfd_bank, 500);
+  assert.deepStrictEqual([sharedAr.zahlungs_lfd_nr, sharedEr.zahlungs_lfd_nr], ['500', '501']);
+  assert.strictEqual(shared.counters.lfd_bank, 502);
   assert.strictEqual(shared.counters.lfd_kassa, 700);
 
-  await updateCounters({ ausgang: 50, fortlaufend: 60, kassenbeleg: 70 });
+  await updateCounters({ ausgang: 50, fortlaufend: 60, lfd_bank: 65, kassenbeleg: 70 });
   _dbCache = cloneForSave(load());
   assert.strictEqual(getDB().counters.ausgang, 50);
   assert.strictEqual(getDB().counters.fortlaufend, 60);
+  assert.strictEqual(getDB().counters.lfd_bank, 65);
   assert.strictEqual(getDB().counters.kassenbeleg, 70);
   console.log('invoice browser localStorage tests passed');
 })();
