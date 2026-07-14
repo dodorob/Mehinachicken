@@ -328,7 +328,7 @@ class BuchProDB {
     return {
       isAusgang,
       isKassa: za === 'kassa',
-      keys: ['fortlaufend', za === 'kassa' ? 'kassenbeleg' : 'lfd_bank'].concat(isAusgang ? ['ausgang'] : [])
+      keys: (za === 'kassa' ? ['fortlaufend', 'kassenbeleg'] : ['lfd_bank']).concat(isAusgang ? ['ausgang'] : [])
     };
   }
 
@@ -342,7 +342,6 @@ class BuchProDB {
     const mode = opts.numberMode === 'manual' ? 'manual' : 'auto';
     const tx = this.db.transaction(() => {
       if (this.getInvoice(invoice.id)) throw new Error('Rechnungs-ID existiert bereits: ' + invoice.id);
-      INVOICE_COUNTER_KEYS.forEach(key => { this._requireActiveCounter(key); });
       const plan = this._invoiceCounterPlan(invoice);
       const counters = {};
       plan.keys.forEach(key => { counters[key] = this._requireActiveCounter(key); });
@@ -360,10 +359,10 @@ class BuchProDB {
       } else {
         finalInvoice.nummer = finalInvoice.nummer || '';
       }
-      finalInvoice.lfd_nr = this._padNumber(counters.fortlaufend);
-      this._assertNoDuplicateNumber("SELECT lfd_nr AS value FROM invoices WHERE lfd_nr IS NOT NULL AND lfd_nr != ''", finalInvoice.lfd_nr, 'Die laufende Nummer ' + finalInvoice.lfd_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
       let nextKassenbeleg = null;
       if (plan.isKassa) {
+        finalInvoice.lfd_nr = this._padNumber(counters.fortlaufend);
+        this._assertNoDuplicateNumber("SELECT lfd_nr AS value FROM invoices WHERE zahlungsart = 'kassa' AND lfd_nr IS NOT NULL AND lfd_nr != ''", finalInvoice.lfd_nr, 'Die laufende Nummer ' + finalInvoice.lfd_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
         let kassaNumber;
         if (opts.kassenbelegMode === 'manual') {
           const kbValue = this._numericValue(opts.requestedKassenbeleg != null ? opts.requestedKassenbeleg : finalInvoice.kassenbeleg_nr || finalInvoice.zahlungs_lfd_nr);
@@ -378,6 +377,7 @@ class BuchProDB {
         finalInvoice.kassenbeleg_nr = kassaNumber;
         this._assertNoDuplicateNumber("SELECT COALESCE(NULLIF(kassenbeleg_nr, ''), zahlungs_lfd_nr) AS value FROM invoices WHERE zahlungsart = 'kassa' AND COALESCE(NULLIF(kassenbeleg_nr, ''), zahlungs_lfd_nr) IS NOT NULL AND COALESCE(NULLIF(kassenbeleg_nr, ''), zahlungs_lfd_nr) != ''", kassaNumber, 'Die Kassa-/Registrierkassennummer ' + kassaNumber + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
       } else {
+        finalInvoice.lfd_nr = '';
         finalInvoice.zahlungs_lfd_nr = this._padNumber(counters.lfd_bank);
         finalInvoice.kassenbeleg_nr = '';
         this._assertNoDuplicateNumber("SELECT zahlungs_lfd_nr AS value FROM invoices WHERE (zahlungsart IS NULL OR zahlungsart != 'kassa') AND zahlungs_lfd_nr IS NOT NULL AND zahlungs_lfd_nr != ''", finalInvoice.zahlungs_lfd_nr, 'Die Bank-Fortlaufnummer ' + finalInvoice.zahlungs_lfd_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
@@ -389,9 +389,12 @@ class BuchProDB {
       this.db.prepare(sql).run(row);
 
       if (plan.isAusgang) this._setCounterValue('ausgang', counters.ausgang + 1);
-      this._setCounterValue('fortlaufend', counters.fortlaufend + 1);
-      if (plan.isKassa) this._setCounterValue('kassenbeleg', nextKassenbeleg);
-      else this._setCounterValue('lfd_bank', counters.lfd_bank + 1);
+      if (plan.isKassa) {
+        this._setCounterValue('fortlaufend', counters.fortlaufend + 1);
+        this._setCounterValue('kassenbeleg', nextKassenbeleg);
+      } else {
+        this._setCounterValue('lfd_bank', counters.lfd_bank + 1);
+      }
 
       const currentCounters = {};
       INVOICE_COUNTER_KEYS.forEach(key => { currentCounters[key] = this._getCounterValue(key); });
