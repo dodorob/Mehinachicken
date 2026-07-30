@@ -22,7 +22,7 @@ function applyNumbering(next, inv, opts) {
     if (!out.nummer) throw new Error('manual missing');
     next.counters.ausgang++;
   } else out.nummer = out.nummer || '';
-  if (za === 'kassa') { out.lfd_nr = String(next.counters.fortlaufend).padStart(3, '0'); next.counters.fortlaufend++; out.zahlungs_lfd_nr = String(next.counters.kassenbeleg).padStart(3, '0'); out.kassenbeleg_nr = out.zahlungs_lfd_nr; next.counters.kassenbeleg++; } else { out.lfd_nr = ''; out.zahlungs_lfd_nr = String(next.counters.lfd_bank).padStart(3, '0'); next.counters.lfd_bank++; out.kassenbeleg_nr = ''; }
+  if (za === 'kassa') { out.lfd_nr = String(next.counters.fortlaufend).padStart(3, '0'); next.counters.fortlaufend++; if (out.typ === 'ausgang') { out.zahlungs_lfd_nr = String(next.counters.kassenbeleg).padStart(3, '0'); out.kassenbeleg_nr = out.zahlungs_lfd_nr; next.counters.kassenbeleg++; } else { out.zahlungs_lfd_nr = ''; out.kassenbeleg_nr = ''; } } else { out.lfd_nr = ''; out.zahlungs_lfd_nr = String(next.counters.lfd_bank).padStart(3, '0'); next.counters.lfd_bank++; out.kassenbeleg_nr = ''; }
   return out;
 }
 const createWithCounters = (inv, opts) => { let saved; return browserPersist(next => { saved = applyNumbering(next, inv, opts); next.invoices = next.invoices.filter(i => i.id !== saved.id); next.invoices.push(saved); }).then(() => saved); };
@@ -61,7 +61,7 @@ function previewFormState(state) {
     lfd: '',
     bankRowVisible: za === 'bank',
     bank: '',
-    kassaRowVisible: za === 'kassa',
+    kassaRowVisible: za === 'kassa' && typ === 'ausgang',
     kassa: '',
     lfdVisible: za === 'kassa',
     counters: cloneForSave(counters),
@@ -70,13 +70,13 @@ function previewFormState(state) {
     out.ar = edit.nummer || '';
     out.lfd = edit.lfd_nr || '';
     if (za === 'bank') out.bank = edit.zahlungs_lfd_nr || '';
-    if (za === 'kassa') out.kassa = edit.kassenbeleg_nr || edit.zahlungs_lfd_nr || '';
+    if (za === 'kassa' && typ === 'ausgang') out.kassa = edit.kassenbeleg_nr || edit.zahlungs_lfd_nr || '';
     return out;
   }
   if (out.arVisible) out.ar = String(counters.ausgang).padStart(3, '0');
   if (za === 'kassa') out.lfd = String(counters.fortlaufend).padStart(3, '0');
   if (za === 'bank') out.bank = String(counters.lfd_bank).padStart(3, '0');
-  if (za === 'kassa') out.kassa = String(counters.kassenbeleg).padStart(3, '0');
+  if (za === 'kassa' && typ === 'ausgang') out.kassa = String(counters.kassenbeleg).padStart(3, '0');
   return out;
 }
 
@@ -98,7 +98,7 @@ function assertPaymentPreviewState() {
   assert.deepStrictEqual({ arVisible: state.arVisible, lfd: state.lfd, bank: state.bank, bankRowVisible: state.bankRowVisible, kassaRowVisible: state.kassaRowVisible, lfdVisible: state.lfdVisible }, { arVisible: false, lfd: '', bank: '081', bankRowVisible: true, kassaRowVisible: false, lfdVisible: false });
 
   state = previewFormState({ typ: 'eingang', zahlungsart: 'kassa', counters: { ausgang: 1, fortlaufend: 323, lfd_bank: 82, kassenbeleg: 51 } });
-  assert.deepStrictEqual({ arVisible: state.arVisible, lfd: state.lfd, kassa: state.kassa, bankRowVisible: state.bankRowVisible, kassaRowVisible: state.kassaRowVisible }, { arVisible: false, lfd: '323', kassa: '051', bankRowVisible: false, kassaRowVisible: true });
+  assert.deepStrictEqual({ arVisible: state.arVisible, lfd: state.lfd, kassa: state.kassa, bankRowVisible: state.bankRowVisible, kassaRowVisible: state.kassaRowVisible }, { arVisible: false, lfd: '323', kassa: '', bankRowVisible: false, kassaRowVisible: false });
 
   const countersBeforeEdit = { ausgang: 200, fortlaufend: 400, lfd_bank: 900, kassenbeleg: 700 };
   state = previewFormState({ typ: 'ausgang', zahlungsart: 'bank', counters: countersBeforeEdit, editInvoice: { nummer: '145', lfd_nr: '320', zahlungs_lfd_nr: '080' } });
@@ -153,6 +153,11 @@ function assertManualPreviewState() {
   assert.strictEqual(load().counters.lfd_kassa, 1);
   assert.strictEqual(load().counters.kassenbeleg, 2);
 
+  inv = await createWithCounters({ id: 'KE', typ: 'eingang', zahlungsart: 'kassa' }, { numberMode: 'auto' });
+  assert.strictEqual(inv.zahlungs_lfd_nr, '');
+  assert.strictEqual(inv.kassenbeleg_nr, '');
+  assert.strictEqual(load().counters.kassenbeleg, 2);
+
   const before = cloneForSave(getDB());
   localStorage.fail = true;
   let failed = false;
@@ -174,7 +179,7 @@ function assertManualPreviewState() {
   assert.deepStrictEqual([sharedAr.lfd_nr, sharedEr.lfd_nr], ['', '']);
   assert.strictEqual(shared.counters.ausgang, 2);
   assert.strictEqual(shared.counters.fortlaufend, 10);
-  assert.deepStrictEqual([sharedAr.zahlungs_lfd_nr, sharedEr.zahlungs_lfd_nr], ['500', '501']);
+  assert.deepStrictEqual([sharedAr.zahlungs_lfd_nr, sharedAr.kassenbeleg_nr, sharedEr.zahlungs_lfd_nr, sharedEr.kassenbeleg_nr], ['500', '', '501', '']);
   assert.strictEqual(shared.counters.lfd_bank, 502);
   assert.strictEqual(shared.counters.lfd_kassa, 700);
 

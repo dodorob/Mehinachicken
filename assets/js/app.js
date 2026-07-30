@@ -349,7 +349,7 @@ function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
   var ausgangCounter = finalInvoice.typ === 'ausgang' ? _requireStateCounter(next, 'ausgang') : null;
   var fortlaufendCounter = za === 'kassa' ? _requireStateCounter(next, 'fortlaufend') : null;
   var bankCounter = za === 'kassa' ? null : _requireStateCounter(next, 'lfd_bank');
-  var kassenbelegCounter = za === 'kassa' ? _requireStateCounter(next, 'kassenbeleg') : null;
+  var kassenbelegCounter = (za === 'kassa' && finalInvoice.typ === 'ausgang') ? _requireStateCounter(next, 'kassenbeleg') : null;
   if ((next.invoices || []).some(function(i){ return i.id === finalInvoice.id; })) throw new Error('Rechnungs-ID existiert bereits: ' + finalInvoice.id);
   if (finalInvoice.typ === 'ausgang') {
     if (numberingOptions && numberingOptions.numberMode === 'manual') {
@@ -368,19 +368,24 @@ function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
     finalInvoice.lfd_nr = _padInvoiceNumber(fortlaufendCounter);
     _assertNoInvoiceNumberDuplicate((next.invoices || []).filter(function(i){ return i.zahlungsart === 'kassa'; }), function(i){ return i.lfd_nr; }, finalInvoice.lfd_nr, 'Die laufende Nummer ' + finalInvoice.lfd_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
     next.counters.fortlaufend = fortlaufendCounter + 1;
-    var kassaNumber;
-    if (numberingOptions && numberingOptions.kassenbelegMode === 'manual') {
-      var kbValue = _numericInvoiceValue(numberingOptions.requestedKassenbeleg || finalInvoice.kassenbeleg_nr || finalInvoice.zahlungs_lfd_nr);
-      if (!Number.isInteger(kbValue) || kbValue < 1) throw new Error('Die Kassa-/Registrierkassennummer muss eine positive ganze Zahl sein.');
-      kassaNumber = _padInvoiceNumber(kbValue);
-      next.counters.kassenbeleg = Math.max(kassenbelegCounter, kbValue + 1);
+    if (finalInvoice.typ === 'ausgang') {
+      var kassaNumber;
+      if (numberingOptions && numberingOptions.kassenbelegMode === 'manual') {
+        var kbValue = _numericInvoiceValue(numberingOptions.requestedKassenbeleg || finalInvoice.kassenbeleg_nr || finalInvoice.zahlungs_lfd_nr);
+        if (!Number.isInteger(kbValue) || kbValue < 1) throw new Error('Die Kassa-/Registrierkassennummer muss eine positive ganze Zahl sein.');
+        kassaNumber = _padInvoiceNumber(kbValue);
+        next.counters.kassenbeleg = Math.max(kassenbelegCounter, kbValue + 1);
+      } else {
+        kassaNumber = _padInvoiceNumber(kassenbelegCounter);
+        next.counters.kassenbeleg = kassenbelegCounter + 1;
+      }
+      finalInvoice.zahlungs_lfd_nr = kassaNumber;
+      finalInvoice.kassenbeleg_nr = kassaNumber;
+      _assertNoInvoiceNumberDuplicate((next.invoices || []).filter(function(i){ return i.typ === 'ausgang' && i.zahlungsart === 'kassa'; }), function(i){ return i.kassenbeleg_nr || i.zahlungs_lfd_nr; }, kassaNumber, 'Die Kassa-/Registrierkassennummer ' + kassaNumber + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
     } else {
-      kassaNumber = _padInvoiceNumber(kassenbelegCounter);
-      next.counters.kassenbeleg = kassenbelegCounter + 1;
+      finalInvoice.zahlungs_lfd_nr = '';
+      finalInvoice.kassenbeleg_nr = '';
     }
-    finalInvoice.zahlungs_lfd_nr = kassaNumber;
-    finalInvoice.kassenbeleg_nr = kassaNumber;
-    _assertNoInvoiceNumberDuplicate((next.invoices || []).filter(function(i){ return i.zahlungsart === 'kassa'; }), function(i){ return i.kassenbeleg_nr || i.zahlungs_lfd_nr; }, kassaNumber, 'Die Kassa-/Registrierkassennummer ' + kassaNumber + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
   } else {
     finalInvoice.lfd_nr = '';
     finalInvoice.zahlungs_lfd_nr = _padInvoiceNumber(bankCounter);
@@ -2867,6 +2872,10 @@ async function saveER() {
         file_name: erFileName !== null ? erFileName : existing.file_name,
         file_type: erFileType !== null ? erFileType : existing.file_type
       });
+      if (inv && inv.typ === 'eingang' && inv.zahlungsart === 'kassa') {
+        inv.zahlungs_lfd_nr = '';
+        inv.kassenbeleg_nr = '';
+      }
     }
     editId = null;
   } else {
@@ -3044,8 +3053,9 @@ function refreshNumbers() {
 
   if (za === 'kassa') {
     if (bankRow) bankRow.style.display = 'none';
-    if (kbRow) kbRow.style.display = '';
-    if (kbEl && !editId && !kassenbelegManuallyEdited) kbEl.value = _padInvoiceNumber(kbNum);
+    if (kbRow) kbRow.style.display = (typ === 'ausgang') ? '' : 'none';
+    if (kbEl && typ === 'ausgang' && !editId && !kassenbelegManuallyEdited) kbEl.value = _padInvoiceNumber(kbNum);
+    if (kbEl && typ !== 'ausgang' && !editId) kbEl.value = '';
   } else {
     if (kbRow) kbRow.style.display = 'none';
     if (bankRow) bankRow.style.display = '';
@@ -3828,10 +3838,10 @@ async function saveInvoice() {
     faellig: document.getElementById('faellig').value,
     status: document.getElementById('status').value,
     notizen: document.getElementById('notizen').value,
-    zahlungs_lfd_nr: (document.getElementById('zahlungsart').value === 'kassa')
+    zahlungs_lfd_nr: (typ === 'ausgang' && document.getElementById('zahlungsart').value === 'kassa')
       ? ((document.getElementById('kassa-beleg-nr')||{value:''}).value || '')
       : '',
-    kassenbeleg_nr: (document.getElementById('zahlungsart').value === 'kassa')
+    kassenbeleg_nr: (typ === 'ausgang' && document.getElementById('zahlungsart').value === 'kassa')
       ? ((document.getElementById('kassa-beleg-nr')||{value:''}).value || '')
       : '',
     kassa_typ: (document.getElementById('zahlungsart').value === 'kassa')
@@ -5837,8 +5847,8 @@ function editInv(id) {
     var kbEl2 = document.getElementById('kassa-beleg-nr');
     var kbRow2 = document.getElementById('kassa-beleg-row');
     var bankRowEditKassa = document.getElementById('bank-lfd-row');
-    if (kbEl2) kbEl2.value = inv.kassenbeleg_nr || inv.zahlungs_lfd_nr || '';
-    if (kbRow2) kbRow2.style.display = '';
+    if (kbEl2) kbEl2.value = inv.typ === 'ausgang' ? (inv.kassenbeleg_nr || inv.zahlungs_lfd_nr || '') : '';
+    if (kbRow2) kbRow2.style.display = inv.typ === 'ausgang' ? '' : 'none';
     if (bankRowEditKassa) bankRowEditKassa.style.display = 'none';
   }
 

@@ -120,7 +120,9 @@ async function testAtomicInvoiceCounters() {
     assert.strictEqual(er.nummer, null);
     assert.strictEqual(er.lfd_nr, '');
     assert.strictEqual(ar.zahlungs_lfd_nr, '080');
+    assert.strictEqual(ar.kassenbeleg_nr, null);
     assert.strictEqual(er.zahlungs_lfd_nr, '081');
+    assert.strictEqual(er.kassenbeleg_nr, null);
     assert.strictEqual(counters(t.db).ausgang, 2);
     assert.strictEqual(counters(t.db).fortlaufend, 10);
     assert.strictEqual(counters(t.db).lfd_bank, 82);
@@ -137,6 +139,7 @@ async function testAtomicInvoiceCounters() {
     assert.strictEqual(arKassa.zahlungs_lfd_nr, '050');
     assert.strictEqual(arKassa.kassenbeleg_nr, '050');
     assert.strictEqual(arBank.zahlungs_lfd_nr, '081');
+    assert.strictEqual(arBank.kassenbeleg_nr, null);
     assert.strictEqual(counters(t.db).fortlaufend, 21);
     assert.strictEqual(counters(t.db).lfd_bank, 82);
     assert.strictEqual(counters(t.db).kassenbeleg, 51);
@@ -150,12 +153,13 @@ async function testAtomicInvoiceCounters() {
     const arBank = t.db.createInvoiceWithCounters(atomicInv('OLD-LFD-AR', { typ: 'ausgang', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
     const tl = t.db.createInvoiceWithCounters(atomicInv('TL', { typ: 'eingang', nummer: '', zahlungsart: 'bank', is_tageslosung: true }), { numberMode: 'auto' }).invoice;
     assert.deepStrictEqual([erKassa.lfd_nr, arBank.lfd_nr, tl.lfd_nr], ['030', '', '']);
-    assert.strictEqual(erKassa.zahlungs_lfd_nr, '080');
-    assert.strictEqual(erKassa.kassenbeleg_nr, '080');
+    assert.strictEqual(erKassa.zahlungs_lfd_nr, null);
+    assert.strictEqual(erKassa.kassenbeleg_nr, null);
     assert.strictEqual(arBank.zahlungs_lfd_nr, '500');
     assert.strictEqual(tl.zahlungs_lfd_nr, '501');
     const c = counters(t.db);
     assert.strictEqual(c.fortlaufend, 31);
+    assert.strictEqual(c.kassenbeleg, 80);
     assert.strictEqual(c.lfd_bank, 502);
     assert.strictEqual(c.lfd_kassa, 700);
   } finally { t.cleanup(); }
