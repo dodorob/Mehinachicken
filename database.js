@@ -328,7 +328,7 @@ class BuchProDB {
     return {
       isAusgang,
       isKassa: za === 'kassa',
-      keys: (za === 'kassa' ? ['fortlaufend', 'kassenbeleg'] : ['lfd_bank']).concat(isAusgang ? ['ausgang'] : [])
+      keys: (za === 'kassa' ? ['fortlaufend'] : ['lfd_bank']).concat(isAusgang ? (za === 'kassa' ? ['ausgang', 'kassenbeleg'] : ['ausgang']) : [])
     };
   }
 
@@ -363,19 +363,24 @@ class BuchProDB {
       if (plan.isKassa) {
         finalInvoice.lfd_nr = this._padNumber(counters.fortlaufend);
         this._assertNoDuplicateNumber("SELECT lfd_nr AS value FROM invoices WHERE zahlungsart = 'kassa' AND lfd_nr IS NOT NULL AND lfd_nr != ''", finalInvoice.lfd_nr, 'Die laufende Nummer ' + finalInvoice.lfd_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
-        let kassaNumber;
-        if (opts.kassenbelegMode === 'manual') {
-          const kbValue = this._numericValue(opts.requestedKassenbeleg != null ? opts.requestedKassenbeleg : finalInvoice.kassenbeleg_nr || finalInvoice.zahlungs_lfd_nr);
-          if (!Number.isInteger(kbValue) || kbValue < 1) throw new Error('Die Kassa-/Registrierkassennummer muss eine positive ganze Zahl sein.');
-          kassaNumber = this._padNumber(kbValue);
-          nextKassenbeleg = Math.max(counters.kassenbeleg, kbValue + 1);
+        if (plan.isAusgang) {
+          let kassaNumber;
+          if (opts.kassenbelegMode === 'manual') {
+            const kbValue = this._numericValue(opts.requestedKassenbeleg != null ? opts.requestedKassenbeleg : finalInvoice.kassenbeleg_nr || finalInvoice.zahlungs_lfd_nr);
+            if (!Number.isInteger(kbValue) || kbValue < 1) throw new Error('Die Kassa-/Registrierkassennummer muss eine positive ganze Zahl sein.');
+            kassaNumber = this._padNumber(kbValue);
+            nextKassenbeleg = Math.max(counters.kassenbeleg, kbValue + 1);
+          } else {
+            kassaNumber = this._padNumber(counters.kassenbeleg);
+            nextKassenbeleg = counters.kassenbeleg + 1;
+          }
+          finalInvoice.zahlungs_lfd_nr = kassaNumber;
+          finalInvoice.kassenbeleg_nr = kassaNumber;
+          this._assertNoDuplicateNumber("SELECT COALESCE(NULLIF(kassenbeleg_nr, ''), zahlungs_lfd_nr) AS value FROM invoices WHERE typ = 'ausgang' AND zahlungsart = 'kassa' AND COALESCE(NULLIF(kassenbeleg_nr, ''), zahlungs_lfd_nr) IS NOT NULL AND COALESCE(NULLIF(kassenbeleg_nr, ''), zahlungs_lfd_nr) != ''", kassaNumber, 'Die Kassa-/Registrierkassennummer ' + kassaNumber + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
         } else {
-          kassaNumber = this._padNumber(counters.kassenbeleg);
-          nextKassenbeleg = counters.kassenbeleg + 1;
+          finalInvoice.zahlungs_lfd_nr = '';
+          finalInvoice.kassenbeleg_nr = '';
         }
-        finalInvoice.zahlungs_lfd_nr = kassaNumber;
-        finalInvoice.kassenbeleg_nr = kassaNumber;
-        this._assertNoDuplicateNumber("SELECT COALESCE(NULLIF(kassenbeleg_nr, ''), zahlungs_lfd_nr) AS value FROM invoices WHERE zahlungsart = 'kassa' AND COALESCE(NULLIF(kassenbeleg_nr, ''), zahlungs_lfd_nr) IS NOT NULL AND COALESCE(NULLIF(kassenbeleg_nr, ''), zahlungs_lfd_nr) != ''", kassaNumber, 'Die Kassa-/Registrierkassennummer ' + kassaNumber + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
       } else {
         finalInvoice.lfd_nr = '';
         finalInvoice.zahlungs_lfd_nr = this._padNumber(counters.lfd_bank);
@@ -391,7 +396,7 @@ class BuchProDB {
       if (plan.isAusgang) this._setCounterValue('ausgang', counters.ausgang + 1);
       if (plan.isKassa) {
         this._setCounterValue('fortlaufend', counters.fortlaufend + 1);
-        this._setCounterValue('kassenbeleg', nextKassenbeleg);
+        if (plan.isAusgang) this._setCounterValue('kassenbeleg', nextKassenbeleg);
       } else {
         this._setCounterValue('lfd_bank', counters.lfd_bank + 1);
       }
