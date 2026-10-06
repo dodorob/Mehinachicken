@@ -22,13 +22,57 @@ function normalizeLine(line) {
   return String(line || '').replace(/\u00a0/g, ' ').trim();
 }
 
+function splitColumns(line) {
+  return normalizeLine(line).split(/\t+| {2,}/).map(cell => cell.trim()).filter(Boolean);
+}
+
+function parseAccountRow(line) {
+  const match = normalizeLine(line).match(/^(\d{3,6})\s+(.+)$/);
+  if (!match) return null;
+  const parts = match[2].split(/\s+/);
+  const numbers = [];
+  while (parts.length) {
+    const value = parseGermanNumber(parts[parts.length - 1]);
+    if (value === null) break;
+    numbers.unshift(value);
+    parts.pop();
+  }
+  if (!parts.length || !numbers.length) return null;
+  return { account_number: match[1], account_name: parts.join(' '), numbers };
+}
+
+function reconstructLayoutPage(items) {
+  const rows = [];
+  (items || []).filter(item => item && String(item.str || '').trim()).forEach(item => {
+    const x = Number(item.transform && item.transform[4]);
+    const y = Number(item.transform && item.transform[5]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    let row = rows.find(candidate => Math.abs(candidate.y - y) <= 0.8);
+    if (!row) { row = { y, items: [] }; rows.push(row); }
+    row.items.push({ str: String(item.str), x, width: Number(item.width) || 0 });
+  });
+  return rows.sort((a, b) => b.y - a.y).map(row => {
+    const sorted = row.items.sort((a, b) => a.x - b.x);
+    let line = '';
+    let previousEnd = null;
+    sorted.forEach(item => {
+      if (previousEnd !== null) {
+        const gap = item.x - previousEnd;
+        line += ' '.repeat(Math.max(1, Math.min(80, Math.round(gap / 3.5))));
+      }
+      line += item.str;
+      previousEnd = Math.max(previousEnd == null ? item.x : previousEnd, item.x + item.width);
+    });
+    return normalizeLine(line);
+  }).filter(Boolean).join('\n');
+}
+
 function numericCells(line) {
-  return normalizeLine(line).split('\t').map(cell => cell.trim()).filter(Boolean)
-    .map(parseGermanNumber).filter(value => value !== null);
+  return splitColumns(line).map(parseGermanNumber).filter(value => value !== null);
 }
 
 function firstReportedValue(line) {
-  const cells = normalizeLine(line).split('\t').map(cell => cell.trim()).filter(Boolean);
+  const cells = splitColumns(line);
   for (let index = 1; index < cells.length; index += 1) {
     const value = parseGermanNumber(cells[index]);
     if (value !== null) return value;
@@ -65,15 +109,15 @@ function findSectionTotal(lines, startMatcher, endMatcher, start, end) {
   let value = null;
   for (let index = sectionStart + 1; index < stop; index += 1) {
     const line = normalizeLine(lines[index]);
-    if (/^\d{3,6}\s/.test(line) || /^\d{3,6}\t/.test(line)) continue;
-    const cells = line.split('\t').map(cell => cell.trim()).filter(Boolean);
+    if (/^\d{3,6}\s/.test(line)) continue;
+    const cells = splitColumns(line);
     if (cells.length >= 2 && parseGermanNumber(cells[0]) !== null) value = parseGermanNumber(cells[0]);
   }
   return value;
 }
 
 function detectPeriod(text) {
-  const match = text.match(/Von:\s*(Jänner|Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)\s*(\d{4})\s*\t?\s*Bis:\s*(Jänner|Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)\s*(\d{4})/i);
+  const match = text.match(/Von:\s*(Jänner|Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)\s*(\d{4})\s*Bis:\s*(Jänner|Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)\s*(\d{4})/i);
   if (!match) return { from_month: null, from_year: null, to_month: null, to_year: null, status: 'missing' };
   return {
     from_month: MONTH_NAMES[match[1].toLocaleLowerCase('de-AT')] || null,
@@ -103,31 +147,27 @@ function parseMonthlyValues(lines, period) {
   const values = [];
   for (let index = 0; index < lines.length; index += 1) {
     const header = normalizeLine(lines[index]);
-    if (!/^EB\t/i.test(header) || !/Jän|Jan/i.test(header)) continue;
-    const headerCells = header.split('\t').map(cell => cell.trim()).filter(Boolean);
+    if (!/^EB\b/i.test(header) || !/Jän|Jan/i.test(header)) continue;
     const monthColumns = [];
-    headerCells.forEach((cell, cellIndex) => {
-      const monthMatch = cell.match(/^(Jän|Jan|Feb|Mrz|Mär|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez)\s+(\d{2})$/i);
-      if (monthMatch) monthColumns.push({ cellIndex, month: MONTH_ABBREVIATIONS[monthMatch[1].toLocaleLowerCase('de-AT')], year: 2000 + Number(monthMatch[2]) });
+    Array.from(header.matchAll(/\b(Jän|Jan|Feb|Mrz|Mär|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez)\s+(\d{2})\b/gi)).forEach(monthMatch => {
+      monthColumns.push({ month: MONTH_ABBREVIATIONS[monthMatch[1].toLocaleLowerCase('de-AT')], year: 2000 + Number(monthMatch[2]) });
     });
     for (let rowIndex = index + 1; rowIndex < lines.length; rowIndex += 1) {
       const line = normalizeLine(lines[rowIndex]);
       if (/^Seite:/.test(line) || /^510 Periodenübersicht/.test(line)) { index = rowIndex; break; }
-      const cells = line.split('\t').map(cell => cell.trim()).filter(Boolean);
-      if (cells.length < 4 || !/^\d{3,6}$/.test(cells[0])) continue;
-      const accountNumber = cells[0];
-      const accountName = cells[1];
-      monthColumns.forEach(column => {
-        // Account number and label precede the numeric columns in data rows.
-        const detectedValue = parseGermanNumber(cells[column.cellIndex + 2]);
+      const row = parseAccountRow(line);
+      if (!row || row.numbers.length < monthColumns.length + 1) continue;
+      monthColumns.forEach((column, monthIndex) => {
+        // EB is the first numeric column, followed by the available months.
+        const detectedValue = row.numbers[monthIndex + 1];
         values.push(detectedMetric(
-          accountNumber + ':' + column.year + '-' + String(column.month).padStart(2, '0'),
-          accountNumber + ' ' + accountName,
+          row.account_number + ':' + column.year + '-' + String(column.month).padStart(2, '0'),
+          row.account_number + ' ' + row.account_name,
           detectedValue,
           'Periodenübersicht mit EB',
           {
-            account_number: accountNumber,
-            account_name: accountName,
+            account_number: row.account_number,
+            account_name: row.account_name,
             value_month: column.month,
             value_year: column.year,
             confidence: detectedValue === null ? 0 : 1,
@@ -168,11 +208,14 @@ function parseBalanceAccounts(lines) {
   const end = findLine(lines, /^Erfolgsvergleich$/i);
   const accounts = [];
   for (let index = 0; index < (end < 0 ? lines.length : end); index += 1) {
-    const cells = normalizeLine(lines[index]).split('\t').map(cell => cell.trim()).filter(Boolean);
-    if (cells.length < 3 || !/^\d{3,6}$/.test(cells[0])) continue;
-    const value = parseGermanNumber(cells[2]);
-    if (value === null) continue;
-    accounts.push({ account_number: cells[0], account_name: cells[1], value });
+    const cells = splitColumns(lines[index]);
+    if (/^\d{3,6}$/.test(cells[0] || '') && cells.length >= 3) {
+      const value = parseGermanNumber(cells[2]);
+      if (value !== null) accounts.push({ account_number: cells[0], account_name: cells[1], value });
+      continue;
+    }
+    const row = parseAccountRow(lines[index]);
+    if (row) accounts.push({ account_number: row.account_number, account_name: row.account_name, value: row.numbers[0] });
   }
   return accounts;
 }
@@ -233,7 +276,7 @@ function parseOpenItems(lines) {
     if (line === 'Lieferanten') { partyType = 'supplier'; party = null; continue; }
     const partyMatch = line.match(/^([23]\d{5})\s+(.+)$/);
     if (partyMatch) { party = { account: partyMatch[1], name: partyMatch[2] }; pending = null; continue; }
-    const totalCells = line.split('\t').map(cell => cell.trim()).filter(Boolean);
+    const totalCells = splitColumns(line);
     if (line.includes('Kontogruppe Kunden') || line.includes('Kontogruppe Lieferanten')) {
       const total = parseGermanNumber(totalCells[totalCells.length - 1]);
       items.push(detectedMetric(partyType === 'supplier' ? 'supplier_total' : 'customer_total', partyType === 'supplier' ? 'Offene Lieferantenverbindlichkeiten gesamt' : 'Offene Kundenforderungen gesamt', total, 'OP-Liste', {
@@ -244,13 +287,13 @@ function parseOpenItems(lines) {
       }));
       continue;
     }
-    const transaction = line.match(/^(UE|AR|ER|BK)\t([^\t]+)\t(\d{2}\.\d{2}\.\d{4})(.*)$/);
+    const transaction = line.match(/^(UE|AR|ER|BK)\s+(\S+)\s+(\d{2}\.\d{2}\.\d{4})(.*)$/);
     if (transaction) {
       pending = { document_number: transaction[2], document_date: transaction[3] };
-      if (line.includes('\tEUR\t')) { addDetail(totalCells, pending); pending = null; }
+      if (/\bEUR\b/.test(transaction[4]) && numericCells(line).length >= 2) { addDetail(totalCells, pending); pending = null; }
       continue;
     }
-    if (pending && /^EUR\t/.test(line)) { addDetail(totalCells, pending); pending = null; }
+    if (pending && /^EUR\b/.test(line)) { addDetail(totalCells, pending); pending = null; }
   }
   ['customer', 'supplier'].forEach(type => {
     if (!items.some(item => item.party_type === type && item.metadata && item.metadata.is_total)) {
@@ -263,12 +306,12 @@ function parseOpenItems(lines) {
 }
 
 function parseTaxValues(lines, period) {
-  const start = findLine(lines, /^SUMMENBLATT\tBemessung\tSteuer$/i);
+  const start = findLine(lines, /^SUMMENBLATT\b.*\bBemessung\b.*\bSteuer$/i);
   const end = findLine(lines, /^STEUERKONTROLLE/i, start + 1);
   const taxDetectedPeriod = start < 0 ? null : detectPeriod(lines.slice(Math.max(0, start - 20), start + 1).join('\n'));
   const line022 = findLine(lines, /^022\s+20\s*%\s+Normalsteuersatz/i, start, end);
   const line060 = findLine(lines, /^060\s+Gesamtbetrag der abziehbaren Vorsteuer/i, start, end);
-  const linePayable = findLine(lines, /^Zahllast\t/i, start, end);
+  const linePayable = findLine(lines, /^Zahllast\b/i, start, end);
   const values022 = line022 < 0 ? [] : numericCells(lines[line022]);
   const taxPeriod = {
     period_month: taxDetectedPeriod && taxDetectedPeriod.to_month ? taxDetectedPeriod.to_month : period.to_month,
@@ -292,7 +335,7 @@ function parseFinancialAccountingReportText(text) {
   const openItems = parseOpenItems(lines);
   const taxValues = parseTaxValues(lines, period);
   return {
-    parser_version: 'bmd-fibu-v1',
+    parser_version: 'bmd-fibu-v2',
     parse_status: monthlyValues.length ? 'parsed' : 'partial',
     detected_period_from_month: period.from_month,
     detected_period_from_year: period.from_year,
@@ -319,5 +362,6 @@ function parseFinancialAccountingReportText(text) {
 module.exports = {
   parseGermanNumber,
   detectPeriod,
+  reconstructLayoutPage,
   parseFinancialAccountingReportText,
 };

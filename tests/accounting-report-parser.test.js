@@ -3,13 +3,17 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { parseGermanNumber, parseFinancialAccountingReportText } = require('../accounting-report-parser');
+const { parseGermanNumber, reconstructLayoutPage, parseFinancialAccountingReportText } = require('../accounting-report-parser');
 
 const fixture = fs.readFileSync(path.join(__dirname, 'fixtures/financial-accounting-july-2026.txt'), 'utf8');
+const layoutItems = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/financial-accounting-layout-items.json'), 'utf8'));
 const parsed = parseFinancialAccountingReportText(fixture);
 
-assert.strictEqual(parseGermanNumber('26.117,23'), 26117.23);
-assert.strictEqual(parseGermanNumber('-1.706'), -1706);
+assert.ok(!fixture.includes('\t'), 'the parser fixture must model PDF layout without tab delimiters');
+assert.strictEqual(parsed.parser_version, 'bmd-fibu-v2');
+
+assert.strictEqual(parseGermanNumber('12.345,67'), 12345.67);
+assert.strictEqual(parseGermanNumber('-1.500'), -1500);
 assert.strictEqual(parseGermanNumber('keine Zahl'), null);
 
 assert.deepStrictEqual([
@@ -32,36 +36,47 @@ function tax(key) {
   return parsed.tax_values.find(value => value.value_key === key);
 }
 
-assert.strictEqual(monthly('4000', 1).detected_value, 11263);
-assert.strictEqual(monthly('4000', 7).detected_value, 26114);
-assert.strictEqual(monthly('5000', 6).detected_value, -1706);
+assert.strictEqual(monthly('4000', 1).detected_value, 10000);
+assert.strictEqual(monthly('4000', 7).detected_value, 16000);
+assert.strictEqual(monthly('5000', 6).detected_value, -1500);
 assert.strictEqual(monthly('9999', 7).detected_value, -7, 'unknown accounts must be retained');
 assert.strictEqual(monthly('9999', 7).account_name, 'Unbekanntes Testkonto');
 
-assert.strictEqual(cumulative('revenue').detected_value, 136119.49);
-assert.strictEqual(cumulative('contribution_margin_2').detected_value, 11512.61);
-assert.strictEqual(cumulative('ebitda').detected_value, -13611.59);
-assert.strictEqual(cumulative('annual_result').detected_value, -19400.6);
+assert.strictEqual(cumulative('revenue').detected_value, 100000);
+assert.strictEqual(cumulative('contribution_margin_2').detected_value, 42500);
+assert.strictEqual(cumulative('ebitda').detected_value, 28500);
+assert.strictEqual(cumulative('annual_result').detected_value, 20500);
 assert.ok(!parsed.monthly_values.some(value => value.value_key === 'revenue'), 'cumulative metrics must not become monthly values');
 
-assert.strictEqual(snapshot('receivables').detected_value, 15909.99);
-assert.strictEqual(snapshot('cash').detected_value, 1625.9);
-assert.strictEqual(snapshot('bank_total').detected_value, 5586.67);
-assert.strictEqual(snapshot('payables').detected_value, -1808.95);
+assert.strictEqual(snapshot('receivables').detected_value, 12345.67);
+assert.strictEqual(snapshot('cash').detected_value, 1234.56);
+assert.strictEqual(snapshot('bank_total').detected_value, 4321.09);
+assert.strictEqual(snapshot('payables').detected_value, -2222.22);
 assert.strictEqual(snapshot('cash').snapshot_date, '2026-07-31');
 
-assert.strictEqual(tax('taxable_basis').detected_value, 26117.23);
-assert.strictEqual(tax('vat').detected_value, 5223.45);
-assert.strictEqual(tax('input_tax').detected_value, 1525.74);
-assert.strictEqual(tax('payable').detected_value, 3697.71);
+assert.strictEqual(tax('taxable_basis').detected_value, 16000);
+assert.strictEqual(tax('vat').detected_value, 3200);
+assert.strictEqual(tax('input_tax').detected_value, 1200);
+assert.strictEqual(tax('payable').detected_value, 2000);
 
 const customerTotal = parsed.open_items.find(value => value.value_key === 'customer_total');
 const supplierTotal = parsed.open_items.find(value => value.value_key === 'supplier_total');
-assert.strictEqual(customerTotal.detected_value, 15909.99);
-assert.strictEqual(supplierTotal.detected_value, -1808.95);
-assert.ok(parsed.open_items.some(value => value.document_number === '165' && value.detected_value === 3276));
+assert.strictEqual(customerTotal.detected_value, 12345.67);
+assert.strictEqual(supplierTotal.detected_value, -2222.22);
+assert.ok(parsed.open_items.some(value => value.document_number === 'TEST-101' && value.detected_value === 1111.11));
 
-const sparse = parseFinancialAccountingReportText('Von: Jänner 2026\tBis: Juli 2026\nErfolgsvergleich\nPeriodenübersicht mit EB');
+const reconstructed = reconstructLayoutPage(layoutItems);
+assert.ok(!reconstructed.includes('\t'), 'coordinate reconstruction must not invent tabs');
+const layoutParsed = parseFinancialAccountingReportText([
+  'Von: Jänner 2026  Bis: Februar 2026',
+  'Periodenübersicht mit EB',
+  reconstructed,
+  'Seite: 1',
+].join('\n'));
+assert.strictEqual(layoutParsed.monthly_values.find(value => value.account_number === '4000' && value.value_month === 1).detected_value, 1000);
+assert.strictEqual(layoutParsed.monthly_values.find(value => value.account_number === '4000' && value.value_month === 2).detected_value, 2000);
+
+const sparse = parseFinancialAccountingReportText('Von: Jänner 2026  Bis: Juli 2026\nErfolgsvergleich\nPeriodenübersicht mit EB');
 assert.strictEqual(sparse.cumulative_metrics.find(value => value.value_key === 'revenue').detected_value, null);
 assert.strictEqual(sparse.cumulative_metrics.find(value => value.value_key === 'revenue').status, 'missing');
 assert.strictEqual(sparse.tax_values.find(value => value.value_key === 'payable').detected_value, null);

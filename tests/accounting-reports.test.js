@@ -69,28 +69,28 @@ function testSqliteReports() {
   try {
     temp.db.createInvoice({ id: 'EXISTING-INVOICE', typ: 'ausgang', nummer: '001', zahlungsart: 'bank', items: [] });
     const july = report('JULY', 7, {
-      monthly_values: [{ id: 'MV1', value_key: 'revenue', value_month: 7, value_year: 2026, detected_value: 26117.23, manual_value: null, unit: 'EUR', source: 'pdf', status: 'detected' }],
-      cumulative_metrics: [{ id: 'CM1', value_key: 'ebitda', detected_value: -13611.59, manual_value: null, unit: 'EUR', source_section: 'Erfolgsvergleich', source_label: 'EBITDA', confidence: 1 }],
-      snapshot_metrics: [{ id: 'SM1', value_key: 'cash', snapshot_date: '2026-07-31', account_number: '2700', account_name: 'Kassenbestand', detected_value: 1625.9, manual_value: null, unit: 'EUR', source_section: 'Saldenliste', source_label: '2700 Kassenbestand', confidence: 1 }],
+      monthly_values: [{ id: 'MV1', value_key: 'revenue', value_month: 7, value_year: 2026, detected_value: 12345.67, manual_value: null, unit: 'EUR', source: 'pdf', status: 'detected' }],
+      cumulative_metrics: [{ id: 'CM1', value_key: 'ebitda', detected_value: 28500, manual_value: null, unit: 'EUR', source_section: 'Erfolgsvergleich', source_label: 'EBITDA', confidence: 1 }],
+      snapshot_metrics: [{ id: 'SM1', value_key: 'cash', snapshot_date: '2026-07-31', account_number: '2700', account_name: 'Kassenbestand', detected_value: 1234.56, manual_value: null, unit: 'EUR', source_section: 'Saldenliste', source_label: '2700 Kassenbestand', confidence: 1 }],
       snapshot_values: [{ id: 'SV1', value_key: 'cash', snapshot_date: '2026-07-31', detected_value: 1000, manual_value: 1100, unit: 'EUR', source: 'manual', status: 'manually_changed' }],
       tax_values: [{ id: 'TV1', tax_type: 'vat', value_key: 'payable', period_month: 7, period_year: 2026, detected_value: 200, manual_value: null, unit: 'EUR' }],
       open_items: [{ id: 'OI1', party_type: 'customer', party_name: 'Kunde', detected_value: 300, manual_value: null }],
       account_values: [{ id: 'AV1', account_number: '4000', account_name: 'Umsatz', detected_value: 400, manual_value: null }],
-      detected_values: [{ id: 'DV1', value_scope: 'monthly', value_key: 'revenue', raw_value: '26.117,23', normalized_value: '26117.23', page_number: 2 }],
+      detected_values: [{ id: 'DV1', value_scope: 'monthly', value_key: 'revenue', raw_value: '12.345,67', normalized_value: '12345.67', page_number: 2 }],
       manual_corrections: [{ id: 'MC1', value_scope: 'snapshot', value_id: 'SV1', value_key: 'cash', detected_value: '1000', previous_manual_value: null, manual_value: '1100', changed_at: '2026-08-01T10:00:00.000Z' }],
-      import_differences: [{ id: 'DIFF1', previous_report_id: 'JUNE-OLD', value_scope: 'monthly_values', value_key: '5000:2026-06', account_number: '5000', value_month: 6, value_year: 2026, previous_detected_value: -1706, new_detected_value: -1756, previous_manual_value: null, resolution_status: 'pending', detected_at: '2026-08-01T10:00:00.000Z' }],
+      import_differences: [{ id: 'DIFF1', previous_report_id: 'JUNE-OLD', value_scope: 'monthly_values', value_key: '5000:2026-06', account_number: '5000', value_month: 6, value_year: 2026, previous_detected_value: -1500, new_detected_value: -1550, previous_manual_value: null, resolution_status: 'pending', detected_at: '2026-08-01T10:00:00.000Z' }],
     });
     const saved = temp.db.createAccountingReport(july);
     assert.strictEqual(saved.original_file_b64, PDF_JULY);
-    assert.strictEqual(saved.monthly_values[0].detected_value, 26117.23);
+    assert.strictEqual(saved.monthly_values[0].detected_value, 12345.67);
     assert.strictEqual(saved.monthly_values[0].manual_value, null);
-    assert.strictEqual(saved.monthly_values[0].effective_value, 26117.23);
+    assert.strictEqual(saved.monthly_values[0].effective_value, 12345.67);
     assert.strictEqual(saved.snapshot_values[0].effective_value, 1100);
-    assert.strictEqual(saved.cumulative_metrics[0].detected_value, -13611.59);
+    assert.strictEqual(saved.cumulative_metrics[0].detected_value, 28500);
     assert.strictEqual(saved.snapshot_metrics[0].snapshot_date, '2026-07-31');
-    assert.strictEqual(saved.detected_values[0].raw_value, '26.117,23');
+    assert.strictEqual(saved.detected_values[0].raw_value, '12.345,67');
     assert.strictEqual(saved.manual_corrections[0].detected_value, '1000');
-    assert.strictEqual(saved.import_differences[0].new_detected_value, -1756);
+    assert.strictEqual(saved.import_differences[0].new_detected_value, -1550);
 
     assert.throws(() => temp.db.createAccountingReport(report('JULY-DUP', 7)));
     temp.db.createAccountingReport(report('JAN', 1));
@@ -102,7 +102,7 @@ function testSqliteReports() {
     const reloaded = temp.db.getAccountingReport('JULY');
     assert.strictEqual(reloaded.original_file_b64, PDF_JULY, 'Original-PDF must survive restart');
     assert.strictEqual(reloaded.original_file_name, 'fibu-07-2026.pdf');
-    assert.strictEqual(reloaded.monthly_values[0].detected_value, 26117.23);
+    assert.strictEqual(reloaded.monthly_values[0].detected_value, 12345.67);
     assert.strictEqual(reloaded.monthly_values[0].manual_value, null);
 
     const replacement = temp.db.updateAccountingReport({ id: 'JULY', original_file_b64: 'data:application/pdf;base64,REPLACED', original_file_name: 'july-replaced.pdf', original_file_type: 'application/pdf' });
@@ -118,27 +118,27 @@ async function testLocalStorageAndBackup() {
   const { app, storage } = appHarness();
   const saved = await app.persistAccountingReportCreate(report('LS-JULY', 7, {
     monthly_values: [
-      { id: 'LS-MV', value_key: '4000:2026-07', account_number: '4000', value_month: 7, value_year: 2026, detected_value: 26117.23, manual_value: 26200 },
-      { id: 'LS-MV-5000', value_key: '5000:2026-06', account_number: '5000', value_month: 6, value_year: 2026, detected_value: -1706, manual_value: -1700 },
+      { id: 'LS-MV', value_key: '4000:2026-07', account_number: '4000', value_month: 7, value_year: 2026, detected_value: 12345.67, manual_value: 12400 },
+      { id: 'LS-MV-5000', value_key: '5000:2026-06', account_number: '5000', value_month: 6, value_year: 2026, detected_value: -1500, manual_value: -1490 },
     ],
   }));
   assert.strictEqual(saved.original_file_b64, PDF_JULY);
-  assert.strictEqual(saved.monthly_values[0].detected_value, 26117.23);
-  assert.strictEqual(saved.monthly_values[0].manual_value, 26200);
-  assert.strictEqual(saved.monthly_values[0].effective_value, 26200);
+  assert.strictEqual(saved.monthly_values[0].detected_value, 12345.67);
+  assert.strictEqual(saved.monthly_values[0].manual_value, 12400);
+  assert.strictEqual(saved.monthly_values[0].effective_value, 12400);
   assert.strictEqual(saved.monthly_values[0].source, 'manual');
   assert.strictEqual(saved.monthly_values[0].status, 'manually_changed');
-  const restoredValue = app.normaliseAccountingValue({ detected_value: 26117.23, manual_value: null, source: 'manual', status: 'manually_changed' });
-  assert.strictEqual(restoredValue.effective_value, 26117.23);
+  const restoredValue = app.normaliseAccountingValue({ detected_value: 12345.67, manual_value: null, source: 'manual', status: 'manually_changed' });
+  assert.strictEqual(restoredValue.effective_value, 12345.67);
   assert.strictEqual(restoredValue.source, 'pdf');
   assert.strictEqual(restoredValue.status, 'detected');
   const august = await app.persistAccountingReportCreate(report('LS-AUGUST', 8, {
-    monthly_values: [{ value_key: '5000:2026-06', account_number: '5000', value_month: 6, value_year: 2026, detected_value: -1756, manual_value: null }],
+    monthly_values: [{ value_key: '5000:2026-06', account_number: '5000', value_month: 6, value_year: 2026, detected_value: -1550, manual_value: null }],
   }));
   assert.strictEqual(august.import_differences.length, 1);
-  assert.strictEqual(august.import_differences[0].previous_detected_value, -1706);
-  assert.strictEqual(august.import_differences[0].new_detected_value, -1756);
-  assert.strictEqual(august.import_differences[0].previous_manual_value, -1700);
+  assert.strictEqual(august.import_differences[0].previous_detected_value, -1500);
+  assert.strictEqual(august.import_differences[0].new_detected_value, -1550);
+  assert.strictEqual(august.import_differences[0].previous_manual_value, -1490);
   assert.strictEqual(august.import_differences[0].resolution_status, 'manual_preserved');
   assert.strictEqual(JSON.parse(storage.getItem('buchpro_v1')).accounting_reports[0].original_file_b64, PDF_JULY);
 
@@ -162,8 +162,8 @@ async function testLocalStorageAndBackup() {
     monthly_values: [{ value_key: '4000:2026-07', account_number: '4000', value_month: 7, value_year: 2026, detected_value: 27000, manual_value: null }],
   });
   assert.strictEqual(reparsed.monthly_values[0].detected_value, 27000);
-  assert.strictEqual(reparsed.monthly_values[0].manual_value, 26200, 're-import must retain manual correction');
-  assert.strictEqual(reparsed.monthly_values[0].effective_value, 26200);
+  assert.strictEqual(reparsed.monthly_values[0].manual_value, 12400, 're-import must retain manual correction');
+  assert.strictEqual(reparsed.monthly_values[0].effective_value, 12400);
 
   const mismatch = app.validateAccountingReportPeriod(Object.assign({}, report('MISMATCH', 7), {
     detected_period_from_month: 1,

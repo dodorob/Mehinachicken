@@ -21,11 +21,12 @@ let BuchProDB = null;
 let AppConfig = null;
 let pdfParse = null;
 let parseFinancialAccountingReportText = null;
+let reconstructLayoutPage = null;
 try {
   BuchProDB = require('./database.js');
   AppConfig = require('./app-config.js');
   pdfParse = require('pdf-parse');
-  ({ parseFinancialAccountingReportText } = require('./accounting-report-parser.js'));
+  ({ parseFinancialAccountingReportText, reconstructLayoutPage } = require('./accounting-report-parser.js'));
 } catch (e) {
   console.warn('DB modules unavailable:', e.message);
 }
@@ -181,15 +182,7 @@ ipcMain.handle('app-version', async () => {
 
 function renderAccountingPdfPage(pageData) {
   return pageData.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false }).then((textContent) => {
-    let text = '';
-    let previousY = null;
-    textContent.items.forEach((item) => {
-      const y = Math.round(item.transform[5] * 10) / 10;
-      text += previousY === y ? '\t' : '\n';
-      text += item.str;
-      previousY = y;
-    });
-    return text;
+    return reconstructLayoutPage(textContent.items);
   });
 }
 

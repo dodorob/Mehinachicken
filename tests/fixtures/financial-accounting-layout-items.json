@@ -1,0 +1,10 @@
+[
+  { "str": "EB", "width": 10, "transform": [1, 0, 0, 1, 200, 500] },
+  { "str": "Jän 26", "width": 26, "transform": [1, 0, 0, 1, 240, 500.2] },
+  { "str": "Feb 26", "width": 28, "transform": [1, 0, 0, 1, 290, 499.8] },
+  { "str": "4000", "width": 20, "transform": [1, 0, 0, 1, 30, 480] },
+  { "str": "Beispielerlöse 20 %", "width": 100, "transform": [1, 0, 0, 1, 60, 480.3] },
+  { "str": "0", "width": 5, "transform": [1, 0, 0, 1, 205, 480] },
+  { "str": "1.000", "width": 24, "transform": [1, 0, 0, 1, 240, 479.8] },
+  { "str": "2.000", "width": 24, "transform": [1, 0, 0, 1, 290, 480.1] }
+]
