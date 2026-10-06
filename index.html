@@ -31,6 +31,7 @@
     <div class="sec">Auswertung</div>
     <a id="nav-statistik"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128202;</span> Statistik</a>
     <a id="nav-buchhaltungsdaten"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128209;</span> Buchhaltungsdaten</a>
+    <a id="nav-kennzahlen"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128200;</span> Kennzahlen</a>
     <a id="nav-finanzen"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9638;</span> Finanzen &amp; USt.</a>
     <a id="nav-bankbuch"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#127984;</span> Bankbuch</a>
     <a id="nav-kassabuch"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128181;</span> Kassabuch</a>
@@ -522,9 +523,17 @@
 <div class="page" id="page-buchhaltungsdaten">
   <div class="topbar">
     <h2><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128209;</span> Buchhaltungsdaten</h2>
-    <div class="tba"><button class="btn primary" id="btn-accounting-upload">Monatsreport hochladen</button></div>
+    <div class="tba accounting-period-picker">
+      <select id="accounting-view-month" aria-label="Berichtsmonat"></select>
+      <select id="accounting-view-year" aria-label="Berichtsjahr"></select>
+      <button class="btn primary" id="btn-accounting-upload">Monatsreport hochladen</button>
+    </div>
   </div>
   <div class="content">
+    <div id="accounting-data-message"></div>
+    <div id="accounting-report-overview"></div>
+    <div id="accounting-values-panel"></div>
+    <div id="accounting-import-changes"></div>
     <div class="card" id="accounting-upload-card" style="display:none">
       <h3 id="accounting-form-title">Monatsreport hochladen</h3>
       <input type="hidden" id="accounting-edit-id">
@@ -554,6 +563,28 @@
       <div id="accounting-report-list"></div>
     </div>
     <div class="card" id="accounting-report-details" style="display:none"></div>
+  </div>
+</div>
+
+<div class="page" id="page-kennzahlen">
+  <div class="topbar">
+    <h2><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128200;</span> Kennzahlen</h2>
+    <div class="tba accounting-period-picker">
+      <select id="kpi-month" aria-label="Kennzahlenmonat"></select>
+      <select id="kpi-year" aria-label="Kennzahlenjahr"></select>
+    </div>
+  </div>
+  <div class="content">
+    <div id="kpi-data-status"></div>
+    <div id="kpi-primary" class="grid4"></div>
+    <div class="grid2 accounting-chart-grid">
+      <div class="card"><h3>Umsatz und variable Kosten pro Monat</h3><canvas id="kpi-chart-revenue"></canvas><div class="accounting-chart-fallback"></div></div>
+      <div class="card"><h3>Personalaufwand und Ergebnisentwicklung</h3><canvas id="kpi-chart-result"></canvas><div class="accounting-chart-fallback"></div></div>
+    </div>
+    <div class="card"><h3>Liquidität als Stichtagsreihe</h3><canvas id="kpi-chart-liquidity"></canvas><div class="accounting-chart-fallback"></div></div>
+    <div id="kpi-comparison"></div>
+    <div id="kpi-ytd"></div>
+    <div id="kpi-break-even"></div>
   </div>
 </div>
 

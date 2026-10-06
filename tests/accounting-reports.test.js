@@ -105,6 +105,17 @@ function testSqliteReports() {
     assert.strictEqual(reloaded.monthly_values[0].detected_value, 12345.67);
     assert.strictEqual(reloaded.monthly_values[0].manual_value, null);
 
+    const manuallyChanged = temp.db.updateAccountingReport(Object.assign({}, reloaded, {
+      monthly_values: [Object.assign({}, reloaded.monthly_values[0], { manual_value: 12400, source: 'manual', status: 'manually_changed' })],
+    }));
+    assert.strictEqual(manuallyChanged.monthly_values[0].detected_value, 12345.67);
+    assert.strictEqual(manuallyChanged.monthly_values[0].effective_value, 12400);
+    const pdfRestored = temp.db.updateAccountingReport(Object.assign({}, manuallyChanged, {
+      monthly_values: [Object.assign({}, manuallyChanged.monthly_values[0], { manual_value: null, source: 'pdf', status: 'detected' })],
+    }));
+    assert.strictEqual(pdfRestored.monthly_values[0].detected_value, 12345.67);
+    assert.strictEqual(pdfRestored.monthly_values[0].effective_value, 12345.67);
+
     const replacement = temp.db.updateAccountingReport({ id: 'JULY', original_file_b64: 'data:application/pdf;base64,REPLACED', original_file_name: 'july-replaced.pdf', original_file_type: 'application/pdf' });
     assert.strictEqual(replacement.original_file_name, 'july-replaced.pdf');
     assert.strictEqual(temp.db.loadAll().invoices.length, 1, 'report persistence must not affect invoices');
