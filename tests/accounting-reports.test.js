@@ -109,6 +109,17 @@ function testSqliteReports() {
     assert.strictEqual(reloaded.monthly_values[0].detected_value, 12345.67);
     assert.strictEqual(reloaded.monthly_values[0].manual_value, null);
 
+    const electronRenderer = appHarness();
+    electronRenderer.load('accountingReportPdfBlob', 'openAccountingReportPdf');
+    let openedPdfUrl = null;
+    electronRenderer.app.Blob = Blob;
+    electronRenderer.app.atob = encoded => Buffer.from(encoded, 'base64').toString('binary');
+    electronRenderer.app.URL = { createObjectURL() { return 'blob:sqlite-accounting-report'; }, revokeObjectURL() {} };
+    electronRenderer.app.setTimeout = callback => callback();
+    electronRenderer.app.window.open = url => { openedPdfUrl = url; return {}; };
+    assert.strictEqual(electronRenderer.app.openAccountingReportPdf(reloaded), true, 'SQLite report PDF must open through the shared Electron renderer path');
+    assert.strictEqual(openedPdfUrl, 'blob:sqlite-accounting-report');
+
     const manuallyChanged = temp.db.updateAccountingReport(Object.assign({}, reloaded, {
       monthly_values: [Object.assign({}, reloaded.monthly_values[0], { manual_value: 12400, source: 'manual', status: 'manually_changed' })],
     }));

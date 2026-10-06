@@ -30,13 +30,13 @@
     <a id="nav-zahlungen"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9670;</span> Zahlungen</a>
     <div class="sec">Auswertung</div>
     <a id="nav-statistik"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128202;</span> Statistik</a>
-    <a id="nav-buchhaltungsdaten"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128209;</span> Buchhaltungsdaten</a>
     <a id="nav-kennzahlen"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128200;</span> Kennzahlen</a>
     <a id="nav-finanzen"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9638;</span> Finanzen &amp; USt.</a>
     <a id="nav-bankbuch"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#127984;</span> Bankbuch</a>
     <a id="nav-kassabuch"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128181;</span> Kassabuch</a>
     <a id="nav-export"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#8595;</span> Monatsexport</a>
     <div class="sec">Planung</div>
+    <a id="nav-buchhaltungsdaten"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128209;</span> Buchhaltungsdaten</a>
     <a id="nav-todos"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9989;</span> To-Do-Liste</a>
     <a id="nav-fixkosten"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128178;</span> Fixkosten</a>
     <div class="sec">Einstellungen</div>
@@ -575,13 +575,14 @@
         <div class="fg"><label for="accounting-report-file">Original-PDF</label><input type="file" id="accounting-report-file" accept="application/pdf,.pdf"><div id="accounting-file-info" style="font-family:sans-serif;font-size:11px;color:var(--t3);margin-top:5px"></div></div>
       </div>
       <div id="accounting-period-info" class="alert info"></div>
+      <div id="accounting-existing-report-notice" class="alert warning" style="display:none"></div>
       <div id="accounting-form-error" class="alert danger" style="display:none"></div>
       <div id="accounting-duplicate-warning" class="alert warning" style="display:none;flex-direction:column">
         <div id="accounting-duplicate-message"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
           <button class="btn" id="accounting-duplicate-open">Bestehenden Report öffnen</button>
           <button class="btn" id="accounting-duplicate-cancel">Upload abbrechen</button>
-          <button class="btn primary" id="accounting-duplicate-replace">Vorhandenen Report ersetzen</button>
+          <button class="btn primary" id="accounting-duplicate-replace">Bestehenden Bericht aktualisieren</button>
         </div>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end">

@@ -892,6 +892,40 @@ function updateAccountingPeriodInfo() {
   var info = document.getElementById('accounting-period-info');
   if (!monthEl || !yearEl || !info) return;
   info.textContent = 'Erwarteter kumulierter PDF-Zeitraum: Jänner ' + yearEl.value + ' bis ' + ACCOUNTING_MONTHS[Number(monthEl.value) - 1] + ' ' + yearEl.value + '.';
+  updateAccountingExistingReportNotice();
+}
+
+function updateAccountingExistingReportNotice() {
+  var notice = document.getElementById('accounting-existing-report-notice');
+  var monthEl = document.getElementById('accounting-report-month');
+  var yearEl = document.getElementById('accounting-report-year');
+  if (!notice || !monthEl || !yearEl) return null;
+  var editEl = document.getElementById('accounting-edit-id');
+  var existing = findAccountingReport(ACCOUNTING_REPORT_TYPE, Number(monthEl.value), Number(yearEl.value), editEl && editEl.value ? editEl.value : null);
+  if (!existing) {
+    notice.style.display = 'none';
+    notice.textContent = '';
+    return null;
+  }
+  notice.textContent = 'Für ' + ACCOUNTING_MONTHS[Number(monthEl.value) - 1] + ' ' + yearEl.value + ' ist bereits ein Buchhaltungsbericht vorhanden.';
+  notice.style.display = 'flex';
+  return existing;
+}
+
+function accountingReportPdfBlob(storedPdf, fileType) {
+  var stored = String(storedPdf || '');
+  if (!stored) throw new Error('PDF-Daten fehlen.');
+  var encoded = stored;
+  var type = fileType || 'application/pdf';
+  var dataMatch = stored.match(/^data:([^;,]+)?(?:;charset=[^;,]+)?;base64,([\s\S]*)$/);
+  if (dataMatch) {
+    type = dataMatch[1] || type;
+    encoded = dataMatch[2];
+  }
+  var binary = atob(encoded.replace(/\s/g, ''));
+  var bytes = new Uint8Array(binary.length);
+  for (var index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: type === 'application/pdf' ? type : 'application/pdf' });
 }
 
 function openAccountingReportPdf(reportOrId) {
@@ -899,10 +933,24 @@ function openAccountingReportPdf(reportOrId) {
     ? (getDB().accounting_reports || []).find(function(item) { return item.id === reportOrId; })
     : reportOrId;
   if (!report || !report.original_file_b64) {
-    alert('Für diesen Report ist kein Original-PDF gespeichert.');
-    return;
+    alert('Für diesen Buchhaltungsbericht ist keine Original-PDF gespeichert.');
+    return false;
   }
-  window.open(report.original_file_b64, '_blank');
+  try {
+    var blob = accountingReportPdfBlob(report.original_file_b64, report.original_file_type);
+    var blobUrl = URL.createObjectURL(blob);
+    var opened = window.open(blobUrl, '_blank');
+    if (!opened) {
+      URL.revokeObjectURL(blobUrl);
+      alert('Die PDF konnte nicht geöffnet werden.');
+      return false;
+    }
+    setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 60000);
+    return true;
+  } catch (error) {
+    alert('Die PDF konnte nicht geöffnet werden.');
+    return false;
+  }
 }
 
 function renderAccountingReports() {
@@ -1259,7 +1307,7 @@ async function extractAccountingReport(originalFileB64) {
 
 function showAccountingDuplicate(existing, candidate) {
   _accountingDuplicateUpload = { existing: existing, candidate: candidate };
-  document.getElementById('accounting-duplicate-message').textContent = 'Für ' + accountingReportPeriodLabel(candidate) + ' ist bereits ein Finanzbuchhaltungsreport vorhanden.';
+  document.getElementById('accounting-duplicate-message').textContent = 'Für ' + accountingReportPeriodLabel(candidate) + ' ist bereits ein Buchhaltungsbericht vorhanden. Möchten Sie den bestehenden Bericht aktualisieren?';
   document.getElementById('accounting-duplicate-warning').style.display = 'flex';
 }
 
