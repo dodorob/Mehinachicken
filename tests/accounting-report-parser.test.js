@@ -41,11 +41,13 @@ assert.strictEqual(monthly('4000', 7).detected_value, 16000);
 assert.strictEqual(monthly('5000', 6).detected_value, -1500);
 assert.strictEqual(monthly('9999', 7).detected_value, -7, 'unknown accounts must be retained');
 assert.strictEqual(monthly('9999', 7).account_name, 'Unbekanntes Testkonto');
+assert.strictEqual(monthly('4000', 1).source_section, 'Periodenübersicht mit EB');
 
 assert.strictEqual(cumulative('revenue').detected_value, 100000);
 assert.strictEqual(cumulative('contribution_margin_2').detected_value, 42500);
 assert.strictEqual(cumulative('ebitda').detected_value, 28500);
 assert.strictEqual(cumulative('annual_result').detected_value, 20500);
+assert.strictEqual(cumulative('revenue').source_section, 'Erfolgsvergleich');
 assert.ok(!parsed.monthly_values.some(value => value.value_key === 'revenue'), 'cumulative metrics must not become monthly values');
 
 assert.strictEqual(snapshot('receivables').detected_value, 12345.67);
@@ -53,16 +55,20 @@ assert.strictEqual(snapshot('cash').detected_value, 1234.56);
 assert.strictEqual(snapshot('bank_total').detected_value, 4321.09);
 assert.strictEqual(snapshot('payables').detected_value, -2222.22);
 assert.strictEqual(snapshot('cash').snapshot_date, '2026-07-31');
+assert.strictEqual(snapshot('cash').source_section, 'Saldenliste');
 
 assert.strictEqual(tax('taxable_basis').detected_value, 16000);
 assert.strictEqual(tax('vat').detected_value, 3200);
 assert.strictEqual(tax('input_tax').detected_value, 1200);
 assert.strictEqual(tax('payable').detected_value, 2000);
+assert.strictEqual(tax('payable').period_month, 7);
+assert.strictEqual(tax('payable').source_section, 'Steuernachweis');
 
 const customerTotal = parsed.open_items.find(value => value.value_key === 'customer_total');
 const supplierTotal = parsed.open_items.find(value => value.value_key === 'supplier_total');
 assert.strictEqual(customerTotal.detected_value, 12345.67);
 assert.strictEqual(supplierTotal.detected_value, -2222.22);
+assert.strictEqual(customerTotal.source_section, 'OP-Liste');
 assert.ok(parsed.open_items.some(value => value.document_number === 'TEST-101' && value.detected_value === 1111.11));
 
 const reconstructed = reconstructLayoutPage(layoutItems);

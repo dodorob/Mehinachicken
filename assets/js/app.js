@@ -1010,7 +1010,7 @@ async function saveAccountingManualValue(reportId, scope, index, rawValue) {
   values[index] = accountingValueWithManual(previous, manualValue);
   var corrections = (report.manual_corrections || []).slice();
   corrections.push({
-    id: uid(), value_scope: scope, value_id: previous.id || null, value_key: previous.value_key,
+    id: uid(), value_scope: scope, value_id: previous.id || previous.value_key || (scope + ':' + index), value_key: previous.value_key,
     detected_value: previous.detected_value == null ? null : String(previous.detected_value),
     previous_manual_value: previous.manual_value == null ? null : String(previous.manual_value),
     manual_value: String(manualValue), changed_at: new Date().toISOString(), note: 'Manuelle Änderung in Buchhaltungsdaten',
@@ -1028,7 +1028,7 @@ async function restoreAccountingPdfValue(reportId, scope, index) {
   values[index] = accountingValueWithManual(previous, null);
   var corrections = (report.manual_corrections || []).slice();
   corrections.push({
-    id: uid(), value_scope: scope, value_id: previous.id || null, value_key: previous.value_key,
+    id: uid(), value_scope: scope, value_id: previous.id || previous.value_key || (scope + ':' + index), value_key: previous.value_key,
     detected_value: previous.detected_value == null ? null : String(previous.detected_value),
     previous_manual_value: previous.manual_value == null ? null : String(previous.manual_value),
     manual_value: null, changed_at: new Date().toISOString(), note: 'PDF-Wert wiederhergestellt',

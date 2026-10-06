@@ -767,9 +767,14 @@ class BuchProDB {
       (report[key] || []).forEach((value, index) => {
         const row = {};
         config.columns.forEach(column => {
-          if (column === 'id') row.id = value.id || `${report.id}-${key}-${index + 1}`;
+          if (column === 'id') {
+            const candidate = value.id || `${report.id}-${key}-${index + 1}`;
+            const owner = this.db.prepare(`SELECT report_id FROM ${config.table} WHERE id = ?`).get(candidate);
+            row.id = owner && owner.report_id !== report.id ? `${report.id}-${candidate}` : candidate;
+          }
           else if (column === 'report_id') row.report_id = report.id;
           else if (column === 'metadata_json') row.metadata_json = JSON.stringify(value.metadata || {});
+          else if (column === 'value_id' && value[column] == null) row.value_id = value.value_key || `${report.id}-${value.value_scope || 'value'}-${index + 1}`;
           else row[column] = value[column] == null ? null : value[column];
         });
         if (Object.prototype.hasOwnProperty.call(row, 'source') && row.source == null) row.source = value.manual_value == null ? 'pdf' : 'manual';

@@ -95,7 +95,11 @@ function testSqliteReports() {
     assert.throws(() => temp.db.createAccountingReport(report('JULY-DUP', 7)));
     temp.db.createAccountingReport(report('JAN', 1));
     temp.db.createAccountingReport(report('JUNE', 6));
-    assert.deepStrictEqual(temp.db.listAccountingReports().map(item => item.report_month), [7, 6, 1]);
+    const august = temp.db.createAccountingReport(report('AUGUST', 8, {
+      detected_values: [{ id: 'DV1', value_scope: 'monthly', value_key: '5000:2026-06', raw_value: '1.756,00', normalized_value: '1756.00', page_number: 2 }],
+    }));
+    assert.notStrictEqual(august.detected_values[0].id, saved.detected_values[0].id, 'parser-local IDs must not collide across historical reports');
+    assert.deepStrictEqual(temp.db.listAccountingReports().map(item => item.report_month), [8, 7, 6, 1]);
 
     temp.db.close();
     temp.db.open(temp.file);
@@ -125,12 +129,32 @@ function testSqliteReports() {
   }
 }
 
+function testBrowserBackupMigrationToSqlite() {
+  const temp = tempDb();
+  try {
+    const browserReport = report('BROWSER-JULY', 7, {
+      monthly_values: [{ value_key: '5000:2026-06', account_number: '5000', value_month: 6, value_year: 2026, detected_value: -1706, manual_value: -1720 }],
+      manual_corrections: [{ id: 'BROWSER-CORRECTION', value_scope: 'monthly_values', value_id: null, value_key: '5000:2026-06', detected_value: '-1706', previous_manual_value: null, manual_value: '-1720', changed_at: '2026-08-01T10:00:00.000Z' }],
+    });
+    temp.db.migrateFromLocalStorage({ buchpro_v1: JSON.stringify({ accounting_reports: [browserReport] }) });
+    const restored = temp.db.getAccountingReport('BROWSER-JULY');
+    assert.strictEqual(restored.original_file_b64, PDF_JULY);
+    assert.strictEqual(restored.monthly_values[0].detected_value, -1706);
+    assert.strictEqual(restored.monthly_values[0].manual_value, -1720);
+    assert.strictEqual(restored.manual_corrections[0].value_id, '5000:2026-06', 'legacy browser corrections need a stable SQLite value reference');
+  } finally {
+    temp.cleanup();
+  }
+}
+
 async function testLocalStorageAndBackup() {
-  const { app, storage } = appHarness();
+  const { app, storage, load } = appHarness();
+  load('accountingEffectiveNumber', 'parseAccountingManualInput', 'accountingValueWithManual', 'accountingPreviousValue',
+    'canonicalAccountingMonthlyValues', 'saveAccountingManualValue', 'importBackupData');
   const saved = await app.persistAccountingReportCreate(report('LS-JULY', 7, {
     monthly_values: [
       { id: 'LS-MV', value_key: '4000:2026-07', account_number: '4000', value_month: 7, value_year: 2026, detected_value: 12345.67, manual_value: 12400 },
-      { id: 'LS-MV-5000', value_key: '5000:2026-06', account_number: '5000', value_month: 6, value_year: 2026, detected_value: -1500, manual_value: -1490 },
+      { value_key: '5000:2026-06', account_number: '5000', value_month: 6, value_year: 2026, detected_value: -1706, manual_value: -1690 },
     ],
   }));
   assert.strictEqual(saved.original_file_b64, PDF_JULY);
@@ -144,13 +168,18 @@ async function testLocalStorageAndBackup() {
   assert.strictEqual(restoredValue.source, 'pdf');
   assert.strictEqual(restoredValue.status, 'detected');
   const august = await app.persistAccountingReportCreate(report('LS-AUGUST', 8, {
-    monthly_values: [{ value_key: '5000:2026-06', account_number: '5000', value_month: 6, value_year: 2026, detected_value: -1550, manual_value: null }],
+    monthly_values: [{ value_key: '5000:2026-06', account_number: '5000', value_month: 6, value_year: 2026, detected_value: -1756, manual_value: null }],
   }));
   assert.strictEqual(august.import_differences.length, 1);
-  assert.strictEqual(august.import_differences[0].previous_detected_value, -1500);
-  assert.strictEqual(august.import_differences[0].new_detected_value, -1550);
-  assert.strictEqual(august.import_differences[0].previous_manual_value, -1490);
+  assert.strictEqual(august.import_differences[0].previous_detected_value, -1706);
+  assert.strictEqual(august.import_differences[0].new_detected_value, -1756);
+  assert.strictEqual(august.import_differences[0].previous_manual_value, -1690);
   assert.strictEqual(august.import_differences[0].resolution_status, 'manual_preserved');
+  const manuallySaved = await app.saveAccountingManualValue('LS-JULY', 'monthly_values', 1, '-1.690,00');
+  assert.strictEqual(manuallySaved.manual_corrections[0].value_id, '5000:2026-06', 'browser corrections without row IDs need a stable reference');
+  const protectedJune = app.canonicalAccountingMonthlyValues(app.getDB().accounting_reports, 2026, 6)
+    .find(value => value.account_number === '5000');
+  assert.strictEqual(app.accountingEffectiveNumber(protectedJune), -1690, 'August must not silently replace the manually corrected June value from July');
   assert.strictEqual(JSON.parse(storage.getItem('buchpro_v1')).accounting_reports[0].original_file_b64, PDF_JULY);
 
   app._dbCache = null;
@@ -165,6 +194,17 @@ async function testLocalStorageAndBackup() {
   assert.strictEqual(backup._meta.version, 3);
   assert.strictEqual(backupData.accounting_reports.length, 4);
   assert.strictEqual(backupData.accounting_reports.find(item => item.id === 'LS-JULY').original_file_b64, PDF_JULY);
+  assert.strictEqual(backupData.accounting_reports.find(item => item.id === 'LS-JULY').manual_corrections[0].value_id, '5000:2026-06');
+  assert.strictEqual(backupData.accounting_reports.find(item => item.id === 'LS-AUGUST').import_differences[0].new_detected_value, -1756);
+
+  storage.data = {};
+  app._dbCache = null;
+  assert.strictEqual(app.importBackupData(backup), 1);
+  app._dbCache = null;
+  const backupRestored = app.getDB();
+  assert.strictEqual(backupRestored.accounting_reports.find(item => item.id === 'LS-JULY').original_file_b64, PDF_JULY);
+  assert.strictEqual(backupRestored.accounting_reports.find(item => item.id === 'LS-JULY').monthly_values[1].manual_value, -1690);
+  assert.strictEqual(backupRestored.accounting_reports.find(item => item.id === 'LS-AUGUST').import_differences[0].resolution_status, 'manual_preserved');
 
   const updated = await app.persistAccountingReportUpdate({ id: 'LS-JULY', report_month: 7, report_year: 2026 });
   assert.strictEqual(updated.original_file_b64, PDF_JULY, 'metadata edit must retain original PDF');
@@ -184,11 +224,22 @@ async function testLocalStorageAndBackup() {
   }));
   assert.strictEqual(mismatch.status, 'mismatch');
   assert.match(mismatch.message, /Juli 2026/);
+
+  [7, 8].forEach(month => {
+    const matching = app.validateAccountingReportPeriod(Object.assign({}, report('MATCH-' + month, month), {
+      detected_period_from_month: 1,
+      detected_period_from_year: 2026,
+      detected_period_to_month: month,
+      detected_period_to_year: 2026,
+    }));
+    assert.strictEqual(matching.status, 'matched', 'January-to-selected-month reports must validate for month ' + month);
+  });
 }
 
 (async () => {
   testAdditiveSchemaMigration();
   testSqliteReports();
+  testBrowserBackupMigrationToSqlite();
   await testLocalStorageAndBackup();
   console.log('accounting report SQLite, localStorage and backup tests passed');
 })();
