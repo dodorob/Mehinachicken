@@ -1,0 +1,74 @@
+Saldenliste mit VJ
+Von:  Jänner 2026	Bis:  Juli 2026 mit Bilanzbuchungen
+2000	Forderungen aus Lieferungen und Leistung	15.909,99	25,48
+2700	Kassenbestand in Euro	1.625,90	2,60
+2800	Stmk Sparkasse	5.586,67	8,95
+3300	Verbindlichkeiten aus Lieferungen und Leistung	-1.808,95	2,90
+3520	Umsatzsteuer-Zahllast	-6.470,53	10,36
+Erfolgsvergleich
+1. Umsatzerlöse
+4000 Erlöse 20 %	136.119,49	100,00
+136.119,49	100,00
+2. Betriebsleistung	136.119,49	100,00
+3. Aufwendungen für Material und
+a) Materialverbrauch
+5300 Hilfsstoffverbrauch	-5.064,15	3,72
+-6.067,16	4,46
+b) Wareneinsatz
+5000 Wareneinkauf 20 %	-12.944,57	9,51
+-13.028,07	9,57
+c) Fremdleistungen
+5700 Fremdleistungen	-1.788,00	1,31
+-1.788,00	1,31
+d) Skontoerträge
+4. Deckungsbeitrag I	115.266,16	84,68
+5. Personalaufwand
+6000 Löhne	-27.846,82	20,46
+-103.753,55	76,22
+6. Deckungsbeitrag II
+11.512,61	8,46
+7. sonstige betriebliche Erträge
+4800 Sonstige betriebliche Erträge	2,83	0,00
+1.518,62	1,12
+8. sonstige betriebliche
+Aufwendungen
+7150 Grundsteuer	-682,30	0,50
+-26.648,30	19,58
+9. Finanzerträge
+10.Ergebnis vor Zinsen, Steuern
+und Afa (EBITDA)	-13.611,59	10,00
+11. Abschreibungen
+7020 Abschreibungen	-1.075,02	0,79
+-1.926,89	1,42
+12.Ergebnis vor Zinsen und
+Steuern (EBIT)	-15.538,48	11,42
+13.Ergebnis vor Steuern (EBT)	-15.538,48	11,42
+14. Steuern vom Einkommen/Ertrag
+8500 Körperschaftsteuer	-3.862,00	2,84
+-3.862,12	2,84
+15.Jahresverlust	-19.400,60	14,25
+Periodenübersicht mit EB
+EB	Jän 26	Feb 26	Mrz 26	Apr 26	Mai 26	Jun 26	Jul 26	Bilanz	Gesamt
+4000	Erlöse 20 %	0	11.263	21.178	19.172	29.749	10.104	18.538	26.114	0	136.119
+5000	Wareneinkauf 20 %	0	-247	-3.015	-3.916	-921	-521	-1.706	-2.618	0	-12.945
+9999	Unbekanntes Testkonto	0	1	2	3	4	5	6	-7	0	14
+Seite: 6
+510 Periodenübersicht lfd Jahr mit EB
+Offene Posten
+Kunden
+200000 Musterkunde
+AR	165	20.07.2026	AR 165	EUR	3.276,00	3.276,00
+EUR	Kontogruppe Kunden	19.750,74	15.909,99
+Lieferanten
+300001 Musterlieferant
+ER	ABC-1	25.07.2026	Rechnung
+EUR	-453,85	-453,85
+EUR	Kontogruppe Lieferanten	-1.808,95	-1.808,95
+An das
+Steuernachweis
+Von:  Juli 2026	Bis:  Juli 2026
+SUMMENBLATT	Bemessung	Steuer
+022 20 % Normalsteuersatz	26.117,23	5.223,45
+060 Gesamtbetrag der abziehbaren Vorsteuer	1.525,74
+Zahllast	3.697,71
+STEUERKONTROLLE	Sammelkonto	Steuer aus Bemessung	Differenz

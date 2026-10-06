@@ -59,7 +59,8 @@ function appHarness() {
     '_applyInvoiceNumberingToState', 'persistInvoiceCreateWithCounters', 'persistInvoiceUpdate',
     'persistInvoiceCounters', 'persistInvoiceAction', 'previewNum', 'refreshNumbers', 'updateARKassaForm',
     'findAccountingReport', 'validateAccountingReportPeriod', 'normaliseAccountingValue', 'normaliseAccountingReport',
-    '_replaceAccountingReportInCache', 'persistAccountingReportCreate', 'persistAccountingReportUpdate', 'createBackupObject',
+    'preserveAccountingManualValues', 'buildAccountingImportDifferences', '_replaceAccountingReportInCache',
+    'persistAccountingReportCreate', 'persistAccountingReportUpdate', 'createBackupObject',
     'wireFormButtons', 'handleERFile', 'handleInvoiceFile', 'saveInvoice', 'genPDF', 'genPDFData',
     'openInvoiceReceipt', 'editInv', 'setTyp', 'setPay', 'setKassaTyp', 'setSammelMode', 'updateFT',
     'setERTyp', 'setERMode', 'wireERForm', 'initForm', 'saveER', 'resetERForm');

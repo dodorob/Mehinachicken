@@ -154,8 +154,10 @@ class BuchProDB {
 
       CREATE TABLE IF NOT EXISTS accounting_monthly_values (
         id TEXT PRIMARY KEY, report_id TEXT NOT NULL, value_key TEXT NOT NULL,
-        value_month INTEGER, value_year INTEGER, detected_value REAL, manual_value REAL,
-        unit TEXT, source TEXT DEFAULT 'pdf', status TEXT DEFAULT 'detected', metadata_json TEXT DEFAULT '{}',
+        value_month INTEGER, value_year INTEGER, account_number TEXT, account_name TEXT,
+        detected_value REAL, manual_value REAL, unit TEXT, source TEXT DEFAULT 'pdf',
+        source_section TEXT, source_label TEXT, confidence REAL,
+        status TEXT DEFAULT 'detected', metadata_json TEXT DEFAULT '{}',
         FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
       );
       CREATE TABLE IF NOT EXISTS accounting_snapshot_values (
@@ -164,16 +166,34 @@ class BuchProDB {
         source TEXT DEFAULT 'pdf', status TEXT DEFAULT 'detected', metadata_json TEXT DEFAULT '{}',
         FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
       );
+      CREATE TABLE IF NOT EXISTS accounting_cumulative_metrics (
+        id TEXT PRIMARY KEY, report_id TEXT NOT NULL, value_key TEXT NOT NULL,
+        detected_value REAL, manual_value REAL, unit TEXT, source TEXT DEFAULT 'pdf',
+        source_section TEXT, source_label TEXT, confidence REAL,
+        status TEXT DEFAULT 'detected', metadata_json TEXT DEFAULT '{}',
+        FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS accounting_snapshot_metrics (
+        id TEXT PRIMARY KEY, report_id TEXT NOT NULL, value_key TEXT NOT NULL,
+        snapshot_date TEXT, account_number TEXT, account_name TEXT,
+        detected_value REAL, manual_value REAL, unit TEXT, source TEXT DEFAULT 'pdf',
+        source_section TEXT, source_label TEXT, confidence REAL,
+        status TEXT DEFAULT 'detected', metadata_json TEXT DEFAULT '{}',
+        FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
+      );
       CREATE TABLE IF NOT EXISTS accounting_tax_values (
         id TEXT PRIMARY KEY, report_id TEXT NOT NULL, tax_type TEXT, value_key TEXT NOT NULL,
         period_month INTEGER, period_year INTEGER, detected_value REAL, manual_value REAL, unit TEXT,
-        source TEXT DEFAULT 'pdf', status TEXT DEFAULT 'detected', metadata_json TEXT DEFAULT '{}',
+        source TEXT DEFAULT 'pdf', source_section TEXT, source_label TEXT, confidence REAL,
+        status TEXT DEFAULT 'detected', metadata_json TEXT DEFAULT '{}',
         FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
       );
       CREATE TABLE IF NOT EXISTS accounting_open_items (
         id TEXT PRIMARY KEY, report_id TEXT NOT NULL, party_type TEXT, party_name TEXT,
-        document_number TEXT, due_date TEXT, detected_value REAL, manual_value REAL, currency TEXT DEFAULT 'EUR',
-        source TEXT DEFAULT 'pdf', status TEXT DEFAULT 'detected', metadata_json TEXT DEFAULT '{}',
+        document_number TEXT, document_date TEXT, due_date TEXT, aging_class TEXT,
+        detected_value REAL, manual_value REAL, currency TEXT DEFAULT 'EUR',
+        source TEXT DEFAULT 'pdf', source_section TEXT, source_label TEXT, confidence REAL,
+        status TEXT DEFAULT 'detected', metadata_json TEXT DEFAULT '{}',
         FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
       );
       CREATE TABLE IF NOT EXISTS accounting_account_values (
@@ -193,6 +213,14 @@ class BuchProDB {
         changed_at TEXT NOT NULL, note TEXT,
         FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
       );
+      CREATE TABLE IF NOT EXISTS accounting_import_differences (
+        id TEXT PRIMARY KEY, report_id TEXT NOT NULL, previous_report_id TEXT,
+        value_scope TEXT NOT NULL, value_key TEXT NOT NULL, account_number TEXT,
+        value_month INTEGER, value_year INTEGER, previous_detected_value REAL,
+        new_detected_value REAL, previous_manual_value REAL, resolution_status TEXT NOT NULL DEFAULT 'pending',
+        detected_at TEXT NOT NULL, metadata_json TEXT DEFAULT '{}',
+        FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
+      );
     `);
     // Schema migrations (safe to run multiple times)
     try { this.db.exec('ALTER TABLE invoices ADD COLUMN is_sammel INTEGER DEFAULT 0'); } catch(_) {}
@@ -202,6 +230,21 @@ class BuchProDB {
     try { this.db.exec('ALTER TABLE fixkosten ADD COLUMN bezahlt_am TEXT'); } catch(_) {}
     try { this.db.exec("ALTER TABLE fixkosten ADD COLUMN reset_intervall TEXT DEFAULT 'monatlich'"); } catch(_) {}
     try { this.db.exec('ALTER TABLE fixkosten ADD COLUMN reset_datum TEXT'); } catch(_) {}
+    [
+      'ALTER TABLE accounting_monthly_values ADD COLUMN account_number TEXT',
+      'ALTER TABLE accounting_monthly_values ADD COLUMN account_name TEXT',
+      'ALTER TABLE accounting_monthly_values ADD COLUMN source_section TEXT',
+      'ALTER TABLE accounting_monthly_values ADD COLUMN source_label TEXT',
+      'ALTER TABLE accounting_monthly_values ADD COLUMN confidence REAL',
+      'ALTER TABLE accounting_tax_values ADD COLUMN source_section TEXT',
+      'ALTER TABLE accounting_tax_values ADD COLUMN source_label TEXT',
+      'ALTER TABLE accounting_tax_values ADD COLUMN confidence REAL',
+      'ALTER TABLE accounting_open_items ADD COLUMN document_date TEXT',
+      'ALTER TABLE accounting_open_items ADD COLUMN aging_class TEXT',
+      'ALTER TABLE accounting_open_items ADD COLUMN source_section TEXT',
+      'ALTER TABLE accounting_open_items ADD COLUMN source_label TEXT',
+      'ALTER TABLE accounting_open_items ADD COLUMN confidence REAL',
+    ].forEach(sql => { try { this.db.exec(sql); } catch (_) {} });
   }
 
   // ----------------------------------------------------------------
@@ -640,19 +683,27 @@ class BuchProDB {
     return {
       monthly_values: {
         table: 'accounting_monthly_values',
-        columns: ['id', 'report_id', 'value_key', 'value_month', 'value_year', 'detected_value', 'manual_value', 'unit', 'source', 'status', 'metadata_json'],
+        columns: ['id', 'report_id', 'value_key', 'value_month', 'value_year', 'account_number', 'account_name', 'detected_value', 'manual_value', 'unit', 'source', 'source_section', 'source_label', 'confidence', 'status', 'metadata_json'],
       },
       snapshot_values: {
         table: 'accounting_snapshot_values',
         columns: ['id', 'report_id', 'value_key', 'snapshot_date', 'detected_value', 'manual_value', 'unit', 'source', 'status', 'metadata_json'],
       },
+      cumulative_metrics: {
+        table: 'accounting_cumulative_metrics',
+        columns: ['id', 'report_id', 'value_key', 'detected_value', 'manual_value', 'unit', 'source', 'source_section', 'source_label', 'confidence', 'status', 'metadata_json'],
+      },
+      snapshot_metrics: {
+        table: 'accounting_snapshot_metrics',
+        columns: ['id', 'report_id', 'value_key', 'snapshot_date', 'account_number', 'account_name', 'detected_value', 'manual_value', 'unit', 'source', 'source_section', 'source_label', 'confidence', 'status', 'metadata_json'],
+      },
       tax_values: {
         table: 'accounting_tax_values',
-        columns: ['id', 'report_id', 'tax_type', 'value_key', 'period_month', 'period_year', 'detected_value', 'manual_value', 'unit', 'source', 'status', 'metadata_json'],
+        columns: ['id', 'report_id', 'tax_type', 'value_key', 'period_month', 'period_year', 'detected_value', 'manual_value', 'unit', 'source', 'source_section', 'source_label', 'confidence', 'status', 'metadata_json'],
       },
       open_items: {
         table: 'accounting_open_items',
-        columns: ['id', 'report_id', 'party_type', 'party_name', 'document_number', 'due_date', 'detected_value', 'manual_value', 'currency', 'source', 'status', 'metadata_json'],
+        columns: ['id', 'report_id', 'party_type', 'party_name', 'document_number', 'document_date', 'due_date', 'aging_class', 'detected_value', 'manual_value', 'currency', 'source', 'source_section', 'source_label', 'confidence', 'status', 'metadata_json'],
       },
       account_values: {
         table: 'accounting_account_values',
@@ -665,6 +716,10 @@ class BuchProDB {
       manual_corrections: {
         table: 'accounting_manual_corrections',
         columns: ['id', 'report_id', 'value_scope', 'value_id', 'value_key', 'detected_value', 'previous_manual_value', 'manual_value', 'changed_at', 'note'],
+      },
+      import_differences: {
+        table: 'accounting_import_differences',
+        columns: ['id', 'report_id', 'previous_report_id', 'value_scope', 'value_key', 'account_number', 'value_month', 'value_year', 'previous_detected_value', 'new_detected_value', 'previous_manual_value', 'resolution_status', 'detected_at', 'metadata_json'],
       },
     };
   }
@@ -720,6 +775,8 @@ class BuchProDB {
         if (Object.prototype.hasOwnProperty.call(row, 'source') && row.source == null) row.source = value.manual_value == null ? 'pdf' : 'manual';
         if (Object.prototype.hasOwnProperty.call(row, 'status') && row.status == null) row.status = value.manual_value == null ? 'detected' : 'manually_changed';
         if (Object.prototype.hasOwnProperty.call(row, 'changed_at') && row.changed_at == null) row.changed_at = new Date().toISOString();
+        if (Object.prototype.hasOwnProperty.call(row, 'detected_at') && row.detected_at == null) row.detected_at = new Date().toISOString();
+        if (Object.prototype.hasOwnProperty.call(row, 'resolution_status') && row.resolution_status == null) row.resolution_status = 'pending';
         insert.run(row);
       });
     });

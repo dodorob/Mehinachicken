@@ -19,9 +19,13 @@ try {
 // ----------------------------------------------------------------
 let BuchProDB = null;
 let AppConfig = null;
+let pdfParse = null;
+let parseFinancialAccountingReportText = null;
 try {
   BuchProDB = require('./database.js');
   AppConfig = require('./app-config.js');
+  pdfParse = require('pdf-parse');
+  ({ parseFinancialAccountingReportText } = require('./accounting-report-parser.js'));
 } catch (e) {
   console.warn('DB modules unavailable:', e.message);
 }
@@ -173,6 +177,35 @@ function setupAutoUpdates() {
 
 ipcMain.handle('app-version', async () => {
   return app.getVersion();
+});
+
+function renderAccountingPdfPage(pageData) {
+  return pageData.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false }).then((textContent) => {
+    let text = '';
+    let previousY = null;
+    textContent.items.forEach((item) => {
+      const y = Math.round(item.transform[5] * 10) / 10;
+      text += previousY === y ? '\t' : '\n';
+      text += item.str;
+      previousY = y;
+    });
+    return text;
+  });
+}
+
+ipcMain.handle('extract-accounting-report', async (event, originalFileB64) => {
+  if (!pdfParse || !parseFinancialAccountingReportText) {
+    return { ok: false, error: 'Der lokale PDF-Parser ist nicht verfügbar.' };
+  }
+  try {
+    const encoded = String(originalFileB64 || '').replace(/^data:application\/pdf;base64,/, '');
+    if (!encoded) return { ok: false, error: 'PDF-Daten fehlen.' };
+    const result = await pdfParse(Buffer.from(encoded, 'base64'), { pagerender: renderAccountingPdfPage });
+    return { ok: true, parsed: parseFinancialAccountingReportText(result.text), pages: result.numpages };
+  } catch (error) {
+    console.error('accounting report PDF extraction error:', error);
+    return { ok: false, error: error && error.message ? error.message : 'PDF konnte nicht gelesen werden.' };
+  }
 });
 
 ipcMain.handle('check-for-updates', async () => {

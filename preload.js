@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveBackup: (jsonData) => ipcRenderer.invoke('save-backup', jsonData),
   listBackups: () => ipcRenderer.invoke('list-backups'),
   loadBackup: (filePath) => ipcRenderer.invoke('load-backup', filePath),
+  extractAccountingReport: (originalFileB64) => ipcRenderer.invoke('extract-accounting-report', originalFileB64),
 
   // ----------------------------------------------------------------
   // SQLite database API
