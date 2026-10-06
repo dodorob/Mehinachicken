@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveBackup: (jsonData) => ipcRenderer.invoke('save-backup', jsonData),
   listBackups: () => ipcRenderer.invoke('list-backups'),
   loadBackup: (filePath) => ipcRenderer.invoke('load-backup', filePath),
+  extractAccountingReport: (originalFileB64) => ipcRenderer.invoke('extract-accounting-report', originalFileB64),
 
   // ----------------------------------------------------------------
   // SQLite database API
@@ -34,6 +35,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     updateInvoice:        (invoice)    => ipcRenderer.invoke('db-update-invoice', invoice),
     deleteInvoice:        (invoiceId)  => ipcRenderer.invoke('db-delete-invoice', invoiceId),
     updateInvoiceStatus:  (invoiceId, status) => ipcRenderer.invoke('db-update-invoice-status', invoiceId, status),
+    createAccountingReport: (report)       => ipcRenderer.invoke('db-create-accounting-report', report),
+    updateAccountingReport: (report)       => ipcRenderer.invoke('db-update-accounting-report', report),
+    getAccountingReport:    (reportId)     => ipcRenderer.invoke('db-get-accounting-report', reportId),
     saveSetting:          (key, value) => ipcRenderer.invoke('db-save-setting', key, value),
     saveBeschHist:        (terms)      => ipcRenderer.invoke('db-save-besch-hist', terms),
     saveFixkosten:        (list)       => ipcRenderer.invoke('db-save-fixkosten', list),

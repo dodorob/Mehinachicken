@@ -19,9 +19,14 @@ try {
 // ----------------------------------------------------------------
 let BuchProDB = null;
 let AppConfig = null;
+let pdfParse = null;
+let parseFinancialAccountingReportText = null;
+let reconstructLayoutPage = null;
 try {
   BuchProDB = require('./database.js');
   AppConfig = require('./app-config.js');
+  pdfParse = require('pdf-parse');
+  ({ parseFinancialAccountingReportText, reconstructLayoutPage } = require('./accounting-report-parser.js'));
 } catch (e) {
   console.warn('DB modules unavailable:', e.message);
 }
@@ -173,6 +178,27 @@ function setupAutoUpdates() {
 
 ipcMain.handle('app-version', async () => {
   return app.getVersion();
+});
+
+function renderAccountingPdfPage(pageData) {
+  return pageData.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false }).then((textContent) => {
+    return reconstructLayoutPage(textContent.items);
+  });
+}
+
+ipcMain.handle('extract-accounting-report', async (event, originalFileB64) => {
+  if (!pdfParse || !parseFinancialAccountingReportText) {
+    return { ok: false, error: 'Der lokale PDF-Parser ist nicht verfügbar.' };
+  }
+  try {
+    const encoded = String(originalFileB64 || '').replace(/^data:application\/pdf;base64,/, '');
+    if (!encoded) return { ok: false, error: 'PDF-Daten fehlen.' };
+    const result = await pdfParse(Buffer.from(encoded, 'base64'), { pagerender: renderAccountingPdfPage });
+    return { ok: true, parsed: parseFinancialAccountingReportText(result.text), pages: result.numpages };
+  } catch (error) {
+    console.error('accounting report PDF extraction error:', error);
+    return { ok: false, error: error && error.message ? error.message : 'PDF konnte nicht gelesen werden.' };
+  }
 });
 
 ipcMain.handle('check-for-updates', async () => {
@@ -509,6 +535,30 @@ ipcMain.handle('db-delete-invoice', async (event, invoiceId) => {
 ipcMain.handle('db-update-invoice-status', async (event, invoiceId, status) => {
   if (!buchProDB) return { ok: false, error: 'Datenbank nicht geöffnet' };
   return invoiceResult(() => buchProDB.updateInvoiceStatus(invoiceId, status));
+});
+
+function accountingReportResult(handler) {
+  try {
+    return { ok: true, report: handler() };
+  } catch (e) {
+    console.error('accounting report persistence error:', e);
+    return { ok: false, error: e && e.message ? e.message : String(e) };
+  }
+}
+
+ipcMain.handle('db-create-accounting-report', async (event, report) => {
+  if (!buchProDB) return { ok: false, error: 'Datenbank nicht geöffnet' };
+  return accountingReportResult(() => buchProDB.createAccountingReport(report));
+});
+
+ipcMain.handle('db-update-accounting-report', async (event, report) => {
+  if (!buchProDB) return { ok: false, error: 'Datenbank nicht geöffnet' };
+  return accountingReportResult(() => buchProDB.updateAccountingReport(report));
+});
+
+ipcMain.handle('db-get-accounting-report', async (event, reportId) => {
+  if (!buchProDB) return { ok: false, error: 'Datenbank nicht geöffnet' };
+  return accountingReportResult(() => buchProDB.getAccountingReport(reportId));
 });
 
 ipcMain.handle('db-save-setting', async (event, key, value) => {

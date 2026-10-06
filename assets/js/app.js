@@ -30,7 +30,7 @@ var BACKUP_KEYS = [
 ];
 
 function createBackupObject() {
-  var backup = { _meta: { app: 'BuchPro', version: 2, created: new Date().toISOString(), keys: BACKUP_KEYS } };
+  var backup = { _meta: { app: 'BuchPro', version: 3, created: new Date().toISOString(), keys: BACKUP_KEYS } };
   // Main data
   backup['buchpro_v1'] = JSON.stringify(_dbCache || {});
   // Settings (all BACKUP_KEYS except the special ones handled separately)
@@ -192,6 +192,7 @@ function getDB() {
   if (!d.lieferanten) d.lieferanten = [];
   if (!d.zahlungen)   d.zahlungen   = [];
   if (!d.fahrzeuge)   d.fahrzeuge   = [];
+  if (!d.employees)   d.employees   = [];
   if (!d.counters)    d.counters    = d.invoices.length === 0 ? {ausgang:1, eingang:1, fortlaufend:1, lfd_bank:1, kassenbeleg:1} : {};
   // Migration: ensure counters exist
   if (!d.counters.fortlaufend && d.invoices.length === 0) d.counters.fortlaufend = 1;
@@ -203,6 +204,7 @@ function getDB() {
   if (!d.todos)         d.todos         = [];
   if (!d.todos_archiv)  d.todos_archiv  = [];
   if (!d.kostenvoranschlaege) d.kostenvoranschlaege = [];
+  if (!d.accounting_reports) d.accounting_reports = [];
   _dbCache = d;
   return d;
 }
@@ -535,6 +537,1038 @@ async function persistInvoiceAction(action) {
   }
 }
 
+// ================================================================
+// ACCOUNTING REPORT PERSISTENCE
+// ================================================================
+var ACCOUNTING_REPORT_TYPE = 'financial_accounting_monthly';
+var ACCOUNTING_REPORT_LABEL = 'Finanzbuchhaltung';
+
+function findAccountingReport(reportType, reportMonth, reportYear, excludeId) {
+  return (getDB().accounting_reports || []).find(function(report) {
+    return report.id !== excludeId && report.report_type === reportType &&
+      Number(report.report_month) === Number(reportMonth) && Number(report.report_year) === Number(reportYear);
+  }) || null;
+}
+
+function validateAccountingReportPeriod(report) {
+  if (report.detected_period_to_month == null || report.detected_period_to_year == null) {
+    return { status: 'not_checked', message: null };
+  }
+  var matches = Number(report.detected_period_from_month) === 1 &&
+    Number(report.detected_period_from_year) === Number(report.report_year) &&
+    Number(report.detected_period_to_month) === Number(report.report_month) &&
+    Number(report.detected_period_to_year) === Number(report.report_year);
+  if (matches) return { status: 'matched', message: null };
+  return {
+    status: 'mismatch',
+    message: 'Der gewählte Berichtsmonat ' + MONTHS[Number(report.report_month) - 1] + ' ' + report.report_year +
+      ' stimmt nicht mit dem PDF-Zeitraum überein.',
+  };
+}
+
+function normaliseAccountingValue(value) {
+  var normalized = Object.assign({}, value);
+  normalized.manual_value = normalized.manual_value == null ? null : normalized.manual_value;
+  normalized.detected_value = normalized.detected_value == null ? null : normalized.detected_value;
+  normalized.effective_value = normalized.manual_value == null ? normalized.detected_value : normalized.manual_value;
+  normalized.source = normalized.manual_value == null ? 'pdf' : 'manual';
+  normalized.status = normalized.manual_value == null ? 'detected' : 'manually_changed';
+  return normalized;
+}
+
+function normaliseAccountingReport(report) {
+  var normalized = Object.assign({}, report);
+  normalized.report_type = normalized.report_type || ACCOUNTING_REPORT_TYPE;
+  normalized.report_month = Number(normalized.report_month);
+  normalized.report_year = Number(normalized.report_year);
+  normalized.period_from_month = Number(normalized.period_from_month || 1);
+  normalized.period_to_month = Number(normalized.period_to_month || normalized.report_month);
+  normalized.imported_at = normalized.imported_at || new Date().toISOString();
+  normalized.parse_status = normalized.parse_status || 'pending';
+  normalized.parser_version = normalized.parser_version || null;
+  ['monthly_values', 'snapshot_values', 'cumulative_metrics', 'snapshot_metrics', 'tax_values', 'open_items', 'account_values', 'detected_values', 'manual_corrections', 'import_differences'].forEach(function(key) {
+    if (!Array.isArray(normalized[key])) normalized[key] = [];
+  });
+  ['monthly_values', 'snapshot_values', 'cumulative_metrics', 'snapshot_metrics', 'tax_values', 'open_items', 'account_values'].forEach(function(key) {
+    normalized[key] = normalized[key].map(normaliseAccountingValue);
+  });
+  var validation = validateAccountingReportPeriod(normalized);
+  normalized.validation_status = validation.status;
+  normalized.validation_message = validation.message;
+  return normalized;
+}
+
+function preserveAccountingManualValues(candidate, previous) {
+  if (!previous) return candidate;
+  ['monthly_values', 'snapshot_values', 'cumulative_metrics', 'snapshot_metrics', 'tax_values', 'open_items', 'account_values'].forEach(function(scope) {
+    var previousValues = previous[scope] || [];
+    candidate[scope] = (candidate[scope] || []).map(function(value) {
+      var old = previousValues.find(function(item) { return item.value_key === value.value_key; });
+      if (!old || old.manual_value == null) return value;
+      return normaliseAccountingValue(Object.assign({}, value, { manual_value: old.manual_value }));
+    });
+  });
+  candidate.manual_corrections = (previous.manual_corrections || []).concat(candidate.manual_corrections || []).filter(function(correction, index, list) {
+    return list.findIndex(function(item) { return item.id === correction.id; }) === index;
+  });
+  return candidate;
+}
+
+function buildAccountingImportDifferences(candidate, reports) {
+  var differences = [];
+  (candidate.monthly_values || []).forEach(function(value) {
+    if (value.detected_value == null) return;
+    var matches = [];
+    (reports || []).forEach(function(report) {
+      (report.monthly_values || []).forEach(function(previousValue) {
+        if (previousValue.account_number === value.account_number && Number(previousValue.value_month) === Number(value.value_month) && Number(previousValue.value_year) === Number(value.value_year) && previousValue.detected_value != null) {
+          matches.push({ report: report, value: previousValue });
+        }
+      });
+    });
+    matches.sort(function(a, b) {
+      return Number(b.report.report_year) - Number(a.report.report_year) || Number(b.report.report_month) - Number(a.report.report_month) || String(b.report.imported_at || '').localeCompare(String(a.report.imported_at || ''));
+    });
+    var previous = matches[0];
+    if (!previous || Math.abs(Number(previous.value.detected_value) - Number(value.detected_value)) < 0.000001) return;
+    differences.push({
+      id: candidate.id + '-diff-' + (differences.length + 1),
+      previous_report_id: previous.report.id,
+      value_scope: 'monthly_values',
+      value_key: value.value_key,
+      account_number: value.account_number || null,
+      value_month: value.value_month,
+      value_year: value.value_year,
+      previous_detected_value: previous.value.detected_value,
+      new_detected_value: value.detected_value,
+      previous_manual_value: previous.value.manual_value == null ? null : previous.value.manual_value,
+      resolution_status: previous.value.manual_value == null ? 'pending' : 'manual_preserved',
+      detected_at: new Date().toISOString(),
+      metadata: { previous_source_label: previous.value.source_label || null, new_source_label: value.source_label || null },
+    });
+  });
+  return differences;
+}
+
+function _replaceAccountingReportInCache(report) {
+  var d = getDB();
+  d.accounting_reports = (d.accounting_reports || []).filter(function(existing) { return existing.id !== report.id; });
+  d.accounting_reports.push(report);
+  _dbCache = d;
+  return report;
+}
+
+async function persistAccountingReportCreate(report) {
+  var normalized = normaliseAccountingReport(report);
+  if (findAccountingReport(normalized.report_type, normalized.report_month, normalized.report_year)) {
+    throw new Error('DUPLICATE_ACCOUNTING_REPORT');
+  }
+  normalized.import_differences = buildAccountingImportDifferences(normalized, getDB().accounting_reports || []);
+  if (_isElectronDbMode() && typeof window.electronAPI.db.createAccountingReport === 'function') {
+    return enqueueDbWrite(function() {
+      return window.electronAPI.db.createAccountingReport(normalized).then(function(result) {
+        if (!result || result.ok !== true) throw new Error((result && result.error) || 'Buchhaltungsreport konnte nicht gespeichert werden');
+        return _replaceAccountingReportInCache(result.report || normalized);
+      });
+    });
+  }
+  await _persistInvoiceBrowser(function(next) {
+    if (!next.accounting_reports) next.accounting_reports = [];
+    var duplicate = next.accounting_reports.some(function(existing) {
+      return existing.report_type === normalized.report_type && Number(existing.report_month) === normalized.report_month && Number(existing.report_year) === normalized.report_year;
+    });
+    if (duplicate) throw new Error('DUPLICATE_ACCOUNTING_REPORT');
+    next.accounting_reports.push(normalized);
+  });
+  return normalized;
+}
+
+async function persistAccountingReportUpdate(report, options) {
+  var existing = (getDB().accounting_reports || []).find(function(item) { return item.id === report.id; });
+  if (!existing) throw new Error('Buchhaltungsreport nicht gefunden: ' + report.id);
+  var candidate = normaliseAccountingReport(Object.assign({}, existing, report));
+  var merged = options && options.preserveManualValues === false ? candidate : preserveAccountingManualValues(candidate, existing);
+  if (report.original_file_b64 == null && report.original_file_name == null && report.original_file_type == null) {
+    merged.original_file_b64 = existing.original_file_b64;
+    merged.original_file_name = existing.original_file_name;
+    merged.original_file_type = existing.original_file_type;
+  }
+  if (findAccountingReport(merged.report_type, merged.report_month, merged.report_year, merged.id)) {
+    throw new Error('DUPLICATE_ACCOUNTING_REPORT');
+  }
+  if (!options || options.rebuildImportDifferences !== false) {
+    merged.import_differences = buildAccountingImportDifferences(merged, (getDB().accounting_reports || []).filter(function(item) { return item.id !== merged.id; }).concat([existing]));
+  }
+  if (_isElectronDbMode() && typeof window.electronAPI.db.updateAccountingReport === 'function') {
+    return enqueueDbWrite(function() {
+      return window.electronAPI.db.updateAccountingReport(merged).then(function(result) {
+        if (!result || result.ok !== true) throw new Error((result && result.error) || 'Buchhaltungsreport konnte nicht aktualisiert werden');
+        return _replaceAccountingReportInCache(result.report || merged);
+      });
+    });
+  }
+  await _persistInvoiceBrowser(function(next) {
+    var index = (next.accounting_reports || []).findIndex(function(item) { return item.id === merged.id; });
+    if (index < 0) throw new Error('Buchhaltungsreport nicht gefunden: ' + merged.id);
+    var duplicate = next.accounting_reports.some(function(item) {
+      return item.id !== merged.id && item.report_type === merged.report_type && Number(item.report_month) === merged.report_month && Number(item.report_year) === merged.report_year;
+    });
+    if (duplicate) throw new Error('DUPLICATE_ACCOUNTING_REPORT');
+    next.accounting_reports[index] = merged;
+  });
+  return merged;
+}
+
+var ACCOUNTING_MONTHS = ['Jänner','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+var _accountingUiWired = false;
+var _accountingDuplicateUpload = null;
+var _accountingKpiCharts = {};
+
+function accountingReportPeriodLabel(report) {
+  return ACCOUNTING_MONTHS[Number(report.report_month) - 1] + ' ' + report.report_year;
+}
+
+function accountingEffectiveNumber(value) {
+  if (!value) return null;
+  var raw = value.manual_value == null ? value.effective_value : value.manual_value;
+  if (raw == null) raw = value.detected_value;
+  if (raw == null || raw === '') return null;
+  var number = Number(raw);
+  return Number.isFinite(number) ? number : null;
+}
+
+function parseAccountingManualInput(raw) {
+  var text = String(raw == null ? '' : raw).replace(/\s|€|EUR/gi, '').trim();
+  if (!text) return null;
+  if (text.includes(',')) text = text.replace(/\./g, '').replace(',', '.');
+  var value = Number(text);
+  return Number.isFinite(value) ? value : null;
+}
+
+function accountingValueWithManual(value, manualValue) {
+  return normaliseAccountingValue(Object.assign({}, value, { manual_value: manualValue == null ? null : Number(manualValue) }));
+}
+
+function accountingReportForPeriod(year, month) {
+  return (getDB().accounting_reports || []).filter(function(report) {
+    return Number(report.report_year) === Number(year) && Number(report.report_month) === Number(month);
+  }).sort(function(a, b) { return String(b.imported_at || '').localeCompare(String(a.imported_at || '')); })[0] || null;
+}
+
+function accountingPreviousValue(reports, difference) {
+  var previous = (reports || []).find(function(report) { return report.id === difference.previous_report_id; });
+  if (!previous) return null;
+  return (previous.monthly_values || []).find(function(value) {
+    return value.value_key === difference.value_key ||
+      (value.account_number === difference.account_number && Number(value.value_month) === Number(difference.value_month) && Number(value.value_year) === Number(difference.value_year));
+  }) || null;
+}
+
+function canonicalAccountingMonthlyValues(reports, year, month) {
+  var ordered = (reports || []).filter(function(report) {
+    return Number(report.report_year) === Number(year) && Number(report.report_month) >= Number(month);
+  }).slice().sort(function(a, b) {
+    return Number(b.report_month) - Number(a.report_month) || String(b.imported_at || '').localeCompare(String(a.imported_at || ''));
+  });
+  var selected = {};
+  ordered.forEach(function(report) {
+    (report.monthly_values || []).forEach(function(value) {
+      if (Number(value.value_year) !== Number(year) || Number(value.value_month) !== Number(month)) return;
+      var key = value.account_number || value.value_key;
+      if (selected[key]) return;
+      var chosen = value;
+      var difference = (report.import_differences || []).find(function(item) {
+        return item.value_key === value.value_key ||
+          (item.account_number === value.account_number && Number(item.value_month) === Number(month) && Number(item.value_year) === Number(year));
+      });
+      if (value.manual_value == null && difference && difference.resolution_status !== 'accepted_new') {
+        var previousValue = accountingPreviousValue(reports, difference);
+        var protectsManualValue = previousValue && previousValue.manual_value != null;
+        if (previousValue && (difference.resolution_status === 'kept_previous' || difference.resolution_status === 'manual_preserved' || protectsManualValue)) chosen = previousValue;
+      }
+      selected[key] = Object.assign({}, chosen, { selected_report_id: report.id });
+    });
+  });
+  return Object.keys(selected).map(function(key) { return selected[key]; });
+}
+
+function accountingAccountSum(values, predicate) {
+  var matched = (values || []).filter(predicate).map(accountingEffectiveNumber).filter(function(value) { return value !== null; });
+  return matched.length ? matched.reduce(function(sum, value) { return sum + value; }, 0) : null;
+}
+
+function accountingRatio(numerator, denominator) {
+  if (numerator == null || denominator == null || Number(denominator) === 0) return null;
+  return Number(numerator) / Number(denominator) * 100;
+}
+
+function accountingMonthlyMetrics(reports, year, month) {
+  var values = canonicalAccountingMonthlyValues(reports, year, month);
+  var inRange = function(from, to) { return function(value) { var account = Number(value.account_number); return account >= from && account <= to; }; };
+  var revenue = accountingAccountSum(values, inRange(4000, 4799));
+  var goods = accountingAccountSum(values, inRange(5000, 5199));
+  var material = accountingAccountSum(values, inRange(5200, 5699));
+  var services = accountingAccountSum(values, inRange(5700, 5799));
+  var personnel = accountingAccountSum(values, inRange(6000, 6799));
+  var otherFixed = accountingAccountSum(values, function(value) {
+    var account = Number(value.account_number);
+    var effective = accountingEffectiveNumber(value);
+    return account >= 7000 && account <= 8999 && effective != null && effective < 0;
+  });
+  var result = accountingAccountSum(values, inRange(4000, 8999));
+  var variableComplete = revenue != null && material != null && goods != null && services != null;
+  var contributionMargin1 = variableComplete ? revenue + material + goods + services : null;
+  var variableCosts = variableComplete ? Math.abs(material) + Math.abs(goods) + Math.abs(services) : null;
+  return {
+    year: Number(year), month: Number(month), values: values,
+    revenue: revenue, material: material, goods: goods, services: services, personnel: personnel,
+    contribution_margin_1: contributionMargin1,
+    contribution_margin_1_ratio: accountingRatio(contributionMargin1, revenue),
+    variable_costs: variableCosts,
+    material_ratio: accountingRatio(variableCosts, revenue),
+    personnel_ratio: accountingRatio(personnel == null ? null : Math.abs(personnel), revenue),
+    other_fixed_costs: otherFixed,
+    result: result,
+  };
+}
+
+function accountingMetricByKey(values, key) {
+  var value = (values || []).find(function(item) { return item.value_key === key; });
+  return accountingEffectiveNumber(value);
+}
+
+function accountingYtdMetrics(report) {
+  if (!report) return null;
+  var cumulative = report.cumulative_metrics || [];
+  var snapshots = report.snapshot_metrics || [];
+  var taxes = report.tax_values || [];
+  var revenue = accountingMetricByKey(cumulative, 'revenue');
+  var material = accountingMetricByKey(cumulative, 'material_consumption');
+  var goods = accountingMetricByKey(cumulative, 'cost_of_goods');
+  var services = accountingMetricByKey(cumulative, 'external_services');
+  var personnel = accountingMetricByKey(cumulative, 'personnel_expenses');
+  var bank = accountingMetricByKey(snapshots, 'bank_total');
+  var cash = accountingMetricByKey(snapshots, 'cash');
+  var variableCosts = [material, goods, services].every(function(value) { return value != null; })
+    ? Math.abs(material) + Math.abs(goods) + Math.abs(services) : null;
+  return {
+    revenue: revenue, material: material, goods: goods, services: services,
+    contribution_margin_1: accountingMetricByKey(cumulative, 'contribution_margin_1'),
+    personnel: personnel,
+    contribution_margin_2: accountingMetricByKey(cumulative, 'contribution_margin_2'),
+    ebitda: accountingMetricByKey(cumulative, 'ebitda'),
+    ebit: accountingMetricByKey(cumulative, 'ebit'),
+    ebt: accountingMetricByKey(cumulative, 'ebt'),
+    result: accountingMetricByKey(cumulative, 'annual_result'),
+    bank: bank, cash: cash, liquidity: bank != null && cash != null ? bank + cash : null,
+    receivables: accountingMetricByKey(snapshots, 'receivables'),
+    payables: accountingMetricByKey(snapshots, 'payables'),
+    tax_payable: accountingMetricByKey(taxes, 'payable'),
+    contribution_margin_1_ratio: accountingRatio(accountingMetricByKey(cumulative, 'contribution_margin_1'), revenue),
+    material_ratio: accountingRatio(variableCosts, revenue),
+    personnel_ratio: accountingRatio(personnel == null ? null : Math.abs(personnel), revenue),
+    receivables_ratio: accountingRatio(accountingMetricByKey(snapshots, 'receivables'), revenue),
+  };
+}
+
+function accountingMovingAverage(values, count) {
+  if (!Array.isArray(values) || values.length < count) return null;
+  var selected = values.slice(values.length - count);
+  if (selected.some(function(value) { return value == null; })) return null;
+  return selected.reduce(function(sum, value) { return sum + value; }, 0) / count;
+}
+
+function accountingEstimatedBreakEven(monthly) {
+  if (!monthly || monthly.revenue == null || monthly.contribution_margin_1 == null || monthly.personnel == null || monthly.other_fixed_costs == null) return null;
+  var margin = monthly.contribution_margin_1 / monthly.revenue;
+  if (!Number.isFinite(margin) || margin <= 0) return null;
+  var fixedCosts = Math.abs(monthly.personnel) + Math.abs(monthly.other_fixed_costs);
+  return { value: fixedCosts / margin, fixed_costs: fixedCosts, margin: margin };
+}
+
+function updateAccountingPeriodInfo() {
+  var monthEl = document.getElementById('accounting-report-month');
+  var yearEl = document.getElementById('accounting-report-year');
+  var info = document.getElementById('accounting-period-info');
+  if (!monthEl || !yearEl || !info) return;
+  info.textContent = 'Erwarteter kumulierter PDF-Zeitraum: Jänner ' + yearEl.value + ' bis ' + ACCOUNTING_MONTHS[Number(monthEl.value) - 1] + ' ' + yearEl.value + '.';
+  updateAccountingExistingReportNotice();
+}
+
+function updateAccountingExistingReportNotice() {
+  var notice = document.getElementById('accounting-existing-report-notice');
+  var monthEl = document.getElementById('accounting-report-month');
+  var yearEl = document.getElementById('accounting-report-year');
+  if (!notice || !monthEl || !yearEl) return null;
+  var editEl = document.getElementById('accounting-edit-id');
+  var existing = findAccountingReport(ACCOUNTING_REPORT_TYPE, Number(monthEl.value), Number(yearEl.value), editEl && editEl.value ? editEl.value : null);
+  if (!existing) {
+    notice.style.display = 'none';
+    notice.textContent = '';
+    return null;
+  }
+  notice.textContent = 'Für ' + ACCOUNTING_MONTHS[Number(monthEl.value) - 1] + ' ' + yearEl.value + ' ist bereits ein Buchhaltungsbericht vorhanden.';
+  notice.style.display = 'flex';
+  return existing;
+}
+
+function accountingReportPdfBlob(storedPdf, fileType) {
+  var stored = String(storedPdf || '');
+  if (!stored) throw new Error('PDF-Daten fehlen.');
+  var encoded = stored;
+  var type = fileType || 'application/pdf';
+  var dataMatch = stored.match(/^data:([^;,]+)?(?:;charset=[^;,]+)?;base64,([\s\S]*)$/);
+  if (dataMatch) {
+    type = dataMatch[1] || type;
+    encoded = dataMatch[2];
+  }
+  var binary = atob(encoded.replace(/\s/g, ''));
+  var bytes = new Uint8Array(binary.length);
+  for (var index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: type === 'application/pdf' ? type : 'application/pdf' });
+}
+
+function openAccountingReportPdf(reportOrId) {
+  var report = typeof reportOrId === 'string'
+    ? (getDB().accounting_reports || []).find(function(item) { return item.id === reportOrId; })
+    : reportOrId;
+  if (!report || !report.original_file_b64) {
+    alert('Für diesen Buchhaltungsbericht ist keine Original-PDF gespeichert.');
+    return false;
+  }
+  try {
+    var blob = accountingReportPdfBlob(report.original_file_b64, report.original_file_type);
+    var blobUrl = URL.createObjectURL(blob);
+    var opened = window.open(blobUrl, '_blank');
+    if (!opened) {
+      URL.revokeObjectURL(blobUrl);
+      alert('Die PDF konnte nicht geöffnet werden.');
+      return false;
+    }
+    setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 60000);
+    return true;
+  } catch (error) {
+    alert('Die PDF konnte nicht geöffnet werden.');
+    return false;
+  }
+}
+
+function renderAccountingReports() {
+  var el = document.getElementById('accounting-report-list');
+  if (!el) return;
+  var reports = (getDB().accounting_reports || []).slice().sort(function(a, b) {
+    return Number(b.report_year) - Number(a.report_year) || Number(b.report_month) - Number(a.report_month) || String(b.imported_at).localeCompare(String(a.imported_at));
+  });
+  if (!reports.length) {
+    el.innerHTML = '<div class="empty">Noch keine Monatsreports importiert.</div>';
+    return;
+  }
+  el.innerHTML = '<table><thead><tr><th>Berichtsmonat</th><th>Berichtsart</th><th>Status</th><th>Original</th><th></th></tr></thead><tbody>' +
+    reports.map(function(report) {
+      var warning = report.validation_status === 'mismatch' ? '<div style="font-size:11px;color:var(--warn);margin-top:3px">' + esc(report.validation_message || '') + '</div>' : '';
+      var missing = (report.cumulative_metrics || []).concat(report.snapshot_metrics || [], report.tax_values || []).filter(function(value) { return value.status === 'missing'; }).length;
+      var parseLabel = report.parse_status === 'parsed' ? 'ausgelesen' :
+        (report.parse_status === 'failed' ? 'Auswertung fehlgeschlagen' : (report.parse_status === 'warning' ? 'keine Monatswerte' : 'importiert'));
+      var parseClass = report.parse_status === 'failed' ? 'red' : (report.parse_status === 'warning' || missing ? 'amber' : 'green');
+      return '<tr><td>' + esc(accountingReportPeriodLabel(report)) + warning + '</td>' +
+        '<td>' + ACCOUNTING_REPORT_LABEL + '</td><td><span class="badge ' + parseClass + '">' + parseLabel + '</span>' + (missing ? '<div style="font-size:10px;color:var(--t3);margin-top:3px">' + missing + ' Werte nicht erkannt</div>' : '') + '</td>' +
+        '<td><button class="btn accounting-open" data-id="' + esc(report.id) + '">PDF öffnen</button></td>' +
+        '<td><button class="btn accounting-values" data-id="' + esc(report.id) + '">Werte anzeigen</button> <button class="btn accounting-edit" data-id="' + esc(report.id) + '">Bearbeiten</button></td></tr>';
+    }).join('') + '</tbody></table>';
+  el.querySelectorAll('.accounting-open').forEach(function(button) {
+    button.addEventListener('click', function() { openAccountingReportPdf(this.dataset.id); });
+  });
+  el.querySelectorAll('.accounting-edit').forEach(function(button) {
+    button.addEventListener('click', function() {
+      var report = (getDB().accounting_reports || []).find(function(item) { return item.id === button.dataset.id; });
+      if (report) openAccountingReportForm(report);
+    });
+  });
+  el.querySelectorAll('.accounting-values').forEach(function(button) {
+    button.addEventListener('click', function() { showAccountingReportDetails(this.dataset.id); });
+  });
+}
+
+function accountingValueText(value) {
+  if (!value || value.effective_value == null) return '<span style="color:var(--t3)">nicht erkannt</span>';
+  return esc(fmt(value.effective_value));
+}
+
+function accountingMetricsTable(title, values) {
+  var rows = (values || []).map(function(value) {
+    return '<tr><td>' + esc(value.source_label || value.value_key || '') + '</td><td>' + accountingValueText(value) + '</td><td><span class="badge ' + (value.status === 'missing' ? 'gray' : value.status === 'uncertain' ? 'amber' : 'green') + '">' + esc(value.status || 'detected') + '</span></td></tr>';
+  }).join('');
+  return '<div style="margin-top:1rem"><h3>' + esc(title) + '</h3><table><thead><tr><th>Wert</th><th>Betrag</th><th>Status</th></tr></thead><tbody>' + (rows || '<tr><td colspan="3" class="empty">Keine Werte</td></tr>') + '</tbody></table></div>';
+}
+
+function accountingMoney(value) {
+  return value == null || !Number.isFinite(Number(value)) ? '—' : fmt(Number(value));
+}
+
+function accountingValueRows(report, scope, values) {
+  var source = report[scope] || [];
+  var indexes = new Map(source.map(function(value, index) { return [value, index]; }));
+  return (values || []).map(function(value) {
+    var index = indexes.get(value);
+    var effective = accountingEffectiveNumber(value);
+    var changed = value.manual_value != null;
+    var status = changed ? 'manuell geändert' : (value.status === 'missing' || value.detected_value == null ? 'nicht erkannt' : 'automatisch erkannt');
+    var statusClass = changed ? 'amber' : (value.detected_value == null ? 'gray' : 'green');
+    return '<tr><td>' + esc(value.source_label || value.account_name || value.value_key || '') + '</td>' +
+      '<td class="mono">' + esc(accountingMoney(value.detected_value)) + '</td>' +
+      '<td><input class="accounting-value-input" data-scope="' + esc(scope) + '" data-index="' + index + '" value="' + esc(effective == null ? '' : fmtAmt(effective)) + '" inputmode="decimal"></td>' +
+      '<td><span class="badge ' + statusClass + '">' + status + '</span></td>' +
+      '<td><div class="accounting-value-actions"><button class="btn accounting-value-save" data-scope="' + esc(scope) + '" data-index="' + index + '">Speichern</button>' +
+      (changed ? '<button class="btn accounting-value-reset" data-scope="' + esc(scope) + '" data-index="' + index + '">PDF-Wert wiederherstellen</button>' : '') + '</div></td></tr>';
+  }).join('');
+}
+
+function accountingEditableSection(report, title, scope, values, open) {
+  if (!values || !values.length) return '';
+  return '<details class="accounting-section" ' + (open ? 'open' : '') + '><summary><span>' + esc(title) + '</span><span>' + values.length + ' Werte</span></summary>' +
+    '<div class="accounting-value-table"><table><thead><tr><th>Bezeichnung</th><th>PDF-Wert</th><th>Verwendeter Wert</th><th>Status</th><th></th></tr></thead><tbody>' +
+    accountingValueRows(report, scope, values) + '</tbody></table></div></details>';
+}
+
+function accountingValuesByKeys(values, keys) {
+  return (values || []).filter(function(value) { return keys.includes(value.value_key); });
+}
+
+function accountingAccountGroup(value) {
+  var account = Number(value.account_number);
+  if (account >= 4000 && account <= 4999) return 'Erfolg / Erlöse';
+  if (account >= 5000 && account <= 5999) return 'Material / Wareneinsatz / Fremdleistungen';
+  if (account >= 6000 && account <= 6999) return 'Personal';
+  if (account >= 7000 && account <= 8999) return 'Sonstige Kosten / Ergebnis';
+  return 'Weitere Konten';
+}
+
+function accountingShowMessage(message, type) {
+  var el = document.getElementById('accounting-data-message');
+  if (!el) return;
+  el.innerHTML = message ? '<div class="alert ' + (type || 'success') + '">' + esc(message) + '</div>' : '';
+}
+
+async function saveAccountingManualValue(reportId, scope, index, rawValue) {
+  var report = (getDB().accounting_reports || []).find(function(item) { return item.id === reportId; });
+  if (!report || !Array.isArray(report[scope]) || !report[scope][index]) throw new Error('Der Buchhaltungswert wurde nicht gefunden.');
+  var manualValue = parseAccountingManualInput(rawValue);
+  if (manualValue == null) throw new Error('Bitte geben Sie einen gültigen Betrag ein.');
+  var values = report[scope].slice();
+  var previous = values[index];
+  values[index] = accountingValueWithManual(previous, manualValue);
+  var corrections = (report.manual_corrections || []).slice();
+  corrections.push({
+    id: uid(), value_scope: scope, value_id: previous.id || previous.value_key || (scope + ':' + index), value_key: previous.value_key,
+    detected_value: previous.detected_value == null ? null : String(previous.detected_value),
+    previous_manual_value: previous.manual_value == null ? null : String(previous.manual_value),
+    manual_value: String(manualValue), changed_at: new Date().toISOString(), note: 'Manuelle Änderung in Buchhaltungsdaten',
+  });
+  return persistAccountingReportUpdate(Object.assign({}, report, { [scope]: values, manual_corrections: corrections }), {
+    preserveManualValues: false, rebuildImportDifferences: false,
+  });
+}
+
+async function restoreAccountingPdfValue(reportId, scope, index) {
+  var report = (getDB().accounting_reports || []).find(function(item) { return item.id === reportId; });
+  if (!report || !Array.isArray(report[scope]) || !report[scope][index]) throw new Error('Der Buchhaltungswert wurde nicht gefunden.');
+  var values = report[scope].slice();
+  var previous = values[index];
+  values[index] = accountingValueWithManual(previous, null);
+  var corrections = (report.manual_corrections || []).slice();
+  corrections.push({
+    id: uid(), value_scope: scope, value_id: previous.id || previous.value_key || (scope + ':' + index), value_key: previous.value_key,
+    detected_value: previous.detected_value == null ? null : String(previous.detected_value),
+    previous_manual_value: previous.manual_value == null ? null : String(previous.manual_value),
+    manual_value: null, changed_at: new Date().toISOString(), note: 'PDF-Wert wiederhergestellt',
+  });
+  return persistAccountingReportUpdate(Object.assign({}, report, { [scope]: values, manual_corrections: corrections }), {
+    preserveManualValues: false, rebuildImportDifferences: false,
+  });
+}
+
+async function resolveAccountingDifference(reportId, differenceIndex, resolution) {
+  var reports = getDB().accounting_reports || [];
+  var report = reports.find(function(item) { return item.id === reportId; });
+  if (!report || !report.import_differences || !report.import_differences[differenceIndex]) throw new Error('Die Importänderung wurde nicht gefunden.');
+  var differences = report.import_differences.slice();
+  differences[differenceIndex] = Object.assign({}, differences[differenceIndex], { resolution_status: resolution });
+  return persistAccountingReportUpdate(Object.assign({}, report, { import_differences: differences }), {
+    preserveManualValues: false, rebuildImportDifferences: false,
+  });
+}
+
+async function acceptAllUnprotectedAccountingDifferences(reportId) {
+  var reports = getDB().accounting_reports || [];
+  var report = reports.find(function(item) { return item.id === reportId; });
+  if (!report) throw new Error('Der Buchhaltungsreport wurde nicht gefunden.');
+  var differences = (report.import_differences || []).map(function(difference) {
+    var previous = accountingPreviousValue(reports, difference);
+    if (previous && previous.manual_value != null) return Object.assign({}, difference, { resolution_status: 'manual_preserved' });
+    return Object.assign({}, difference, { resolution_status: 'accepted_new' });
+  });
+  return persistAccountingReportUpdate(Object.assign({}, report, { import_differences: differences }), {
+    preserveManualValues: false, rebuildImportDifferences: false,
+  });
+}
+
+function renderAccountingImportChanges(report) {
+  var el = document.getElementById('accounting-import-changes');
+  if (!el) return;
+  var differences = report ? (report.import_differences || []) : [];
+  if (!differences.length) { el.innerHTML = ''; return; }
+  var reports = getDB().accounting_reports || [];
+  var rows = differences.map(function(difference, index) {
+    var previous = accountingPreviousValue(reports, difference);
+    var previousValue = previous ? accountingEffectiveNumber(previous) : difference.previous_detected_value;
+    var manualProtected = previous && previous.manual_value != null;
+    var labels = { pending: 'offen', accepted_new: 'neuer Wert übernommen', kept_previous: 'alter Wert behalten', manual_preserved: 'manueller Wert geschützt' };
+    return '<tr><td>' + esc(ACCOUNTING_MONTHS[Number(difference.value_month) - 1] + ' ' + difference.value_year) + '</td>' +
+      '<td>' + esc((difference.account_number || '') + ' ' + ((previous && previous.account_name) || '')) + '</td>' +
+      '<td class="mono">' + esc(accountingMoney(previousValue)) + (manualProtected ? '<div><span class="badge amber">manuell geschützt</span></div>' : '') + '</td>' +
+      '<td class="mono">' + esc(accountingMoney(difference.new_detected_value)) + '</td>' +
+      '<td><span class="badge ' + (difference.resolution_status === 'pending' ? 'amber' : 'blue') + '">' + esc(labels[difference.resolution_status] || difference.resolution_status) + '</span></td>' +
+      '<td><div class="accounting-diff-actions"><button class="btn accounting-diff-new" data-index="' + index + '">Neuen Wert übernehmen</button><button class="btn accounting-diff-old" data-index="' + index + '">Alten Wert behalten</button></div></td></tr>';
+  }).join('');
+  el.innerHTML = '<div class="card"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">Änderungen gegenüber bisherigen Reports</h3><button class="btn" id="accounting-diff-accept-all">Alle nicht manuell geänderten Werte übernehmen</button></div>' +
+    '<div class="accounting-value-table" style="margin-top:12px"><table><thead><tr><th>Monat</th><th>Konto</th><th>Bisher</th><th>Neuer Report</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+  el.querySelectorAll('.accounting-diff-new').forEach(function(button) { button.onclick = async function() { try { await resolveAccountingDifference(report.id, Number(this.dataset.index), 'accepted_new'); renderAccountingDataView(); renderAccountingKpis(); } catch (error) { accountingShowMessage(error.message, 'danger'); } }; });
+  el.querySelectorAll('.accounting-diff-old').forEach(function(button) { button.onclick = async function() { try { await resolveAccountingDifference(report.id, Number(this.dataset.index), 'kept_previous'); renderAccountingDataView(); renderAccountingKpis(); } catch (error) { accountingShowMessage(error.message, 'danger'); } }; });
+  document.getElementById('accounting-diff-accept-all').onclick = async function() { try { await acceptAllUnprotectedAccountingDifferences(report.id); renderAccountingDataView(); renderAccountingKpis(); } catch (error) { accountingShowMessage(error.message, 'danger'); } };
+}
+
+function renderAccountingDataView() {
+  var monthEl = document.getElementById('accounting-view-month');
+  var yearEl = document.getElementById('accounting-view-year');
+  var overview = document.getElementById('accounting-report-overview');
+  var panel = document.getElementById('accounting-values-panel');
+  if (!monthEl || !yearEl || !overview || !panel) return;
+  var report = accountingReportForPeriod(Number(yearEl.value), Number(monthEl.value));
+  if (!report) {
+    overview.innerHTML = '<div class="card empty">Für ' + esc(ACCOUNTING_MONTHS[Number(monthEl.value) - 1] + ' ' + yearEl.value) + ' ist kein Steuerberaterreport vorhanden.</div>';
+    panel.innerHTML = '';
+    renderAccountingImportChanges(null);
+    return;
+  }
+  var periodFrom = ACCOUNTING_MONTHS[Number(report.detected_period_from_month || report.period_from_month || 1) - 1];
+  var periodTo = ACCOUNTING_MONTHS[Number(report.detected_period_to_month || report.period_to_month || report.report_month) - 1];
+  var parserLabels = { parsed: 'ausgelesen', warning: 'keine Monatswerte', failed: 'Auswertung fehlgeschlagen', pending: 'noch nicht ausgewertet' };
+  overview.innerHTML = '<div class="card"><div class="accounting-overview">' +
+    '<div class="accounting-overview-item"><span>Reporttyp</span><strong>Finanzbuchhaltung Monatsreport</strong></div>' +
+    '<div class="accounting-overview-item"><span>Berichtsmonat</span><strong>' + esc(accountingReportPeriodLabel(report)) + '</strong></div>' +
+    '<div class="accounting-overview-item"><span>Berichtszeitraum</span><strong>' + esc(periodFrom + '–' + periodTo + ' ' + report.report_year) + '</strong></div>' +
+    '<div class="accounting-overview-item"><span>Importdatum</span><strong>' + esc(new Date(report.imported_at).toLocaleString('de-AT')) + '</strong></div>' +
+    '<div class="accounting-overview-item"><span>Parserstatus</span><strong>' + esc(parserLabels[report.parse_status] || report.parse_status) + '</strong></div>' +
+    '<div class="accounting-overview-item"><span>Original</span><button class="btn" id="accounting-selected-open">PDF öffnen</button></div>' +
+    '</div></div>';
+  document.getElementById('accounting-selected-open').onclick = function() { openAccountingReportPdf(report); };
+
+  var cumulative = report.cumulative_metrics || [];
+  var snapshots = report.snapshot_metrics || [];
+  var taxes = report.tax_values || [];
+  var openItems = report.open_items || [];
+  var detailMonth = Number(panel.dataset.detailMonth || report.report_month);
+  if (detailMonth < 1 || detailMonth > Number(report.period_to_month || report.report_month)) detailMonth = Number(report.report_month);
+  panel.dataset.detailMonth = String(detailMonth);
+  var monthly = (report.monthly_values || []).filter(function(value) { return Number(value.value_month) === detailMonth && Number(value.value_year) === Number(report.report_year); });
+  var accountGroups = {};
+  monthly.forEach(function(value) { var group = accountingAccountGroup(value); if (!accountGroups[group]) accountGroups[group] = []; accountGroups[group].push(value); });
+  var accountSections = Object.keys(accountGroups).map(function(group) {
+    accountGroups[group].sort(function(a, b) { return String(a.account_number).localeCompare(String(b.account_number)); });
+    return accountingEditableSection(report, group, 'monthly_values', accountGroups[group], false);
+  }).join('');
+  var monthOptions = [];
+  for (var month = 1; month <= Number(report.period_to_month || report.report_month); month += 1) monthOptions.push('<option value="' + month + '" ' + (month === detailMonth ? 'selected' : '') + '>' + ACCOUNTING_MONTHS[month - 1] + ' ' + report.report_year + '</option>');
+  panel.innerHTML = '<div class="card"><h3>Erkannte und verwendete Werte</h3><div class="accounting-period-note">PDF-Wert und manueller Wert bleiben getrennt gespeichert. Kennzahlen verwenden ausschließlich den verwendeten Wert.</div>' +
+    accountingEditableSection(report, 'A. Erfolg', 'cumulative_metrics', accountingValuesByKeys(cumulative, ['revenue','operating_output','contribution_margin_1','contribution_margin_2','ebitda','ebit','ebt','annual_result']), true) +
+    accountingEditableSection(report, 'B. Personal', 'cumulative_metrics', accountingValuesByKeys(cumulative, ['personnel_expenses']), false) +
+    accountingEditableSection(report, 'C. Material / Wareneinsatz', 'cumulative_metrics', accountingValuesByKeys(cumulative, ['material_consumption','cost_of_goods','external_services']), false) +
+    accountingEditableSection(report, 'D. Sonstige Kosten und Erträge', 'cumulative_metrics', accountingValuesByKeys(cumulative, ['other_operating_income','other_operating_expenses','depreciation','income_taxes']), false) +
+    accountingEditableSection(report, 'E. Bilanz- / Liquiditätswerte', 'snapshot_metrics', accountingValuesByKeys(snapshots, ['bank_total','cash','vat_payable_balance']), false) +
+    accountingEditableSection(report, 'F. Forderungen / Verbindlichkeiten', 'snapshot_metrics', accountingValuesByKeys(snapshots, ['receivables','payables']), false) +
+    accountingEditableSection(report, 'F. Offene Posten', 'open_items', openItems, false) +
+    accountingEditableSection(report, 'G. Umsatzsteuer', 'tax_values', taxes, false) +
+    '<details class="accounting-section"><summary><span>H. Kontendetails</span><span>' + monthly.length + ' Konten</span></summary><div style="padding:12px 14px 0"><label style="font:12px sans-serif;color:var(--t2)">Kontenmonat <select id="accounting-detail-month" style="margin-left:8px;padding:6px 8px;border:1px solid #ddd;border-radius:7px">' + monthOptions.join('') + '</select></label></div>' + accountSections + '</details></div>';
+  var detailSelect = document.getElementById('accounting-detail-month');
+  if (detailSelect) detailSelect.onchange = function() { panel.dataset.detailMonth = this.value; renderAccountingDataView(); };
+  panel.querySelectorAll('.accounting-value-save').forEach(function(button) {
+    button.onclick = async function() {
+      try {
+        var input = panel.querySelector('.accounting-value-input[data-scope="' + this.dataset.scope + '"][data-index="' + this.dataset.index + '"]');
+        await saveAccountingManualValue(report.id, this.dataset.scope, Number(this.dataset.index), input.value);
+        accountingShowMessage('Manueller Wert gespeichert.', 'success'); renderAccountingDataView(); renderAccountingKpis();
+      } catch (error) { accountingShowMessage(error.message, 'danger'); }
+    };
+  });
+  panel.querySelectorAll('.accounting-value-reset').forEach(function(button) {
+    button.onclick = async function() { try { await restoreAccountingPdfValue(report.id, this.dataset.scope, Number(this.dataset.index)); accountingShowMessage('PDF-Wert wiederhergestellt.', 'success'); renderAccountingDataView(); renderAccountingKpis(); } catch (error) { accountingShowMessage(error.message, 'danger'); } };
+  });
+  renderAccountingImportChanges(report);
+}
+
+function showAccountingReportDetails(reportId) {
+  var report = (getDB().accounting_reports || []).find(function(item) { return item.id === reportId; });
+  if (!report) return;
+  document.getElementById('accounting-view-month').value = String(report.report_month);
+  document.getElementById('accounting-view-year').value = String(report.report_year);
+  renderAccountingDataView();
+  document.getElementById('accounting-report-overview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function openAccountingReportForm(report) {
+  var card = document.getElementById('accounting-upload-card');
+  if (!card) return;
+  var now = new Date();
+  document.getElementById('accounting-edit-id').value = report ? report.id : '';
+  document.getElementById('accounting-report-type').value = report ? report.report_type : ACCOUNTING_REPORT_TYPE;
+  document.getElementById('accounting-report-month').value = String(report ? report.report_month : now.getMonth() + 1);
+  document.getElementById('accounting-report-year').value = String(report ? report.report_year : now.getFullYear());
+  document.getElementById('accounting-report-file').value = '';
+  document.getElementById('accounting-file-info').textContent = report ? 'Gespeichert: ' + report.original_file_name + ' (leer lassen, um das Original beizubehalten)' : '';
+  document.getElementById('accounting-form-title').textContent = report ? 'Monatsreport bearbeiten' : 'Monatsreport hochladen';
+  document.getElementById('accounting-form-error').style.display = 'none';
+  document.getElementById('accounting-duplicate-warning').style.display = 'none';
+  _accountingDuplicateUpload = null;
+  updateAccountingPeriodInfo();
+  card.style.display = 'block';
+}
+
+function closeAccountingReportForm() {
+  var card = document.getElementById('accounting-upload-card');
+  if (card) card.style.display = 'none';
+  _accountingDuplicateUpload = null;
+}
+
+function readAccountingReportFile(file) {
+  return new Promise(function(resolve, reject) {
+    if (!file) { resolve(null); return; }
+    if (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name || '')) {
+      reject(new Error('Bitte wählen Sie eine PDF-Datei aus.'));
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(event) {
+      resolve({ original_file_b64: event.target.result, original_file_name: file.name, original_file_type: 'application/pdf' });
+    };
+    reader.onerror = function() { reject(new Error('Die PDF-Datei konnte nicht gelesen werden.')); };
+    reader.readAsDataURL(file);
+  });
+}
+
+function normaliseAccountingExtractionResult(result) {
+  if (!result || result.ok !== true) {
+    var errorMessage = result && result.error ? result.error : 'Unbekannter Fehler bei der PDF-Auswertung.';
+    return {
+      ok: false,
+      message: 'PDF-Auswertung fehlgeschlagen: ' + errorMessage,
+      parsed: {
+        parse_status: 'failed', parser_version: null, monthly_values: [], cumulative_metrics: [],
+        snapshot_metrics: [], tax_values: [], open_items: [], detected_values: [],
+      },
+    };
+  }
+  var parsed = Object.assign({}, result.parsed || {});
+  var monthlyCount = Array.isArray(parsed.monthly_values) ? parsed.monthly_values.length : 0;
+  if (monthlyCount === 0) {
+    parsed.parse_status = 'warning';
+    return {
+      ok: true,
+      warning: true,
+      message: 'Die PDF konnte gelesen werden, aber es wurden keine Monatswerte erkannt.',
+      parsed: parsed,
+      pages: result.pages,
+    };
+  }
+  parsed.parse_status = 'parsed';
+  return {
+    ok: true,
+    warning: false,
+    message: 'PDF ausgewertet – ' + monthlyCount + ' Monats-/Kontenwerte erkannt.',
+    parsed: parsed,
+    pages: result.pages,
+  };
+}
+
+async function extractAccountingReport(originalFileB64) {
+  try {
+    var result;
+    if (window.electronAPI && typeof window.electronAPI.extractAccountingReport === 'function') {
+      result = await window.electronAPI.extractAccountingReport(originalFileB64);
+    } else if (window.AccountingReportBrowser && typeof window.AccountingReportBrowser.extractAccountingReport === 'function') {
+      result = await window.AccountingReportBrowser.extractAccountingReport(originalFileB64);
+    } else {
+      result = { ok: false, error: 'Die lokale Browser-PDF-Auswertung ist nicht verfügbar.' };
+    }
+    return normaliseAccountingExtractionResult(result);
+  } catch (error) {
+    return normaliseAccountingExtractionResult({ ok: false, error: error && error.message ? error.message : String(error) });
+  }
+}
+
+function showAccountingDuplicate(existing, candidate) {
+  _accountingDuplicateUpload = { existing: existing, candidate: candidate };
+  document.getElementById('accounting-duplicate-message').textContent = 'Für ' + accountingReportPeriodLabel(candidate) + ' ist bereits ein Buchhaltungsbericht vorhanden. Möchten Sie den bestehenden Bericht aktualisieren?';
+  document.getElementById('accounting-duplicate-warning').style.display = 'flex';
+}
+
+async function saveAccountingReportForm() {
+  var errorEl = document.getElementById('accounting-form-error');
+  errorEl.style.display = 'none';
+  try {
+    var editId = document.getElementById('accounting-edit-id').value;
+    var existing = editId ? (getDB().accounting_reports || []).find(function(item) { return item.id === editId; }) : null;
+    var fileInput = document.getElementById('accounting-report-file');
+    var fileData = await readAccountingReportFile(fileInput.files && fileInput.files[0]);
+    if (!fileData && !existing) throw new Error('Bitte wählen Sie das Original-PDF aus.');
+    var parsedData = {};
+    if (fileData) {
+      document.getElementById('accounting-file-info').textContent = 'PDF wird lokal ausgelesen …';
+      var extraction = await extractAccountingReport(fileData.original_file_b64);
+      parsedData = extraction.parsed;
+      document.getElementById('accounting-file-info').textContent = extraction.message;
+    }
+    var candidate = normaliseAccountingReport(Object.assign({
+      id: editId || uid(),
+      report_type: document.getElementById('accounting-report-type').value,
+      report_month: Number(document.getElementById('accounting-report-month').value),
+      report_year: Number(document.getElementById('accounting-report-year').value),
+      period_from_month: 1,
+      period_to_month: Number(document.getElementById('accounting-report-month').value),
+      parse_status: 'pending',
+      parser_version: null,
+    }, existing || {}, fileData || {}, parsedData, {
+      report_type: document.getElementById('accounting-report-type').value,
+      report_month: Number(document.getElementById('accounting-report-month').value),
+      report_year: Number(document.getElementById('accounting-report-year').value),
+      period_from_month: 1,
+      period_to_month: Number(document.getElementById('accounting-report-month').value),
+    }));
+    var duplicate = findAccountingReport(candidate.report_type, candidate.report_month, candidate.report_year, editId || null);
+    if (duplicate) {
+      showAccountingDuplicate(duplicate, candidate);
+      return null;
+    }
+    var saved = existing ? await persistAccountingReportUpdate(candidate) : await persistAccountingReportCreate(candidate);
+    renderAccountingReports();
+    var viewMonth = document.getElementById('accounting-view-month');
+    var viewYear = document.getElementById('accounting-view-year');
+    if (viewMonth) viewMonth.value = String(saved.report_month);
+    if (viewYear) viewYear.value = String(saved.report_year);
+    renderAccountingDataView();
+    renderAccountingKpis();
+    closeAccountingReportForm();
+    return saved;
+  } catch (error) {
+    errorEl.textContent = error && error.message ? error.message : String(error);
+    errorEl.style.display = 'flex';
+    return null;
+  }
+}
+
+async function replaceDuplicateAccountingReport() {
+  if (!_accountingDuplicateUpload) return;
+  var state = _accountingDuplicateUpload;
+  try {
+    var replacement = Object.assign({}, state.candidate, { id: state.existing.id, imported_at: new Date().toISOString() });
+    await persistAccountingReportUpdate(replacement);
+    renderAccountingReports();
+    renderAccountingDataView();
+    renderAccountingKpis();
+    closeAccountingReportForm();
+  } catch (error) {
+    var errorEl = document.getElementById('accounting-form-error');
+    errorEl.textContent = error && error.message ? error.message : String(error);
+    errorEl.style.display = 'flex';
+  }
+}
+
+function initAccountingReportsPage() {
+  var monthEl = document.getElementById('accounting-report-month');
+  var yearEl = document.getElementById('accounting-report-year');
+  var viewMonthEl = document.getElementById('accounting-view-month');
+  var viewYearEl = document.getElementById('accounting-view-year');
+  if (!monthEl || !yearEl) return;
+  if (!monthEl.options.length) monthEl.innerHTML = ACCOUNTING_MONTHS.map(function(month, index) { return '<option value="' + (index + 1) + '">' + month + '</option>'; }).join('');
+  if (viewMonthEl && !viewMonthEl.options.length) viewMonthEl.innerHTML = ACCOUNTING_MONTHS.map(function(month, index) { return '<option value="' + (index + 1) + '">' + month + '</option>'; }).join('');
+  if (!yearEl.options.length) {
+    var years = [];
+    for (var year = new Date().getFullYear() + 5; year >= 2000; year--) years.push('<option value="' + year + '">' + year + '</option>');
+    yearEl.innerHTML = years.join('');
+    if (viewYearEl) viewYearEl.innerHTML = years.join('');
+  }
+  if (viewMonthEl && viewYearEl && !viewMonthEl.dataset.initialized) {
+    var latest = (getDB().accounting_reports || []).slice().sort(function(a, b) { return Number(b.report_year) - Number(a.report_year) || Number(b.report_month) - Number(a.report_month); })[0];
+    viewMonthEl.value = String(latest ? latest.report_month : new Date().getMonth() + 1);
+    viewYearEl.value = String(latest ? latest.report_year : new Date().getFullYear());
+    viewMonthEl.dataset.initialized = '1';
+  }
+  if (!_accountingUiWired) {
+    document.getElementById('btn-accounting-upload').addEventListener('click', function() { openAccountingReportForm(null); });
+    document.getElementById('accounting-form-cancel').addEventListener('click', closeAccountingReportForm);
+    document.getElementById('accounting-form-save').addEventListener('click', function() { saveAccountingReportForm(); });
+    document.getElementById('accounting-report-month').addEventListener('change', updateAccountingPeriodInfo);
+    document.getElementById('accounting-report-year').addEventListener('change', updateAccountingPeriodInfo);
+    document.getElementById('accounting-duplicate-open').addEventListener('click', function() { if (_accountingDuplicateUpload) openAccountingReportPdf(_accountingDuplicateUpload.existing); });
+    document.getElementById('accounting-duplicate-cancel').addEventListener('click', closeAccountingReportForm);
+    document.getElementById('accounting-duplicate-replace').addEventListener('click', function() { replaceDuplicateAccountingReport(); });
+    if (viewMonthEl) viewMonthEl.addEventListener('change', renderAccountingDataView);
+    if (viewYearEl) viewYearEl.addEventListener('change', renderAccountingDataView);
+    _accountingUiWired = true;
+  }
+  renderAccountingReports();
+  renderAccountingDataView();
+}
+
+function accountingPercent(value) {
+  return value == null || !Number.isFinite(Number(value)) ? '—' : new Intl.NumberFormat('de-AT', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value) + ' %';
+}
+
+function accountingKpiCard(label, value, sub, type, percent) {
+  return '<div class="metric ' + (type || '') + '"><div class="lbl">' + esc(label) + '</div><div class="val">' + esc(percent ? accountingPercent(value) : accountingMoney(value)) + '</div><div class="sub">' + esc(sub || '') + '</div></div>';
+}
+
+function accountingMonthSequence(year, month, count) {
+  var sequence = [];
+  var date = new Date(Date.UTC(Number(year), Number(month) - 1, 1));
+  for (var index = count - 1; index >= 0; index -= 1) {
+    var item = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - index, 1));
+    sequence.push({ year: item.getUTCFullYear(), month: item.getUTCMonth() + 1 });
+  }
+  return sequence;
+}
+
+function accountingComparisonRows(reports, year, month, ytd) {
+  var periods = accountingMonthSequence(year, month, 6);
+  var metrics = periods.map(function(period) { return accountingMonthlyMetrics(reports, period.year, period.month); });
+  var definitions = [
+    ['Umsatz', 'revenue', ytd && ytd.revenue, false],
+    ['Variable Kosten', 'variable_costs', ytd && [ytd.material, ytd.goods, ytd.services].every(function(value) { return value != null; }) ? Math.abs(ytd.material) + Math.abs(ytd.goods) + Math.abs(ytd.services) : null, false],
+    ['Personalaufwand', 'personnel', ytd && ytd.personnel != null ? Math.abs(ytd.personnel) : null, true],
+    ['Ergebnis (Kontenklassen 4–8)', 'result', ytd && ytd.result, false],
+  ];
+  return definitions.map(function(definition) {
+    var values = metrics.map(function(metric) {
+      var value = metric[definition[1]];
+      return definition[3] && value != null ? Math.abs(value) : value;
+    });
+    return {
+      label: definition[0], current: values[5], previous: values[4], average3: accountingMovingAverage(values, 3),
+      average6: accountingMovingAverage(values, 6), ytd: definition[2],
+    };
+  });
+}
+
+function renderAccountingChart(key, canvasId, labels, datasets) {
+  var canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  var fallback = canvas.parentElement.querySelector('.accounting-chart-fallback');
+  if (_accountingKpiCharts[key]) { _accountingKpiCharts[key].destroy(); delete _accountingKpiCharts[key]; }
+  if (typeof Chart === 'undefined') {
+    canvas.style.display = 'none';
+    if (fallback) fallback.innerHTML = '<div class="empty">Chart-Bibliothek nicht verfügbar. Die Werte stehen in den Tabellen darunter.</div>';
+    return;
+  }
+  canvas.style.display = 'block';
+  if (fallback) fallback.innerHTML = '';
+  _accountingKpiCharts[key] = new Chart(canvas, {
+    type: 'line',
+    data: { labels: labels, datasets: datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false, spanGaps: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { labels: { font: { size: 11 } } }, datalabels: { display: false } },
+      scales: { y: { ticks: { callback: function(value) { return fmtAmt(value); } } } },
+    },
+  });
+}
+
+function renderAccountingKpis() {
+  var monthEl = document.getElementById('kpi-month');
+  var yearEl = document.getElementById('kpi-year');
+  var primary = document.getElementById('kpi-primary');
+  if (!monthEl || !yearEl || !primary) return;
+  var month = Number(monthEl.value);
+  var year = Number(yearEl.value);
+  var reports = getDB().accounting_reports || [];
+  var report = accountingReportForPeriod(year, month);
+  var monthly = accountingMonthlyMetrics(reports, year, month);
+  var ytd = accountingYtdMetrics(report);
+  var status = document.getElementById('kpi-data-status');
+  if (!monthly.values.length && !report) {
+    status.innerHTML = '<div class="alert warning">Für ' + esc(ACCOUNTING_MONTHS[month - 1] + ' ' + year) + ' sind keine Buchhaltungsdaten vorhanden. Fehlende Werte werden nicht als 0 berechnet.</div>';
+  } else {
+    status.innerHTML = '<div class="alert info">Monatswerte stammen aus der Periodenübersicht. Kumulierte Werte sind ausdrücklich als Jänner–' + esc(ACCOUNTING_MONTHS[month - 1] + ' ' + year) + ' gekennzeichnet.</div>';
+  }
+  primary.innerHTML = accountingKpiCard('Umsatz', monthly.revenue, 'Monat ' + ACCOUNTING_MONTHS[month - 1] + ' ' + year, 'green') +
+    accountingKpiCard('Deckungsbeitrag I', monthly.contribution_margin_1, 'Monat, aus Kontenwerten abgeleitet', monthly.contribution_margin_1 != null && monthly.contribution_margin_1 < 0 ? 'red' : '') +
+    accountingKpiCard('DB-I-Marge', monthly.contribution_margin_1_ratio, 'Monat ' + ACCOUNTING_MONTHS[month - 1], '', true) +
+    accountingKpiCard('Personalaufwand', monthly.personnel == null ? null : Math.abs(monthly.personnel), 'Monat ' + ACCOUNTING_MONTHS[month - 1], '') +
+    accountingKpiCard('Ergebnis', monthly.result, 'Monat, Kontenklassen 4–8', monthly.result != null && monthly.result < 0 ? 'red' : 'green') +
+    accountingKpiCard('Liquide Mittel', ytd && ytd.liquidity, 'Stichtag ' + ACCOUNTING_MONTHS[month - 1] + ' ' + year, 'blue') +
+    accountingKpiCard('Forderungen', ytd && ytd.receivables, 'Stichtagswert', '') +
+    accountingKpiCard('USt-Zahllast', ytd && ytd.tax_payable, 'Berichtsmonat', 'amber');
+
+  var comparisons = accountingComparisonRows(reports, year, month, ytd);
+  document.getElementById('kpi-comparison').innerHTML = '<div class="card"><h3>Zeitvergleich – reine Monatswerte</h3><div class="accounting-value-table"><table><thead><tr><th>Kennzahl</th><th>Aktueller Monat</th><th>Vormonat</th><th>Ø 3 Monate</th><th>Ø 6 Monate</th><th>Jahr bisher</th></tr></thead><tbody>' + comparisons.map(function(row) {
+    return '<tr><td>' + esc(row.label) + '</td><td>' + esc(accountingMoney(row.current)) + '</td><td>' + esc(accountingMoney(row.previous)) + '</td><td>' + esc(accountingMoney(row.average3)) + '</td><td>' + esc(accountingMoney(row.average6)) + '</td><td>' + esc(accountingMoney(row.ytd)) + '</td></tr>';
+  }).join('') + '</tbody></table></div><div class="accounting-kpi-note" style="margin-top:10px">Durchschnitte erscheinen nur, wenn für jeden Monat des jeweiligen Zeitraums Werte vorhanden sind.</div></div>';
+
+  var ytdRows = ytd ? [
+    ['Umsatz', ytd.revenue, false], ['Materialverbrauch', ytd.material, false], ['Wareneinsatz', ytd.goods, false], ['Fremdleistungen', ytd.services, false],
+    ['Deckungsbeitrag I', ytd.contribution_margin_1, false], ['DB-I-Marge', ytd.contribution_margin_1_ratio, true], ['Personalaufwand', ytd.personnel, false],
+    ['Personalquote', ytd.personnel_ratio, true], ['Material-/Leistungsquote', ytd.material_ratio, true], ['Deckungsbeitrag II', ytd.contribution_margin_2, false],
+    ['EBITDA', ytd.ebitda, false], ['EBIT', ytd.ebit, false], ['EBT', ytd.ebt, false], ['Ergebnis', ytd.result, false],
+    ['Bankbestand', ytd.bank, false], ['Kassenbestand', ytd.cash, false], ['Liquide Mittel', ytd.liquidity, false],
+    ['Forderungen', ytd.receivables, false], ['Forderungsquote (Stichtag / YTD-Umsatz)', ytd.receivables_ratio, true], ['Verbindlichkeiten', ytd.payables, false], ['USt-Zahllast', ytd.tax_payable, false],
+  ] : [];
+  document.getElementById('kpi-ytd').innerHTML = '<div class="card"><h3>Jänner–' + esc(ACCOUNTING_MONTHS[month - 1] + ' ' + year) + ' · kumulierte Steuerberaterwerte</h3>' + (ytdRows.length ? '<div class="accounting-value-table"><table><thead><tr><th>Kennzahl</th><th>Effektiver Wert</th><th>Einordnung</th></tr></thead><tbody>' + ytdRows.map(function(row) {
+    return '<tr><td>' + esc(row[0]) + '</td><td class="mono">' + esc(row[2] ? accountingPercent(row[1]) : accountingMoney(row[1])) + '</td><td><span class="badge blue">YTD / Stichtag</span></td></tr>';
+  }).join('') + '</tbody></table></div>' : '<div class="empty">Kein Report für diesen Berichtsmonat vorhanden.</div>') + '</div>';
+
+  var breakEven = accountingEstimatedBreakEven(monthly);
+  document.getElementById('kpi-break-even').innerHTML = breakEven
+    ? '<div class="card"><h3>Geschätzter Break-even &#9432;</h3><div class="metric amber" style="max-width:360px"><div class="lbl">Erforderlicher Monatsumsatz</div><div class="val">' + esc(accountingMoney(breakEven.value)) + '</div><div class="sub">DB-I-Quote ' + esc(accountingPercent(breakEven.margin * 100)) + '</div></div><div class="accounting-kpi-note">Grundlage: variable Kosten aus Konten 5000–5799. Geschätzte Fixkosten ' + esc(accountingMoney(breakEven.fixed_costs)) + ' aus Personal (6000–6799) sowie ausschließlich negativen Aufwandswerten der Kontenklassen 7–8. Abschreibungen und sonstige Kosten werden innerhalb dieser Klassen nur einmal berücksichtigt. Keine Rechnungs- oder Fixkostendaten der App werden zugemischt.</div></div>'
+    : '<div class="card"><h3>Geschätzter Break-even</h3><div class="empty">Für eine sinnvolle Schätzung fehlen variable Kosten, Fixkosten oder eine positive DB-I-Quote.</div></div>';
+
+  var yearPeriods = [];
+  for (var chartMonth = 1; chartMonth <= month; chartMonth += 1) yearPeriods.push({ year: year, month: chartMonth });
+  var monthMetrics = yearPeriods.map(function(period) { return accountingMonthlyMetrics(reports, period.year, period.month); });
+  var labels = yearPeriods.map(function(period) { return ACCOUNTING_MONTHS[period.month - 1].slice(0, 3); });
+  renderAccountingChart('revenue', 'kpi-chart-revenue', labels, [
+    { label: 'Umsatz', data: monthMetrics.map(function(metric) { return metric.revenue; }), borderColor: '#1D9E75', backgroundColor: 'rgba(29,158,117,.12)', tension: .25 },
+    { label: 'Variable Kosten', data: monthMetrics.map(function(metric) { return metric.variable_costs; }), borderColor: '#BA7517', backgroundColor: 'rgba(186,117,23,.1)', tension: .25 },
+  ]);
+  renderAccountingChart('result', 'kpi-chart-result', labels, [
+    { label: 'Personalaufwand', data: monthMetrics.map(function(metric) { return metric.personnel == null ? null : Math.abs(metric.personnel); }), borderColor: '#378ADD', tension: .25 },
+    { label: 'Ergebnis (Klassen 4–8)', data: monthMetrics.map(function(metric) { return metric.result; }), borderColor: '#D85A30', tension: .25 },
+  ]);
+  var liquidity = yearPeriods.map(function(period) { var periodYtd = accountingYtdMetrics(accountingReportForPeriod(period.year, period.month)); return periodYtd && periodYtd.liquidity; });
+  renderAccountingChart('liquidity', 'kpi-chart-liquidity', labels, [
+    { label: 'Bank + Kassa', data: liquidity, borderColor: '#7F77DD', backgroundColor: 'rgba(127,119,221,.1)', tension: .25 },
+  ]);
+}
+
+function initAccountingKpisPage() {
+  var monthEl = document.getElementById('kpi-month');
+  var yearEl = document.getElementById('kpi-year');
+  if (!monthEl || !yearEl) return;
+  if (!monthEl.options.length) monthEl.innerHTML = ACCOUNTING_MONTHS.map(function(month, index) { return '<option value="' + (index + 1) + '">' + month + '</option>'; }).join('');
+  if (!yearEl.options.length) {
+    var years = [];
+    for (var year = new Date().getFullYear() + 5; year >= 2000; year -= 1) years.push('<option value="' + year + '">' + year + '</option>');
+    yearEl.innerHTML = years.join('');
+  }
+  if (!monthEl.dataset.initialized) {
+    var latest = (getDB().accounting_reports || []).slice().sort(function(a, b) { return Number(b.report_year) - Number(a.report_year) || Number(b.report_month) - Number(a.report_month); })[0];
+    monthEl.value = String(latest ? latest.report_month : new Date().getMonth() + 1);
+    yearEl.value = String(latest ? latest.report_year : new Date().getFullYear());
+    monthEl.addEventListener('change', renderAccountingKpis);
+    yearEl.addEventListener('change', renderAccountingKpis);
+    monthEl.dataset.initialized = '1';
+  }
+  renderAccountingKpis();
+}
+
 // Beschreibung autocomplete history
 var HIST_KEY = 'buchpro_beschreibung_hist';
 function loadBeschHist() {
@@ -845,6 +1879,8 @@ function SP(id) {
     var spl=document.getElementById('stat-prev'); if(spl) spl.onclick=function(){ STAT_M--; if(STAT_M<0){STAT_M=11;STAT_Y--;} renderStatistik(); };
     var snl=document.getElementById('stat-next'); if(snl) snl.onclick=function(){ STAT_M++; if(STAT_M>11){STAT_M=0;STAT_Y++;} renderStatistik(); };
   }
+  if (id === 'buchhaltungsdaten') initAccountingReportsPage();
+  if (id === 'kennzahlen') initAccountingKpisPage();
   if (id === 'finanzen') {
     renderFin();
     var fpl=document.getElementById('fin-prev'); if(fpl) fpl.onclick=function(){ FIN_M--; if(FIN_M<0){FIN_M=11;FIN_Y--;} renderFin(); };
@@ -889,6 +1925,8 @@ document.getElementById('nav-mitarbeiter').addEventListener('click',  function()
 document.getElementById('nav-lieferanten').addEventListener('click',  function(){ SP('lieferanten'); });
 document.getElementById('nav-zahlungen').addEventListener('click',    function(){ SP('zahlungen'); });
 document.getElementById('nav-statistik').addEventListener('click',    function(){ SP('statistik'); });
+document.getElementById('nav-buchhaltungsdaten').addEventListener('click', function(){ SP('buchhaltungsdaten'); });
+document.getElementById('nav-kennzahlen').addEventListener('click', function(){ SP('kennzahlen'); });
 document.getElementById('nav-finanzen').addEventListener('click',     function(){ SP('finanzen'); });
 document.getElementById('nav-bankbuch').addEventListener('click',     function(){ SP('bankbuch'); });
 document.getElementById('nav-kassabuch').addEventListener('click',    function(){ SP('kassabuch'); });
@@ -4848,6 +5886,316 @@ function _maSortEmpJobs(emp, col) {
   renderMaEmpDetail(emp, searchEl ? searchEl.value : '', curM, curY);
 }
 
+// ── Mitarbeiterstamm und Personalplanung ────────────────────────
+var _employeeUiWired = false;
+
+function normaliseEmployee(employee) {
+  var value = Object.assign({}, employee || {});
+  value.id = value.id || uid();
+  value.name = String(value.name || '').trim();
+  value.weekly_hours = Number(value.weekly_hours);
+  value.annual_employer_cost = Number(value.annual_employer_cost);
+  value.timesheet_link = value.timesheet_link === 'djevad' || value.timesheet_link === 'helmut' ? value.timesheet_link : null;
+  value.productive_mode = value.timesheet_link && value.productive_mode === 'automatic' ? 'automatic' : 'manual';
+  value.manual_productive_rate = value.manual_productive_rate == null || value.manual_productive_rate === '' ? null : Number(value.manual_productive_rate);
+  value.active = value.active !== false;
+  value.note = String(value.note || '').trim();
+  value.created_at = value.created_at || new Date().toISOString();
+  value.updated_at = value.updated_at || new Date().toISOString();
+  return value;
+}
+
+function validateEmployee(employee, employees) {
+  if (!employee.name) throw new Error('Bitte geben Sie einen Namen ein.');
+  if (!Number.isFinite(employee.weekly_hours) || employee.weekly_hours <= 0) throw new Error('Wochenstunden müssen größer als 0 sein.');
+  if (!Number.isFinite(employee.annual_employer_cost) || employee.annual_employer_cost < 0) throw new Error('Bitte geben Sie gültige jährliche Arbeitgeber-Gesamtkosten ein.');
+  if (employee.productive_mode === 'manual' && (!Number.isFinite(employee.manual_productive_rate) || employee.manual_productive_rate <= 0 || employee.manual_productive_rate > 1)) {
+    throw new Error('Die manuelle produktive Quote muss zwischen 0 und 100 % liegen.');
+  }
+  if (employee.productive_mode === 'automatic' && !employee.timesheet_link) throw new Error('Die automatische Quote benötigt eine Verknüpfung mit Dževad oder Helmut.');
+  if (employee.timesheet_link && (employees || []).some(function(item) { return item.id !== employee.id && item.timesheet_link === employee.timesheet_link; })) {
+    throw new Error('Diese bestehende Zeiterfassung ist bereits mit einem anderen Mitarbeiter verknüpft.');
+  }
+  return employee;
+}
+
+function suggestEmployeeTimesheetLink(name) {
+  var normalized = String(name || '').toLocaleLowerCase('de-AT').replace(/[^a-zäöüžćčšđ]/g, '');
+  if (normalized === 'dževad' || normalized === 'dzevad' || normalized === 'djevad' || normalized === 'cevad') return 'djevad';
+  if (normalized === 'helmut') return 'helmut';
+  return null;
+}
+
+async function persistEmployee(employee) {
+  var d = getDB();
+  var normalized = validateEmployee(normaliseEmployee(employee), d.employees || []);
+  var index = (d.employees || []).findIndex(function(item) { return item.id === normalized.id; });
+  if (index < 0) d.employees.push(normalized);
+  else d.employees[index] = normalized;
+  if (!(await persistDB(d))) throw new Error('Mitarbeiter konnte nicht gespeichert werden.');
+  return normalized;
+}
+
+async function deactivateEmployee(employeeId) {
+  var employee = (getDB().employees || []).find(function(item) { return item.id === employeeId; });
+  if (!employee) throw new Error('Mitarbeiter wurde nicht gefunden.');
+  return persistEmployee(Object.assign({}, employee, { active: false, updated_at: new Date().toISOString() }));
+}
+
+function employeePlanningPeriod(reports, fallbackYear, invoices) {
+  var periodMonths = typeof ACCOUNTING_MONTHS !== 'undefined' ? ACCOUNTING_MONTHS : ['Jänner','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+  var report = (reports || []).slice().sort(function(a, b) {
+    return Number(b.report_year) - Number(a.report_year) || Number(b.report_month) - Number(a.report_month) || String(b.imported_at || '').localeCompare(String(a.imported_at || ''));
+  })[0];
+  var observedDates = [];
+  if (!report) {
+    (invoices || []).forEach(function(invoice) {
+      if (invoice.typ !== 'ausgang') return;
+      var hasDatedWork = false;
+      (invoice.items || []).forEach(function(item) {
+        (item.arbeitsdaten || []).forEach(function(row) {
+          if ((Number(row.djevad_h) || 0) <= 0 && (Number(row.helmut_h) || 0) <= 0) return;
+          if (/^\d{4}-\d{2}-\d{2}/.test(String(row.datum || ''))) { observedDates.push(String(row.datum).slice(0, 10)); hasDatedWork = true; }
+        });
+      });
+      if (!hasDatedWork && (/^\d{4}-\d{2}-\d{2}/.test(String(invoice.leistungsdatum || invoice.datum || '')))) {
+        var hasLegacyHours = (invoice.items || []).some(function(item) { return (Number(item.djevad_h) || 0) > 0 || (Number(item.helmut_h) || 0) > 0; });
+        if (hasLegacyHours || invoice.flag_djevad || invoice.flag_helmut) observedDates.push(String(invoice.leistungsdatum || invoice.datum).slice(0, 10));
+      }
+    });
+  }
+  var observedYear = observedDates.length ? Math.max.apply(null, observedDates.map(function(date) { return Number(date.slice(0, 4)); })) : null;
+  var observedMonths = observedYear == null ? [] : observedDates.filter(function(date) { return Number(date.slice(0, 4)) === observedYear; }).map(function(date) { return Number(date.slice(5, 7)); });
+  var year = report ? Number(report.report_year) : Number(observedYear || fallbackYear || new Date().getFullYear());
+  var fromMonth = report ? Number(report.period_from_month || 1) : (observedMonths.length ? Math.min.apply(null, observedMonths) : 1);
+  var toMonth = report ? Number(report.period_to_month || report.report_month) : (observedMonths.length ? Math.max.apply(null, observedMonths) : 12);
+  var monthCount = Math.max(1, toMonth - fromMonth + 1);
+  return {
+    year: year, from_month: fromMonth, to_month: toMonth, month_count: monthCount,
+    start: year + '-' + String(fromMonth).padStart(2, '0') + '-01',
+    end: new Date(Date.UTC(year, toMonth, 0)).toISOString().slice(0, 10),
+    has_accounting_report: !!report,
+    report: report || null,
+    label: periodMonths[fromMonth - 1] + (fromMonth === toMonth ? '' : '–' + periodMonths[toMonth - 1]) + ' ' + year,
+  };
+}
+
+function employeeAnnualContractHours(employee) {
+  var hours = Number(employee && employee.weekly_hours);
+  return Number.isFinite(hours) && hours > 0 ? hours * 52 : null;
+}
+
+function employeeContractHoursForPeriod(employee, period) {
+  var annual = employeeAnnualContractHours(employee);
+  return annual == null ? null : annual * Number(period.month_count) / 12;
+}
+
+function employeeDateInPeriod(value, period) {
+  var date = String(value || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= period.start && date <= period.end;
+}
+
+function employeeTimesheetActuals(invoices, timesheetLink, period) {
+  var field = timesheetLink === 'djevad' ? 'djevad_h' : timesheetLink === 'helmut' ? 'helmut_h' : null;
+  if (!field) return { productive_hours: 0, travel_hours: 0, data_dates: [], sufficient: false };
+  var productive = 0, travel = 0, dates = {};
+  (invoices || []).forEach(function(invoice) {
+    if (invoice.typ !== 'ausgang') return;
+    var invoiceDate = invoice.leistungsdatum || invoice.datum;
+    var invoiceProductive = 0;
+    (invoice.items || []).forEach(function(item) {
+      var workRows = item.arbeitsdaten || [];
+      if (workRows.length) {
+        workRows.forEach(function(row) {
+          if (!employeeDateInPeriod(row.datum, period)) return;
+          var hours = Number(row[field]) || 0;
+          invoiceProductive += hours;
+          if (hours > 0) dates[String(row.datum).slice(0, 10)] = true;
+        });
+      } else if (employeeDateInPeriod(invoiceDate, period)) {
+        var itemHours = Number(item[field]) || 0;
+        invoiceProductive += itemHours;
+        if (itemHours > 0) dates[String(invoiceDate).slice(0, 10)] = true;
+      }
+      (item.fahrzeitdaten || []).forEach(function(row) {
+        if (employeeDateInPeriod(row.datum, period)) travel += Number(row[field]) || 0;
+      });
+    });
+    if (invoiceProductive <= 0 && invoice['flag_' + timesheetLink] && employeeDateInPeriod(invoiceDate, period)) {
+      invoiceProductive = (invoice.items || []).reduce(function(sum, item) { return sum + (Number(item.menge) || 0); }, 0);
+      if (invoiceProductive > 0) dates[String(invoiceDate).slice(0, 10)] = true;
+    }
+    productive += invoiceProductive;
+  });
+  var dataDates = Object.keys(dates).sort();
+  return { productive_hours: productive, travel_hours: travel, data_dates: dataDates, sufficient: productive > 0 && dataDates.length > 0 };
+}
+
+function employeeProductiveRate(employee, invoices, period) {
+  if (employee.productive_mode === 'manual') {
+    return { rate: employee.manual_productive_rate, status: 'manual', actuals: employee.timesheet_link ? employeeTimesheetActuals(invoices, employee.timesheet_link, period) : null };
+  }
+  var actuals = employeeTimesheetActuals(invoices, employee.timesheet_link, period);
+  var contractHours = employeeContractHoursForPeriod(employee, period);
+  if (!actuals.sufficient || !contractHours) return { rate: null, status: 'insufficient', actuals: actuals };
+  return { rate: actuals.productive_hours / contractHours, status: 'automatic', actuals: actuals };
+}
+
+function employeeAccountingOverhead(reports, period) {
+  if (!period.has_accounting_report) return null;
+  var total = 0, found = false;
+  for (var month = period.from_month; month <= period.to_month; month += 1) {
+    canonicalAccountingMonthlyValues(reports, period.year, month).forEach(function(value) {
+      var account = Number(value.account_number);
+      var amount = accountingEffectiveNumber(value);
+      if (account < 7000 || account > 7999 || amount == null) return;
+      total += amount;
+      found = true;
+    });
+  }
+  return found ? Math.max(0, -total) : null;
+}
+
+function calculateEmployeePlans(employees, invoices, reports, fallbackYear) {
+  var period = employeePlanningPeriod(reports, fallbackYear, invoices);
+  var overhead = employeeAccountingOverhead(reports, period);
+  var plans = (employees || []).map(function(employeeValue) {
+    var employee = normaliseEmployee(employeeValue);
+    var rateResult = employeeProductiveRate(employee, invoices, period);
+    var annualContractHours = employeeAnnualContractHours(employee);
+    var contractHours = employeeContractHoursForPeriod(employee, period);
+    var annualProductiveHours = rateResult.rate == null ? null : annualContractHours * rateResult.rate;
+    var productiveHours = rateResult.rate == null ? null : contractHours * rateResult.rate;
+    var personnelHourly = annualProductiveHours > 0 ? employee.annual_employer_cost / annualProductiveHours : null;
+    return {
+      employee: employee, rate: rateResult.rate, rate_status: rateResult.status, actuals: rateResult.actuals,
+      annual_contract_hours: annualContractHours, contract_hours: contractHours,
+      annual_productive_hours: annualProductiveHours, productive_hours: productiveHours,
+      personnel_hourly: personnelHourly, overhead_hourly: null, break_even_hourly: null,
+    };
+  });
+  var totalProductiveHours = plans.filter(function(plan) { return plan.employee.active && plan.productive_hours != null; })
+    .reduce(function(sum, plan) { return sum + plan.productive_hours; }, 0);
+  var overheadHourly = overhead != null && totalProductiveHours > 0 ? overhead / totalProductiveHours : null;
+  plans.forEach(function(plan) {
+    plan.overhead_hourly = plan.employee.active ? overheadHourly : null;
+    plan.break_even_hourly = plan.personnel_hourly != null && plan.overhead_hourly != null ? plan.personnel_hourly + plan.overhead_hourly : null;
+  });
+  return { period: period, overhead: overhead, total_productive_hours: totalProductiveHours, overhead_hourly: overheadHourly, plans: plans };
+}
+
+function employeePlanningMoney(value) {
+  return value == null || !Number.isFinite(Number(value)) ? '—' : fmt(Number(value));
+}
+
+function employeePlanningRate(value) {
+  return value == null || !Number.isFinite(Number(value)) ? '—' : new Intl.NumberFormat('de-AT', { maximumFractionDigits: 1 }).format(Number(value) * 100) + ' %';
+}
+
+function renderEmployeePlanning() {
+  var list = document.getElementById('employee-planning-list');
+  if (!list) return;
+  var d = getDB();
+  var result = calculateEmployeePlans(d.employees || [], d.invoices || [], d.accounting_reports || []);
+  var basis = document.getElementById('employee-calculation-basis');
+  if (basis) basis.textContent = 'Berechnungsbasis: ' + result.period.label + (result.period.has_accounting_report ? '' : ' · noch keine Buchhaltungsdaten importiert');
+  var message = document.getElementById('employee-planning-message');
+  if (message) message.innerHTML = result.overhead == null
+    ? '<div class="alert warning" style="margin-top:10px">Gemeinkosten können erst mit passenden Buchhaltungsdaten berechnet werden.</div>'
+    : '<div class="alert info" style="margin-top:10px">Relevante Gemeinkosten: ' + esc(fmt(result.overhead)) + ' · ' + (result.overhead_hourly == null ? 'keine ausreichenden produktiven Stunden für die Verteilung' : esc(fmt(result.overhead_hourly)) + ' je produktiver Stunde') + '</div>';
+  if (!result.plans.length) {
+    list.innerHTML = '<div class="empty">Noch keine Mitarbeiter angelegt.</div>';
+    return;
+  }
+  list.innerHTML = result.plans.map(function(plan) {
+    var employee = plan.employee;
+    var linked = employee.timesheet_link ? '<span class="badge blue">Mit Zeiterfassung ' + (employee.timesheet_link === 'djevad' ? 'Dževad' : 'Helmut') + ' verknüpft</span>' : '';
+    var rateStatus = plan.rate_status === 'insufficient' ? '<span class="badge amber">Noch nicht genügend Ist-Daten</span>' : (plan.rate_status === 'automatic' ? '<span class="badge green">automatisch aus Ist-Daten</span>' : '<span class="badge gray">manuell</span>');
+    var actualDetails = plan.actuals ? '<div>Produktive Arbeitsstunden: <strong>' + fmtAmt(plan.actuals.productive_hours) + ' h</strong> · Fahrzeit: <strong>' + fmtAmt(plan.actuals.travel_hours) + ' h</strong></div>' : '';
+    return '<div class="employee-plan-card ' + (employee.active ? '' : 'inactive') + '">' +
+      '<div class="employee-plan-head"><div><h4>' + esc(employee.name) + '</h4><div>' + (employee.active ? '<span class="badge green">aktiv</span>' : '<span class="badge gray">inaktiv</span>') + ' ' + linked + '</div></div></div>' +
+      '<div class="employee-plan-meta">' + fmtAmt(employee.weekly_hours) + ' h/Woche · ' + esc(fmt(employee.annual_employer_cost)) + ' Arbeitgeberkosten/Jahr<br>Vertragliche Jahresstunden: ' + fmtAmt(plan.annual_contract_hours) + ' h<br>Produktive Quote: ' + employeePlanningRate(plan.rate) + ' ' + rateStatus + '</div>' +
+      '<div class="employee-plan-metrics"><div class="employee-plan-metric"><span>Personalkosten / produktive Stunde</span><strong>' + esc(employeePlanningMoney(plan.personnel_hourly)) + '</strong></div>' +
+      '<div class="employee-plan-metric"><span>Break-even-Stundensatz <span class="info-tip" title="Der Break-even-Stundensatz zeigt, wie viel Netto-Umsatz eine produktive Arbeitsstunde mindestens erwirtschaften muss, damit die Personalkosten dieses Mitarbeiters und sein Anteil an den allgemeinen Betriebskosten gedeckt sind. Eine Gewinnmarge ist nicht enthalten.">&#9432;</span></span><strong>' + esc(employeePlanningMoney(plan.break_even_hourly)) + '</strong></div></div>' +
+      '<div class="employee-plan-details">Vertragsstunden ' + esc(result.period.label) + ': <strong>' + fmtAmt(plan.contract_hours) + ' h</strong> · produktive Stunden für Kostenverteilung: <strong>' + (plan.productive_hours == null ? '—' : fmtAmt(plan.productive_hours) + ' h') + '</strong>' + actualDetails + (employee.note ? '<div>Notiz: ' + esc(employee.note) + '</div>' : '') + '</div>' +
+      '<div class="employee-plan-actions"><button class="btn employee-edit" data-id="' + esc(employee.id) + '">Bearbeiten</button>' + (employee.active ? '<button class="btn employee-deactivate" data-id="' + esc(employee.id) + '">Deaktivieren</button>' : '') + '</div></div>';
+  }).join('');
+  list.querySelectorAll('.employee-edit').forEach(function(button) { button.onclick = function() { openEmployeeForm(this.dataset.id); }; });
+  list.querySelectorAll('.employee-deactivate').forEach(function(button) { button.onclick = async function() { await deactivateEmployee(this.dataset.id); renderEmployeePlanning(); }; });
+}
+
+function updateEmployeeModeFields() {
+  var link = document.getElementById('employee-timesheet-link').value;
+  var mode = document.getElementById('employee-productive-mode');
+  if (!link && mode.value === 'automatic') mode.value = 'manual';
+  mode.querySelector('option[value="automatic"]').disabled = !link;
+  document.getElementById('employee-manual-rate').disabled = mode.value === 'automatic';
+}
+
+function openEmployeeForm(employeeId) {
+  var employee = employeeId ? (getDB().employees || []).find(function(item) { return item.id === employeeId; }) : null;
+  document.getElementById('employee-id').value = employee ? employee.id : '';
+  document.getElementById('employee-name').value = employee ? employee.name : '';
+  document.getElementById('employee-weekly-hours').value = employee ? employee.weekly_hours : '';
+  document.getElementById('employee-annual-cost').value = employee ? employee.annual_employer_cost : '';
+  document.getElementById('employee-timesheet-link').value = employee && employee.timesheet_link ? employee.timesheet_link : '';
+  document.getElementById('employee-productive-mode').value = employee ? employee.productive_mode : 'manual';
+  document.getElementById('employee-manual-rate').value = employee && employee.manual_productive_rate != null ? employee.manual_productive_rate * 100 : '70';
+  document.getElementById('employee-active').checked = employee ? employee.active !== false : true;
+  document.getElementById('employee-note').value = employee ? employee.note || '' : '';
+  document.getElementById('employee-form-title').textContent = employee ? 'Mitarbeiter bearbeiten' : 'Mitarbeiter anlegen';
+  document.getElementById('employee-form-error').style.display = 'none';
+  document.getElementById('employee-form-card').style.display = 'block';
+  updateEmployeeModeFields();
+}
+
+function closeEmployeeForm() {
+  document.getElementById('employee-form-card').style.display = 'none';
+}
+
+async function saveEmployeeForm() {
+  var error = document.getElementById('employee-form-error');
+  try {
+    var id = document.getElementById('employee-id').value;
+    var existing = id ? (getDB().employees || []).find(function(item) { return item.id === id; }) : null;
+    await persistEmployee(Object.assign({}, existing || {}, {
+      id: id || uid(),
+      name: document.getElementById('employee-name').value,
+      weekly_hours: Number(document.getElementById('employee-weekly-hours').value),
+      annual_employer_cost: Number(document.getElementById('employee-annual-cost').value),
+      timesheet_link: document.getElementById('employee-timesheet-link').value || null,
+      productive_mode: document.getElementById('employee-productive-mode').value,
+      manual_productive_rate: Number(document.getElementById('employee-manual-rate').value) / 100,
+      active: document.getElementById('employee-active').checked,
+      note: document.getElementById('employee-note').value,
+      updated_at: new Date().toISOString(),
+    }));
+    closeEmployeeForm();
+    renderEmployeePlanning();
+  } catch (exception) {
+    error.textContent = exception && exception.message ? exception.message : String(exception);
+    error.style.display = 'flex';
+  }
+}
+
+function wireEmployeePlanning() {
+  if (_employeeUiWired) return;
+  document.getElementById('btn-new-employee').onclick = function() { openEmployeeForm(null); };
+  document.getElementById('employee-form-cancel').onclick = closeEmployeeForm;
+  document.getElementById('employee-form-save').onclick = function() { saveEmployeeForm(); };
+  document.getElementById('employee-timesheet-link').onchange = updateEmployeeModeFields;
+  document.getElementById('employee-productive-mode').onchange = updateEmployeeModeFields;
+  document.getElementById('employee-name').onblur = function() {
+    if (document.getElementById('employee-id').value || document.getElementById('employee-timesheet-link').value) return;
+    var suggestion = suggestEmployeeTimesheetLink(this.value);
+    if (suggestion && !(getDB().employees || []).some(function(item) { return item.timesheet_link === suggestion; })) {
+      document.getElementById('employee-timesheet-link').value = suggestion;
+      updateEmployeeModeFields();
+    }
+  };
+  _employeeUiWired = true;
+}
+
 function renderMitarbeiter(offset) {
   offset = offset || 0;
   var d = getDB();
@@ -4951,6 +6299,9 @@ function renderMitarbeiter(offset) {
   window._maStats   = stats;
   window._maCurM    = curM;
   window._maCurY    = curY;
+
+  wireEmployeePlanning();
+  renderEmployeePlanning();
 
   document.getElementById('ma-metrics').innerHTML =
     '<div class="metric"><div class="lbl">Monat</div><div class="val" style="font-size:15px">' + MONTHS_MA[curM] + ' ' + curY + '</div></div>' +
@@ -6930,9 +8281,11 @@ function _loadCachesFromResult(result) {
     lieferanten:         d.lieferanten         || [],
     zahlungen:           d.zahlungen           || [],
     fahrzeuge:           d.fahrzeuge           || [],
+    employees:           d.employees           || [],
     todos:               d.todos               || [],
     todos_archiv:        d.todos_archiv        || [],
     kostenvoranschlaege: d.kostenvoranschlaege || [],
+    accounting_reports:  d.accounting_reports  || [],
     counters: d.counters || {ausgang:1, eingang:1, fortlaufend:1, lfd_bank:1, kassenbeleg:1, lfd_kassa:1},
     vorlage:             d.vorlage             || null,
   };

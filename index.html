@@ -30,11 +30,13 @@
     <a id="nav-zahlungen"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9670;</span> Zahlungen</a>
     <div class="sec">Auswertung</div>
     <a id="nav-statistik"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128202;</span> Statistik</a>
+    <a id="nav-kennzahlen"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128200;</span> Kennzahlen</a>
     <a id="nav-finanzen"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9638;</span> Finanzen &amp; USt.</a>
     <a id="nav-bankbuch"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#127984;</span> Bankbuch</a>
     <a id="nav-kassabuch"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128181;</span> Kassabuch</a>
     <a id="nav-export"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#8595;</span> Monatsexport</a>
     <div class="sec">Planung</div>
+    <a id="nav-buchhaltungsdaten"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128209;</span> Buchhaltungsdaten</a>
     <a id="nav-todos"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9989;</span> To-Do-Liste</a>
     <a id="nav-fixkosten"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128178;</span> Fixkosten</a>
     <div class="sec">Einstellungen</div>
@@ -448,8 +450,39 @@
 </div>
 
 <div class="page" id="page-mitarbeiter">
-  <div class="topbar"><h2>Mitarbeiter</h2></div>
+  <div class="topbar"><h2>Mitarbeiter</h2><div class="tba"><button class="btn primary" id="btn-new-employee">+ Mitarbeiter</button></div></div>
   <div class="content">
+    <div class="card" id="employee-form-card" style="display:none;margin-bottom:1.25rem">
+      <h3 id="employee-form-title">Mitarbeiter anlegen</h3>
+      <input type="hidden" id="employee-id">
+      <div class="fr c2">
+        <div class="fg"><label>Name</label><input id="employee-name" autocomplete="off"></div>
+        <div class="fg"><label>Mit bestehender Zeiterfassung verknüpfen</label><select id="employee-timesheet-link"><option value="">Keine Verknüpfung</option><option value="djevad">Dževad</option><option value="helmut">Helmut</option></select></div>
+      </div>
+      <div class="fr c2">
+        <div class="fg"><label>Wochenstunden</label><input id="employee-weekly-hours" type="number" min="0.1" step="0.1" inputmode="decimal"></div>
+        <div class="fg"><label>Jährliche Arbeitgeber-Gesamtkosten <span class="info-tip" title="Tragen Sie die gesamten jährlichen Kosten ein, die dieser Mitarbeiter dem Unternehmen verursacht. Gemeint ist nicht das Netto- oder Bruttogehalt des Mitarbeiters, sondern der gesamte Arbeitgeberaufwand einschließlich Sonderzahlungen, Dienstgeberabgaben, Sozialaufwand, BVK und sonstiger direkt zurechenbarer Personalkosten.">&#9432;</span></label><input id="employee-annual-cost" type="number" min="0" step="100" inputmode="decimal"></div>
+      </div>
+      <div class="fr c2">
+        <div class="fg"><label>Art der produktiven Quote</label><select id="employee-productive-mode"><option value="manual">Manuell</option><option value="automatic">Automatisch aus Ist-Daten</option></select></div>
+        <div class="fg"><label>Produktive Quote (%)</label><input id="employee-manual-rate" type="number" min="0.1" max="100" step="0.1" inputmode="decimal"></div>
+      </div>
+      <div class="fg"><label>Notiz (optional)</label><textarea id="employee-note" rows="2"></textarea></div>
+      <label style="display:flex;align-items:center;gap:8px;font:13px sans-serif;margin:8px 0"><input id="employee-active" type="checkbox" checked> Aktiv</label>
+      <div id="employee-form-error" class="alert danger" style="display:none;margin:8px 0"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn" id="employee-form-cancel">Abbrechen</button><button class="btn primary" id="employee-form-save">Speichern</button></div>
+    </div>
+
+    <div class="card" style="margin-bottom:1.25rem">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div><h3 style="margin:0 0 4px">Personalplanung und Kosten</h3><div id="employee-calculation-basis" class="employee-basis"></div></div>
+      </div>
+      <div id="employee-planning-message"></div>
+      <div id="employee-planning-list" class="employee-card-grid"></div>
+      <div class="employee-overhead-note"><strong>Gemeinkostenbasis:</strong> negative Salden der Konten 7000–7999 aus der Periodenübersicht. Material (5000–5699), Fremdleistungen (5700–5799) und Personal (6000–6999) sind ausgeschlossen. Positive Gutschriften in der Gemeinkostenklasse vermindern die Basis.</div>
+    </div>
+
+    <h3 style="margin:0 0 10px">Bestehende Stundenaufstellungen</h3>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:1.25rem">
       <button class="btn" id="ma-prev" style="font-size:16px;padding:6px 14px">&#8592;</button>
       <span id="ma-month-label" style="font-family:sans-serif;font-size:15px;font-weight:500;color:var(--t1);min-width:140px;text-align:center"></span>
@@ -515,6 +548,75 @@
     <div class="grid2">
       <div class="card"><h3>Top Kunden (nach Umsatz)</h3><div id="stat-topkunden"></div></div>
     </div>
+  </div>
+</div>
+
+<div class="page" id="page-buchhaltungsdaten">
+  <div class="topbar">
+    <h2><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128209;</span> Buchhaltungsdaten</h2>
+    <div class="tba accounting-period-picker">
+      <select id="accounting-view-month" aria-label="Berichtsmonat"></select>
+      <select id="accounting-view-year" aria-label="Berichtsjahr"></select>
+      <button class="btn primary" id="btn-accounting-upload">Monatsreport hochladen</button>
+    </div>
+  </div>
+  <div class="content">
+    <div id="accounting-data-message"></div>
+    <div id="accounting-report-overview"></div>
+    <div id="accounting-values-panel"></div>
+    <div id="accounting-import-changes"></div>
+    <div class="card" id="accounting-upload-card" style="display:none">
+      <h3 id="accounting-form-title">Monatsreport hochladen</h3>
+      <input type="hidden" id="accounting-edit-id">
+      <div class="fr c2">
+        <div class="fg"><label for="accounting-report-type">Berichtsart</label><select id="accounting-report-type"><option value="financial_accounting_monthly">Finanzbuchhaltung Monatsreport</option></select></div>
+        <div class="fg"><label for="accounting-report-month">Berichtsmonat (letzter Monat im Report)</label><select id="accounting-report-month"></select></div>
+        <div class="fg"><label for="accounting-report-year">Berichtsjahr</label><select id="accounting-report-year"></select></div>
+        <div class="fg"><label for="accounting-report-file">Original-PDF</label><input type="file" id="accounting-report-file" accept="application/pdf,.pdf"><div id="accounting-file-info" style="font-family:sans-serif;font-size:11px;color:var(--t3);margin-top:5px"></div></div>
+      </div>
+      <div id="accounting-period-info" class="alert info"></div>
+      <div id="accounting-existing-report-notice" class="alert warning" style="display:none"></div>
+      <div id="accounting-form-error" class="alert danger" style="display:none"></div>
+      <div id="accounting-duplicate-warning" class="alert warning" style="display:none;flex-direction:column">
+        <div id="accounting-duplicate-message"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+          <button class="btn" id="accounting-duplicate-open">Bestehenden Report öffnen</button>
+          <button class="btn" id="accounting-duplicate-cancel">Upload abbrechen</button>
+          <button class="btn primary" id="accounting-duplicate-replace">Bestehenden Bericht aktualisieren</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn" id="accounting-form-cancel">Abbrechen</button>
+        <button class="btn primary" id="accounting-form-save">Report speichern</button>
+      </div>
+    </div>
+    <div class="card" style="padding:0">
+      <div style="padding:1.25rem 1.25rem 0"><h3>Importierte Monatsreports</h3></div>
+      <div id="accounting-report-list"></div>
+    </div>
+    <div class="card" id="accounting-report-details" style="display:none"></div>
+  </div>
+</div>
+
+<div class="page" id="page-kennzahlen">
+  <div class="topbar">
+    <h2><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128200;</span> Kennzahlen</h2>
+    <div class="tba accounting-period-picker">
+      <select id="kpi-month" aria-label="Kennzahlenmonat"></select>
+      <select id="kpi-year" aria-label="Kennzahlenjahr"></select>
+    </div>
+  </div>
+  <div class="content">
+    <div id="kpi-data-status"></div>
+    <div id="kpi-primary" class="grid4"></div>
+    <div class="grid2 accounting-chart-grid">
+      <div class="card"><h3>Umsatz und variable Kosten pro Monat</h3><canvas id="kpi-chart-revenue"></canvas><div class="accounting-chart-fallback"></div></div>
+      <div class="card"><h3>Personalaufwand und Ergebnisentwicklung</h3><canvas id="kpi-chart-result"></canvas><div class="accounting-chart-fallback"></div></div>
+    </div>
+    <div class="card"><h3>Liquidität als Stichtagsreihe</h3><canvas id="kpi-chart-liquidity"></canvas><div class="accounting-chart-fallback"></div></div>
+    <div id="kpi-comparison"></div>
+    <div id="kpi-ytd"></div>
+    <div id="kpi-break-even"></div>
   </div>
 </div>
 
@@ -961,6 +1063,10 @@
 </div>
 
 
+<script src="assets/vendor/pdfjs/pdf.worker.js"></script>
+<script src="assets/vendor/pdfjs/pdf.js"></script>
+<script src="accounting-report-parser.js"></script>
+<script src="assets/js/accounting-report-browser.js"></script>
 <script src="assets/js/app.js"></script>
 <script>
 document.addEventListener('click', function(e) {

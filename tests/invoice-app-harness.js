@@ -28,7 +28,10 @@ function appHarness() {
     document: { getElementById: id => elements[id] || null },
     alert: message => alerts.push(message), setTimeout() {},
     STORE_KEY: 'buchpro_v1', INVOICE_COUNTER_KEYS: ['ausgang', 'fortlaufend', 'lfd_bank', 'kassenbeleg'],
+    BACKUP_KEYS: ['buchpro_v1'], ACCOUNTING_REPORT_TYPE: 'financial_accounting_monthly', ACCOUNTING_REPORT_LABEL: 'Finanzbuchhaltung',
+    MONTHS: ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'],
     _dbCache: null, saveQueue: Promise.resolve(), editId: null,
+    _settingsCache: {}, _beschHistCache: [], _fixkostenCache: [], _posBadgesCache: null,
     rnrManuallyEdited: false, kassenbelegManuallyEdited: false, lfdManuallyEdited: false,
     itemsData: [{ titel: '', menge: 1, preis: 10, ust: 20 }],
     getSetting: () => null, esc: text => String(text).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;'),
@@ -55,10 +58,13 @@ function appHarness() {
     '_assertNoInvoiceNumberDuplicate', '_requireStateCounter', '_isARKassa', '_applyARKassaNumbersToState',
     '_applyInvoiceNumberingToState', 'persistInvoiceCreateWithCounters', 'persistInvoiceUpdate',
     'persistInvoiceCounters', 'persistInvoiceAction', 'previewNum', 'refreshNumbers', 'updateARKassaForm',
+    'findAccountingReport', 'validateAccountingReportPeriod', 'normaliseAccountingValue', 'normaliseAccountingReport',
+    'preserveAccountingManualValues', 'buildAccountingImportDifferences', '_replaceAccountingReportInCache',
+    'persistAccountingReportCreate', 'persistAccountingReportUpdate', 'createBackupObject',
     'wireFormButtons', 'handleERFile', 'handleInvoiceFile', 'saveInvoice', 'genPDF', 'genPDFData',
     'openInvoiceReceipt', 'editInv', 'setTyp', 'setPay', 'setKassaTyp', 'setSammelMode', 'updateFT',
     'setERTyp', 'setERMode', 'wireERForm', 'initForm', 'saveER', 'resetERForm');
-  context._dbCache = { invoices: [], counters: { ausgang: 1, fortlaufend: 1, kassenbeleg: 1, lfd_bank: 1, lfd_kassa: 1 }, kunden: [], lieferanten: [], fahrzeuge: [] };
+  context._dbCache = { invoices: [], accounting_reports: [], counters: { ausgang: 1, fortlaufend: 1, kassenbeleg: 1, lfd_bank: 1, lfd_kassa: 1 }, kunden: [], lieferanten: [], fahrzeuge: [] };
   elements.typ.value = 'ausgang'; elements.zahlungsart.value = 'bank';
   context.window.erItemsData = [{ desc: 'ER', netto: 10, ust_pct: 20, ust_amt: 2 }];
   return { app: context, elements, storage, opened, alerts, pdfs, load };

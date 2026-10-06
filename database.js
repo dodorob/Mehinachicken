@@ -91,6 +91,20 @@ class BuchProDB {
         data TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS employees (
+        id                     TEXT PRIMARY KEY,
+        name                   TEXT NOT NULL,
+        weekly_hours           REAL NOT NULL CHECK (weekly_hours > 0),
+        annual_employer_cost   REAL NOT NULL CHECK (annual_employer_cost >= 0),
+        productive_mode        TEXT NOT NULL CHECK (productive_mode IN ('automatic', 'manual')),
+        manual_productive_rate REAL,
+        active                 INTEGER NOT NULL DEFAULT 1,
+        timesheet_link         TEXT UNIQUE CHECK (timesheet_link IN ('djevad', 'helmut') OR timesheet_link IS NULL),
+        note                   TEXT,
+        created_at             TEXT NOT NULL,
+        updated_at             TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS todos (
         id         TEXT PRIMARY KEY,
         data       TEXT NOT NULL,
@@ -129,6 +143,98 @@ class BuchProDB {
         label      TEXT NOT NULL,
         sort_order INTEGER DEFAULT 0
       );
+
+      CREATE TABLE IF NOT EXISTS accounting_reports (
+        id                         TEXT PRIMARY KEY,
+        report_type                TEXT NOT NULL,
+        report_month               INTEGER NOT NULL CHECK (report_month BETWEEN 1 AND 12),
+        report_year                INTEGER NOT NULL CHECK (report_year BETWEEN 2000 AND 2100),
+        period_from_month          INTEGER NOT NULL CHECK (period_from_month BETWEEN 1 AND 12),
+        period_to_month            INTEGER NOT NULL CHECK (period_to_month BETWEEN 1 AND 12),
+        imported_at                TEXT NOT NULL,
+        original_file_b64          TEXT NOT NULL,
+        original_file_name         TEXT NOT NULL,
+        original_file_type         TEXT NOT NULL,
+        parse_status               TEXT NOT NULL DEFAULT 'pending',
+        parser_version             TEXT,
+        detected_period_from_month INTEGER,
+        detected_period_from_year  INTEGER,
+        detected_period_to_month   INTEGER,
+        detected_period_to_year    INTEGER,
+        validation_status          TEXT NOT NULL DEFAULT 'not_checked',
+        validation_message         TEXT,
+        UNIQUE (report_type, report_month, report_year)
+      );
+
+      CREATE TABLE IF NOT EXISTS accounting_monthly_values (
+        id TEXT PRIMARY KEY, report_id TEXT NOT NULL, value_key TEXT NOT NULL,
+        value_month INTEGER, value_year INTEGER, account_number TEXT, account_name TEXT,
+        detected_value REAL, manual_value REAL, unit TEXT, source TEXT DEFAULT 'pdf',
+        source_section TEXT, source_label TEXT, confidence REAL,
+        status TEXT DEFAULT 'detected', metadata_json TEXT DEFAULT '{}',
+        FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS accounting_snapshot_values (
+        id TEXT PRIMARY KEY, report_id TEXT NOT NULL, value_key TEXT NOT NULL,
+        snapshot_date TEXT, detected_value REAL, manual_value REAL, unit TEXT,
+        source TEXT DEFAULT 'pdf', status TEXT DEFAULT 'detected', metadata_json TEXT DEFAULT '{}',
+        FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS accounting_cumulative_metrics (
+        id TEXT PRIMARY KEY, report_id TEXT NOT NULL, value_key TEXT NOT NULL,
+        detected_value REAL, manual_value REAL, unit TEXT, source TEXT DEFAULT 'pdf',
+        source_section TEXT, source_label TEXT, confidence REAL,
+        status TEXT DEFAULT 'detected', metadata_json TEXT DEFAULT '{}',
+        FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS accounting_snapshot_metrics (
+        id TEXT PRIMARY KEY, report_id TEXT NOT NULL, value_key TEXT NOT NULL,
+        snapshot_date TEXT, account_number TEXT, account_name TEXT,
+        detected_value REAL, manual_value REAL, unit TEXT, source TEXT DEFAULT 'pdf',
+        source_section TEXT, source_label TEXT, confidence REAL,
+        status TEXT DEFAULT 'detected', metadata_json TEXT DEFAULT '{}',
+        FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS accounting_tax_values (
+        id TEXT PRIMARY KEY, report_id TEXT NOT NULL, tax_type TEXT, value_key TEXT NOT NULL,
+        period_month INTEGER, period_year INTEGER, detected_value REAL, manual_value REAL, unit TEXT,
+        source TEXT DEFAULT 'pdf', source_section TEXT, source_label TEXT, confidence REAL,
+        status TEXT DEFAULT 'detected', metadata_json TEXT DEFAULT '{}',
+        FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS accounting_open_items (
+        id TEXT PRIMARY KEY, report_id TEXT NOT NULL, party_type TEXT, party_name TEXT,
+        document_number TEXT, document_date TEXT, due_date TEXT, aging_class TEXT,
+        detected_value REAL, manual_value REAL, currency TEXT DEFAULT 'EUR',
+        source TEXT DEFAULT 'pdf', source_section TEXT, source_label TEXT, confidence REAL,
+        status TEXT DEFAULT 'detected', metadata_json TEXT DEFAULT '{}',
+        FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS accounting_account_values (
+        id TEXT PRIMARY KEY, report_id TEXT NOT NULL, account_number TEXT, account_name TEXT,
+        detected_value REAL, manual_value REAL, unit TEXT,
+        source TEXT DEFAULT 'pdf', status TEXT DEFAULT 'detected', metadata_json TEXT DEFAULT '{}',
+        FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS accounting_detected_values (
+        id TEXT PRIMARY KEY, report_id TEXT NOT NULL, value_scope TEXT NOT NULL, value_key TEXT NOT NULL,
+        raw_value TEXT, normalized_value TEXT, page_number INTEGER, confidence REAL, metadata_json TEXT DEFAULT '{}',
+        FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS accounting_manual_corrections (
+        id TEXT PRIMARY KEY, report_id TEXT NOT NULL, value_scope TEXT NOT NULL, value_id TEXT NOT NULL,
+        value_key TEXT NOT NULL, detected_value TEXT, previous_manual_value TEXT, manual_value TEXT,
+        changed_at TEXT NOT NULL, note TEXT,
+        FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS accounting_import_differences (
+        id TEXT PRIMARY KEY, report_id TEXT NOT NULL, previous_report_id TEXT,
+        value_scope TEXT NOT NULL, value_key TEXT NOT NULL, account_number TEXT,
+        value_month INTEGER, value_year INTEGER, previous_detected_value REAL,
+        new_detected_value REAL, previous_manual_value REAL, resolution_status TEXT NOT NULL DEFAULT 'pending',
+        detected_at TEXT NOT NULL, metadata_json TEXT DEFAULT '{}',
+        FOREIGN KEY (report_id) REFERENCES accounting_reports(id) ON DELETE CASCADE
+      );
     `);
     // Schema migrations (safe to run multiple times)
     try { this.db.exec('ALTER TABLE invoices ADD COLUMN is_sammel INTEGER DEFAULT 0'); } catch(_) {}
@@ -138,6 +244,21 @@ class BuchProDB {
     try { this.db.exec('ALTER TABLE fixkosten ADD COLUMN bezahlt_am TEXT'); } catch(_) {}
     try { this.db.exec("ALTER TABLE fixkosten ADD COLUMN reset_intervall TEXT DEFAULT 'monatlich'"); } catch(_) {}
     try { this.db.exec('ALTER TABLE fixkosten ADD COLUMN reset_datum TEXT'); } catch(_) {}
+    [
+      'ALTER TABLE accounting_monthly_values ADD COLUMN account_number TEXT',
+      'ALTER TABLE accounting_monthly_values ADD COLUMN account_name TEXT',
+      'ALTER TABLE accounting_monthly_values ADD COLUMN source_section TEXT',
+      'ALTER TABLE accounting_monthly_values ADD COLUMN source_label TEXT',
+      'ALTER TABLE accounting_monthly_values ADD COLUMN confidence REAL',
+      'ALTER TABLE accounting_tax_values ADD COLUMN source_section TEXT',
+      'ALTER TABLE accounting_tax_values ADD COLUMN source_label TEXT',
+      'ALTER TABLE accounting_tax_values ADD COLUMN confidence REAL',
+      'ALTER TABLE accounting_open_items ADD COLUMN document_date TEXT',
+      'ALTER TABLE accounting_open_items ADD COLUMN aging_class TEXT',
+      'ALTER TABLE accounting_open_items ADD COLUMN source_section TEXT',
+      'ALTER TABLE accounting_open_items ADD COLUMN source_label TEXT',
+      'ALTER TABLE accounting_open_items ADD COLUMN confidence REAL',
+    ].forEach(sql => { try { this.db.exec(sql); } catch (_) {} });
   }
 
   // ----------------------------------------------------------------
@@ -151,6 +272,10 @@ class BuchProDB {
     const lieferanten = this.db.prepare('SELECT data FROM lieferanten').all().map(r => JSON.parse(r.data));
     const zahlungen   = this.db.prepare('SELECT data FROM zahlungen').all().map(r => JSON.parse(r.data));
     const fahrzeuge   = this.db.prepare('SELECT data FROM fahrzeuge').all().map(r => JSON.parse(r.data));
+    const employees   = this.db.prepare('SELECT * FROM employees ORDER BY active DESC, name COLLATE NOCASE').all().map(row => ({
+      ...row,
+      active: !!row.active,
+    }));
 
     const todosAll    = this.db.prepare('SELECT * FROM todos').all();
     const todos       = todosAll.filter(r => !r.archiviert).map(r => JSON.parse(r.data));
@@ -165,12 +290,15 @@ class BuchProDB {
     const vorlageRow = this.db.prepare('SELECT data FROM vorlage WHERE id = 1').get();
     const vorlage    = vorlageRow ? JSON.parse(vorlageRow.data) : null;
 
-    return { invoices, kunden, lieferanten, zahlungen, fahrzeuge, todos, todos_archiv, kostenvoranschlaege: kv, counters, vorlage };
+    const accounting_reports = this.listAccountingReports();
+    return { invoices, kunden, lieferanten, zahlungen, fahrzeuge, employees, todos, todos_archiv, kostenvoranschlaege: kv, counters, vorlage, accounting_reports };
   }
 
   isEmpty() {
-    const count = this.db.prepare('SELECT COUNT(*) AS n FROM invoices').get();
-    return count.n === 0;
+    const invoices = this.db.prepare('SELECT COUNT(*) AS n FROM invoices').get().n;
+    const reports = this.db.prepare('SELECT COUNT(*) AS n FROM accounting_reports').get().n;
+    const employees = this.db.prepare('SELECT COUNT(*) AS n FROM employees').get().n;
+    return invoices === 0 && reports === 0 && employees === 0;
   }
 
   // ----------------------------------------------------------------
@@ -178,9 +306,10 @@ class BuchProDB {
   // ----------------------------------------------------------------
   saveAll(data) {
     const tx = this.db.transaction(() => {
-      // In Electron/SQLite mode invoices are persisted exclusively through
-      // targeted CRUD methods. The browser/localStorage fallback does not use
-      // database.js, so data.invoices is intentionally ignored here.
+      // In Electron/SQLite mode invoices and accounting reports are persisted
+      // exclusively through targeted CRUD methods. The browser/localStorage
+      // fallback does not use database.js, so stale snapshot copies of both
+      // collections are intentionally ignored here.
 
       // Kunden
       this.db.prepare('DELETE FROM kunden').run();
@@ -208,6 +337,31 @@ class BuchProDB {
       if (data.fahrzeuge && data.fahrzeuge.length) {
         const ins = this.db.prepare('INSERT INTO fahrzeuge (id, data) VALUES (@id, @data)');
         data.fahrzeuge.forEach(f => ins.run({ id: f.id, data: JSON.stringify(f) }));
+      }
+
+      // Mitarbeiterstamm (Rechnungs-Zeiterfassung bleibt unverändert in invoices.items)
+      this.db.prepare('DELETE FROM employees').run();
+      if (data.employees && data.employees.length) {
+        const ins = this.db.prepare(`INSERT INTO employees (
+          id, name, weekly_hours, annual_employer_cost, productive_mode,
+          manual_productive_rate, active, timesheet_link, note, created_at, updated_at
+        ) VALUES (
+          @id, @name, @weekly_hours, @annual_employer_cost, @productive_mode,
+          @manual_productive_rate, @active, @timesheet_link, @note, @created_at, @updated_at
+        )`);
+        data.employees.forEach(employee => ins.run({
+          id: employee.id,
+          name: employee.name,
+          weekly_hours: Number(employee.weekly_hours),
+          annual_employer_cost: Number(employee.annual_employer_cost),
+          productive_mode: employee.productive_mode === 'automatic' ? 'automatic' : 'manual',
+          manual_productive_rate: employee.manual_productive_rate == null ? null : Number(employee.manual_productive_rate),
+          active: employee.active === false ? 0 : 1,
+          timesheet_link: employee.timesheet_link || null,
+          note: employee.note || null,
+          created_at: employee.created_at || new Date().toISOString(),
+          updated_at: employee.updated_at || new Date().toISOString(),
+        }));
       }
 
       // Todos
@@ -558,6 +712,202 @@ class BuchProDB {
   }
 
   // ----------------------------------------------------------------
+  // Accounting reports
+  // ----------------------------------------------------------------
+  _accountingReportColumns() {
+    return [
+      'id', 'report_type', 'report_month', 'report_year', 'period_from_month', 'period_to_month',
+      'imported_at', 'original_file_b64', 'original_file_name', 'original_file_type', 'parse_status',
+      'parser_version', 'detected_period_from_month', 'detected_period_from_year',
+      'detected_period_to_month', 'detected_period_to_year', 'validation_status', 'validation_message',
+    ];
+  }
+
+  _accountingValueConfigs() {
+    return {
+      monthly_values: {
+        table: 'accounting_monthly_values',
+        columns: ['id', 'report_id', 'value_key', 'value_month', 'value_year', 'account_number', 'account_name', 'detected_value', 'manual_value', 'unit', 'source', 'source_section', 'source_label', 'confidence', 'status', 'metadata_json'],
+      },
+      snapshot_values: {
+        table: 'accounting_snapshot_values',
+        columns: ['id', 'report_id', 'value_key', 'snapshot_date', 'detected_value', 'manual_value', 'unit', 'source', 'status', 'metadata_json'],
+      },
+      cumulative_metrics: {
+        table: 'accounting_cumulative_metrics',
+        columns: ['id', 'report_id', 'value_key', 'detected_value', 'manual_value', 'unit', 'source', 'source_section', 'source_label', 'confidence', 'status', 'metadata_json'],
+      },
+      snapshot_metrics: {
+        table: 'accounting_snapshot_metrics',
+        columns: ['id', 'report_id', 'value_key', 'snapshot_date', 'account_number', 'account_name', 'detected_value', 'manual_value', 'unit', 'source', 'source_section', 'source_label', 'confidence', 'status', 'metadata_json'],
+      },
+      tax_values: {
+        table: 'accounting_tax_values',
+        columns: ['id', 'report_id', 'tax_type', 'value_key', 'period_month', 'period_year', 'detected_value', 'manual_value', 'unit', 'source', 'source_section', 'source_label', 'confidence', 'status', 'metadata_json'],
+      },
+      open_items: {
+        table: 'accounting_open_items',
+        columns: ['id', 'report_id', 'party_type', 'party_name', 'document_number', 'document_date', 'due_date', 'aging_class', 'detected_value', 'manual_value', 'currency', 'source', 'source_section', 'source_label', 'confidence', 'status', 'metadata_json'],
+      },
+      account_values: {
+        table: 'accounting_account_values',
+        columns: ['id', 'report_id', 'account_number', 'account_name', 'detected_value', 'manual_value', 'unit', 'source', 'status', 'metadata_json'],
+      },
+      detected_values: {
+        table: 'accounting_detected_values',
+        columns: ['id', 'report_id', 'value_scope', 'value_key', 'raw_value', 'normalized_value', 'page_number', 'confidence', 'metadata_json'],
+      },
+      manual_corrections: {
+        table: 'accounting_manual_corrections',
+        columns: ['id', 'report_id', 'value_scope', 'value_id', 'value_key', 'detected_value', 'previous_manual_value', 'manual_value', 'changed_at', 'note'],
+      },
+      import_differences: {
+        table: 'accounting_import_differences',
+        columns: ['id', 'report_id', 'previous_report_id', 'value_scope', 'value_key', 'account_number', 'value_month', 'value_year', 'previous_detected_value', 'new_detected_value', 'previous_manual_value', 'resolution_status', 'detected_at', 'metadata_json'],
+      },
+    };
+  }
+
+  _validateAccountingReport(report) {
+    if (!report || !report.id) throw new Error('Report-ID fehlt.');
+    if (report.report_type !== 'financial_accounting_monthly') throw new Error('Unbekannte Berichtsart.');
+    const month = Number(report.report_month);
+    const year = Number(report.report_year);
+    if (!Number.isInteger(month) || month < 1 || month > 12) throw new Error('Ungültiger Berichtsmonat.');
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new Error('Ungültiges Berichtsjahr.');
+    if (!report.original_file_b64 || !report.original_file_name) throw new Error('Original-PDF fehlt.');
+    if (report.original_file_type !== 'application/pdf') throw new Error('Als Monatsreport ist nur eine PDF-Datei erlaubt.');
+  }
+
+  _accountingReportToRow(report) {
+    return {
+      id: report.id,
+      report_type: report.report_type,
+      report_month: Number(report.report_month),
+      report_year: Number(report.report_year),
+      period_from_month: Number(report.period_from_month || 1),
+      period_to_month: Number(report.period_to_month || report.report_month),
+      imported_at: report.imported_at || new Date().toISOString(),
+      original_file_b64: report.original_file_b64,
+      original_file_name: report.original_file_name,
+      original_file_type: report.original_file_type,
+      parse_status: report.parse_status || 'pending',
+      parser_version: report.parser_version || null,
+      detected_period_from_month: report.detected_period_from_month == null ? null : Number(report.detected_period_from_month),
+      detected_period_from_year: report.detected_period_from_year == null ? null : Number(report.detected_period_from_year),
+      detected_period_to_month: report.detected_period_to_month == null ? null : Number(report.detected_period_to_month),
+      detected_period_to_year: report.detected_period_to_year == null ? null : Number(report.detected_period_to_year),
+      validation_status: report.validation_status || 'not_checked',
+      validation_message: report.validation_message || null,
+    };
+  }
+
+  _saveAccountingValues(report) {
+    const configs = this._accountingValueConfigs();
+    Object.entries(configs).forEach(([key, config]) => {
+      this.db.prepare(`DELETE FROM ${config.table} WHERE report_id = ?`).run(report.id);
+      const sql = `INSERT INTO ${config.table} (${config.columns.join(', ')}) VALUES (${config.columns.map(c => '@' + c).join(', ')})`;
+      const insert = this.db.prepare(sql);
+      (report[key] || []).forEach((value, index) => {
+        const row = {};
+        config.columns.forEach(column => {
+          if (column === 'id') {
+            const candidate = value.id || `${report.id}-${key}-${index + 1}`;
+            const owner = this.db.prepare(`SELECT report_id FROM ${config.table} WHERE id = ?`).get(candidate);
+            row.id = owner && owner.report_id !== report.id ? `${report.id}-${candidate}` : candidate;
+          }
+          else if (column === 'report_id') row.report_id = report.id;
+          else if (column === 'metadata_json') row.metadata_json = JSON.stringify(value.metadata || {});
+          else if (column === 'value_id' && value[column] == null) row.value_id = value.value_key || `${report.id}-${value.value_scope || 'value'}-${index + 1}`;
+          else row[column] = value[column] == null ? null : value[column];
+        });
+        if (Object.prototype.hasOwnProperty.call(row, 'source') && row.source == null) row.source = value.manual_value == null ? 'pdf' : 'manual';
+        if (Object.prototype.hasOwnProperty.call(row, 'status') && row.status == null) row.status = value.manual_value == null ? 'detected' : 'manually_changed';
+        if (Object.prototype.hasOwnProperty.call(row, 'changed_at') && row.changed_at == null) row.changed_at = new Date().toISOString();
+        if (Object.prototype.hasOwnProperty.call(row, 'detected_at') && row.detected_at == null) row.detected_at = new Date().toISOString();
+        if (Object.prototype.hasOwnProperty.call(row, 'resolution_status') && row.resolution_status == null) row.resolution_status = 'pending';
+        insert.run(row);
+      });
+    });
+  }
+
+  _accountingReportFromRow(row) {
+    if (!row) return null;
+    const report = { ...row };
+    const configs = this._accountingValueConfigs();
+    Object.entries(configs).forEach(([key, config]) => {
+      report[key] = this.db.prepare(`SELECT * FROM ${config.table} WHERE report_id = ? ORDER BY rowid`).all(row.id).map(value => {
+        delete value.report_id;
+        if (value.metadata_json !== undefined) {
+          try { value.metadata = JSON.parse(value.metadata_json || '{}'); } catch (_) { value.metadata = {}; }
+          delete value.metadata_json;
+        }
+        if (Object.prototype.hasOwnProperty.call(value, 'detected_value') && key !== 'manual_corrections') {
+          value.effective_value = value.manual_value == null ? value.detected_value : value.manual_value;
+        }
+        return value;
+      });
+    });
+    return report;
+  }
+
+  listAccountingReports() {
+    return this.db.prepare('SELECT * FROM accounting_reports ORDER BY report_year DESC, report_month DESC, imported_at DESC').all()
+      .map(row => this._accountingReportFromRow(row));
+  }
+
+  getAccountingReport(id) {
+    return this._accountingReportFromRow(this.db.prepare('SELECT * FROM accounting_reports WHERE id = ?').get(id));
+  }
+
+  getAccountingReportByPeriod(reportType, reportMonth, reportYear) {
+    const row = this.db.prepare('SELECT * FROM accounting_reports WHERE report_type = ? AND report_month = ? AND report_year = ?')
+      .get(reportType, Number(reportMonth), Number(reportYear));
+    return this._accountingReportFromRow(row);
+  }
+
+  createAccountingReport(report) {
+    this._validateAccountingReport(report);
+    const tx = this.db.transaction(() => {
+      const row = this._accountingReportToRow(report);
+      const columns = this._accountingReportColumns();
+      this.db.prepare(`INSERT INTO accounting_reports (${columns.join(', ')}) VALUES (${columns.map(c => '@' + c).join(', ')})`).run(row);
+      this._saveAccountingValues({ ...report, ...row });
+      return this.getAccountingReport(row.id);
+    });
+    return tx();
+  }
+
+  updateAccountingReport(report) {
+    if (!report || !report.id) throw new Error('Report-ID fehlt.');
+    const existing = this.getAccountingReport(report.id);
+    if (!existing) throw new Error('Buchhaltungsreport nicht gefunden: ' + report.id);
+    const merged = { ...existing, ...report };
+    if (report.original_file_b64 == null && report.original_file_name == null && report.original_file_type == null) {
+      merged.original_file_b64 = existing.original_file_b64;
+      merged.original_file_name = existing.original_file_name;
+      merged.original_file_type = existing.original_file_type;
+    }
+    this._validateAccountingReport(merged);
+    const tx = this.db.transaction(() => {
+      const row = this._accountingReportToRow(merged);
+      const columns = this._accountingReportColumns().filter(column => column !== 'id');
+      this.db.prepare(`UPDATE accounting_reports SET ${columns.map(c => c + ' = @' + c).join(', ')} WHERE id = @id`).run(row);
+      this._saveAccountingValues({ ...merged, ...row });
+      return this.getAccountingReport(row.id);
+    });
+    return tx();
+  }
+
+  importAccountingReportsForMigration(reports) {
+    (reports || []).forEach(report => {
+      const existing = this.getAccountingReportByPeriod(report.report_type, report.report_month, report.report_year);
+      if (existing) this.updateAccountingReport({ ...report, id: existing.id });
+      else this.createAccountingReport(report);
+    });
+  }
+
+  // ----------------------------------------------------------------
   // Migration from localStorage backup data
   // ----------------------------------------------------------------
   migrateFromLocalStorage(lsData) {
@@ -578,6 +928,7 @@ class BuchProDB {
           lieferanten:        buchproData.lieferanten        || [],
           zahlungen:          buchproData.zahlungen          || [],
           fahrzeuge:          buchproData.fahrzeuge          || [],
+          employees:          buchproData.employees          || [],
           todos:              buchproData.todos              || [],
           todos_archiv:       buchproData.todos_archiv       || [],
           kostenvoranschlaege: buchproData.kostenvoranschlaege || [],
@@ -585,6 +936,7 @@ class BuchProDB {
           vorlage:            buchproData.vorlage            || null,
         });
         this.importInvoicesForMigration(buchproData.invoices || []);
+        this.importAccountingReportsForMigration(buchproData.accounting_reports || []);
         const importedCounters = {};
         INVOICE_COUNTER_KEYS.forEach(key => {
           const value = Number((buchproData.counters || {})[key]);
@@ -699,4 +1051,3 @@ class BuchProDB {
 
 module.exports = BuchProDB;
 module.exports.INVOICE_COUNTER_KEYS = INVOICE_COUNTER_KEYS;
-

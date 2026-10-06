@@ -10,9 +10,9 @@
     "build:win": "electron-builder --win nsis"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.6.0",
     "electron": "^32.2.0",
-    "electron-builder": "^24.13.3",
-    "@electron/rebuild": "^3.6.0"
+    "electron-builder": "^24.13.3"
   },
   "overrides": {
     "node-gyp": "^10.2.0"
@@ -26,6 +26,7 @@
       "electron-main.js",
       "preload.js",
       "database.js",
+      "accounting-report-parser.js",
       "app-config.js",
       "node_modules/**/*"
     ],
@@ -57,9 +58,10 @@
     ]
   },
   "dependencies": {
-    "electron-updater": "^6.3.9",
+    "better-sqlite3": "^11.0.0",
     "dotenv": "^16.4.5",
-    "better-sqlite3": "^11.0.0"
+    "electron-updater": "^6.3.9",
+    "pdf-parse": "^1.1.1"
   },
   "repository": {
     "type": "git",
