@@ -756,8 +756,9 @@ function renderAccountingReports() {
     reports.map(function(report) {
       var warning = report.validation_status === 'mismatch' ? '<div style="font-size:11px;color:var(--warn);margin-top:3px">' + esc(report.validation_message || '') + '</div>' : '';
       var missing = (report.cumulative_metrics || []).concat(report.snapshot_metrics || [], report.tax_values || []).filter(function(value) { return value.status === 'missing'; }).length;
-      var parseLabel = report.parse_status === 'parsed' ? 'ausgelesen' : (report.parse_status === 'failed' ? 'Parserfehler' : 'importiert');
-      var parseClass = report.parse_status === 'failed' ? 'red' : (missing ? 'amber' : 'green');
+      var parseLabel = report.parse_status === 'parsed' ? 'ausgelesen' :
+        (report.parse_status === 'failed' ? 'Auswertung fehlgeschlagen' : (report.parse_status === 'warning' ? 'keine Monatswerte' : 'importiert'));
+      var parseClass = report.parse_status === 'failed' ? 'red' : (report.parse_status === 'warning' || missing ? 'amber' : 'green');
       return '<tr><td>' + esc(accountingReportPeriodLabel(report)) + warning + '</td>' +
         '<td>' + ACCOUNTING_REPORT_LABEL + '</td><td><span class="badge ' + parseClass + '">' + parseLabel + '</span>' + (missing ? '<div style="font-size:10px;color:var(--t3);margin-top:3px">' + missing + ' Werte nicht erkannt</div>' : '') + '</td>' +
         '<td><button class="btn accounting-open" data-id="' + esc(report.id) + '">PDF öffnen</button></td>' +
@@ -847,6 +848,56 @@ function readAccountingReportFile(file) {
   });
 }
 
+function normaliseAccountingExtractionResult(result) {
+  if (!result || result.ok !== true) {
+    var errorMessage = result && result.error ? result.error : 'Unbekannter Fehler bei der PDF-Auswertung.';
+    return {
+      ok: false,
+      message: 'PDF-Auswertung fehlgeschlagen: ' + errorMessage,
+      parsed: {
+        parse_status: 'failed', parser_version: null, monthly_values: [], cumulative_metrics: [],
+        snapshot_metrics: [], tax_values: [], open_items: [], detected_values: [],
+      },
+    };
+  }
+  var parsed = Object.assign({}, result.parsed || {});
+  var monthlyCount = Array.isArray(parsed.monthly_values) ? parsed.monthly_values.length : 0;
+  if (monthlyCount === 0) {
+    parsed.parse_status = 'warning';
+    return {
+      ok: true,
+      warning: true,
+      message: 'Die PDF konnte gelesen werden, aber es wurden keine Monatswerte erkannt.',
+      parsed: parsed,
+      pages: result.pages,
+    };
+  }
+  parsed.parse_status = 'parsed';
+  return {
+    ok: true,
+    warning: false,
+    message: 'PDF ausgewertet – ' + monthlyCount + ' Monats-/Kontenwerte erkannt.',
+    parsed: parsed,
+    pages: result.pages,
+  };
+}
+
+async function extractAccountingReport(originalFileB64) {
+  try {
+    var result;
+    if (window.electronAPI && typeof window.electronAPI.extractAccountingReport === 'function') {
+      result = await window.electronAPI.extractAccountingReport(originalFileB64);
+    } else if (window.AccountingReportBrowser && typeof window.AccountingReportBrowser.extractAccountingReport === 'function') {
+      result = await window.AccountingReportBrowser.extractAccountingReport(originalFileB64);
+    } else {
+      result = { ok: false, error: 'Die lokale Browser-PDF-Auswertung ist nicht verfügbar.' };
+    }
+    return normaliseAccountingExtractionResult(result);
+  } catch (error) {
+    return normaliseAccountingExtractionResult({ ok: false, error: error && error.message ? error.message : String(error) });
+  }
+}
+
 function showAccountingDuplicate(existing, candidate) {
   _accountingDuplicateUpload = { existing: existing, candidate: candidate };
   document.getElementById('accounting-duplicate-message').textContent = 'Für ' + accountingReportPeriodLabel(candidate) + ' ist bereits ein Finanzbuchhaltungsreport vorhanden.';
@@ -863,19 +914,11 @@ async function saveAccountingReportForm() {
     var fileData = await readAccountingReportFile(fileInput.files && fileInput.files[0]);
     if (!fileData && !existing) throw new Error('Bitte wählen Sie das Original-PDF aus.');
     var parsedData = {};
-    if (fileData && window.electronAPI && typeof window.electronAPI.extractAccountingReport === 'function') {
+    if (fileData) {
       document.getElementById('accounting-file-info').textContent = 'PDF wird lokal ausgelesen …';
-      var parseResult = await window.electronAPI.extractAccountingReport(fileData.original_file_b64);
-      if (parseResult && parseResult.ok) {
-        parsedData = parseResult.parsed || {};
-        document.getElementById('accounting-file-info').textContent = fileData.original_file_name + ': ' + (parsedData.monthly_values || []).length + ' Monats-/Kontenwerte erkannt.';
-      } else {
-        parsedData = {
-          parse_status: 'failed', parser_version: 'bmd-fibu-v1', monthly_values: [], cumulative_metrics: [],
-          snapshot_metrics: [], tax_values: [], open_items: [], detected_values: [],
-        };
-        document.getElementById('accounting-file-info').textContent = 'PDF gespeichert, Auslesen fehlgeschlagen: ' + ((parseResult && parseResult.error) || 'Unbekannter Fehler');
-      }
+      var extraction = await extractAccountingReport(fileData.original_file_b64);
+      parsedData = extraction.parsed;
+      document.getElementById('accounting-file-info').textContent = extraction.message;
     }
     var candidate = normaliseAccountingReport(Object.assign({
       id: editId || uid(),

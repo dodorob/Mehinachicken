@@ -359,9 +359,12 @@ function parseFinancialAccountingReportText(text) {
   };
 }
 
-module.exports = {
+const accountingReportParser = {
   parseGermanNumber,
   detectPeriod,
   reconstructLayoutPage,
   parseFinancialAccountingReportText,
 };
+
+if (typeof module !== 'undefined' && module.exports) module.exports = accountingReportParser;
+else if (typeof globalThis !== 'undefined') globalThis.AccountingReportParser = accountingReportParser;
