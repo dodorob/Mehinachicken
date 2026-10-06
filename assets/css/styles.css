@@ -141,6 +141,22 @@ canvas{max-height:200px!important}
 .accounting-kpi-note{font:11px sans-serif;color:var(--t3);line-height:1.45}
 .accounting-chart-grid canvas,.card>canvas[id^="kpi-chart"]{max-height:260px}
 body.dark .accounting-overview-item,body.dark .accounting-section>summary{background:#252525}
+.info-tip{cursor:help;color:var(--accent);font-size:14px}
+.employee-basis{font:12px sans-serif;color:var(--t3)}
+.employee-card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(275px,1fr));gap:12px;margin-top:14px}
+.employee-plan-card{border:1px solid var(--border);border-radius:10px;padding:14px;background:var(--card)}
+.employee-plan-card.inactive{opacity:.62}
+.employee-plan-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px}
+.employee-plan-head h4{margin:0;font:600 17px sans-serif}
+.employee-plan-meta{font:12px sans-serif;color:var(--t3);line-height:1.55}
+.employee-plan-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.employee-plan-metric{padding:9px;background:#f7f7f4;border-radius:8px}
+.employee-plan-metric span{display:block;font:10px sans-serif;color:var(--t3);text-transform:uppercase;letter-spacing:.35px;margin-bottom:3px}
+.employee-plan-metric strong{font:600 15px sans-serif}
+.employee-plan-details{font:11px sans-serif;color:var(--t3);line-height:1.55;border-top:1px solid var(--border);padding-top:9px}
+.employee-plan-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:10px}
+.employee-overhead-note{font:11px sans-serif;color:var(--t3);line-height:1.5;margin-top:14px}
+body.dark .employee-plan-metric{background:#252525}
 @media(max-width:700px){.sidebar{display:none}.grid4{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}.fr.c2{grid-template-columns:1fr}.vl{grid-template-columns:1fr}}
 @media(max-width:700px){.accounting-overview{grid-template-columns:1fr 1fr}.accounting-value-table{display:block;overflow-x:auto}.accounting-period-picker{width:100%}.accounting-period-picker select{flex:1}}
 @media(max-width:480px){.accounting-overview{grid-template-columns:1fr}.grid4{grid-template-columns:1fr}.accounting-value-input{width:105px}}

@@ -450,8 +450,39 @@
 </div>
 
 <div class="page" id="page-mitarbeiter">
-  <div class="topbar"><h2>Mitarbeiter</h2></div>
+  <div class="topbar"><h2>Mitarbeiter</h2><div class="tba"><button class="btn primary" id="btn-new-employee">+ Mitarbeiter</button></div></div>
   <div class="content">
+    <div class="card" id="employee-form-card" style="display:none;margin-bottom:1.25rem">
+      <h3 id="employee-form-title">Mitarbeiter anlegen</h3>
+      <input type="hidden" id="employee-id">
+      <div class="fr c2">
+        <div class="fg"><label>Name</label><input id="employee-name" autocomplete="off"></div>
+        <div class="fg"><label>Mit bestehender Zeiterfassung verknüpfen</label><select id="employee-timesheet-link"><option value="">Keine Verknüpfung</option><option value="djevad">Dževad</option><option value="helmut">Helmut</option></select></div>
+      </div>
+      <div class="fr c2">
+        <div class="fg"><label>Wochenstunden</label><input id="employee-weekly-hours" type="number" min="0.1" step="0.1" inputmode="decimal"></div>
+        <div class="fg"><label>Jährliche Arbeitgeber-Gesamtkosten <span class="info-tip" title="Tragen Sie die gesamten jährlichen Kosten ein, die dieser Mitarbeiter dem Unternehmen verursacht. Gemeint ist nicht das Netto- oder Bruttogehalt des Mitarbeiters, sondern der gesamte Arbeitgeberaufwand einschließlich Sonderzahlungen, Dienstgeberabgaben, Sozialaufwand, BVK und sonstiger direkt zurechenbarer Personalkosten.">&#9432;</span></label><input id="employee-annual-cost" type="number" min="0" step="100" inputmode="decimal"></div>
+      </div>
+      <div class="fr c2">
+        <div class="fg"><label>Art der produktiven Quote</label><select id="employee-productive-mode"><option value="manual">Manuell</option><option value="automatic">Automatisch aus Ist-Daten</option></select></div>
+        <div class="fg"><label>Produktive Quote (%)</label><input id="employee-manual-rate" type="number" min="0.1" max="100" step="0.1" inputmode="decimal"></div>
+      </div>
+      <div class="fg"><label>Notiz (optional)</label><textarea id="employee-note" rows="2"></textarea></div>
+      <label style="display:flex;align-items:center;gap:8px;font:13px sans-serif;margin:8px 0"><input id="employee-active" type="checkbox" checked> Aktiv</label>
+      <div id="employee-form-error" class="alert danger" style="display:none;margin:8px 0"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn" id="employee-form-cancel">Abbrechen</button><button class="btn primary" id="employee-form-save">Speichern</button></div>
+    </div>
+
+    <div class="card" style="margin-bottom:1.25rem">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div><h3 style="margin:0 0 4px">Personalplanung und Kosten</h3><div id="employee-calculation-basis" class="employee-basis"></div></div>
+      </div>
+      <div id="employee-planning-message"></div>
+      <div id="employee-planning-list" class="employee-card-grid"></div>
+      <div class="employee-overhead-note"><strong>Gemeinkostenbasis:</strong> negative Salden der Konten 7000–7999 aus der Periodenübersicht. Material (5000–5699), Fremdleistungen (5700–5799) und Personal (6000–6999) sind ausgeschlossen. Positive Gutschriften in der Gemeinkostenklasse vermindern die Basis.</div>
+    </div>
+
+    <h3 style="margin:0 0 10px">Bestehende Stundenaufstellungen</h3>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:1.25rem">
       <button class="btn" id="ma-prev" style="font-size:16px;padding:6px 14px">&#8592;</button>
       <span id="ma-month-label" style="font-family:sans-serif;font-size:15px;font-weight:500;color:var(--t1);min-width:140px;text-align:center"></span>

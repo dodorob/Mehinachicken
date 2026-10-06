@@ -192,6 +192,7 @@ function getDB() {
   if (!d.lieferanten) d.lieferanten = [];
   if (!d.zahlungen)   d.zahlungen   = [];
   if (!d.fahrzeuge)   d.fahrzeuge   = [];
+  if (!d.employees)   d.employees   = [];
   if (!d.counters)    d.counters    = d.invoices.length === 0 ? {ausgang:1, eingang:1, fortlaufend:1, lfd_bank:1, kassenbeleg:1} : {};
   // Migration: ensure counters exist
   if (!d.counters.fortlaufend && d.invoices.length === 0) d.counters.fortlaufend = 1;
@@ -5837,6 +5838,316 @@ function _maSortEmpJobs(emp, col) {
   renderMaEmpDetail(emp, searchEl ? searchEl.value : '', curM, curY);
 }
 
+// ── Mitarbeiterstamm und Personalplanung ────────────────────────
+var _employeeUiWired = false;
+
+function normaliseEmployee(employee) {
+  var value = Object.assign({}, employee || {});
+  value.id = value.id || uid();
+  value.name = String(value.name || '').trim();
+  value.weekly_hours = Number(value.weekly_hours);
+  value.annual_employer_cost = Number(value.annual_employer_cost);
+  value.timesheet_link = value.timesheet_link === 'djevad' || value.timesheet_link === 'helmut' ? value.timesheet_link : null;
+  value.productive_mode = value.timesheet_link && value.productive_mode === 'automatic' ? 'automatic' : 'manual';
+  value.manual_productive_rate = value.manual_productive_rate == null || value.manual_productive_rate === '' ? null : Number(value.manual_productive_rate);
+  value.active = value.active !== false;
+  value.note = String(value.note || '').trim();
+  value.created_at = value.created_at || new Date().toISOString();
+  value.updated_at = value.updated_at || new Date().toISOString();
+  return value;
+}
+
+function validateEmployee(employee, employees) {
+  if (!employee.name) throw new Error('Bitte geben Sie einen Namen ein.');
+  if (!Number.isFinite(employee.weekly_hours) || employee.weekly_hours <= 0) throw new Error('Wochenstunden müssen größer als 0 sein.');
+  if (!Number.isFinite(employee.annual_employer_cost) || employee.annual_employer_cost < 0) throw new Error('Bitte geben Sie gültige jährliche Arbeitgeber-Gesamtkosten ein.');
+  if (employee.productive_mode === 'manual' && (!Number.isFinite(employee.manual_productive_rate) || employee.manual_productive_rate <= 0 || employee.manual_productive_rate > 1)) {
+    throw new Error('Die manuelle produktive Quote muss zwischen 0 und 100 % liegen.');
+  }
+  if (employee.productive_mode === 'automatic' && !employee.timesheet_link) throw new Error('Die automatische Quote benötigt eine Verknüpfung mit Dževad oder Helmut.');
+  if (employee.timesheet_link && (employees || []).some(function(item) { return item.id !== employee.id && item.timesheet_link === employee.timesheet_link; })) {
+    throw new Error('Diese bestehende Zeiterfassung ist bereits mit einem anderen Mitarbeiter verknüpft.');
+  }
+  return employee;
+}
+
+function suggestEmployeeTimesheetLink(name) {
+  var normalized = String(name || '').toLocaleLowerCase('de-AT').replace(/[^a-zäöüžćčšđ]/g, '');
+  if (normalized === 'dževad' || normalized === 'dzevad' || normalized === 'djevad' || normalized === 'cevad') return 'djevad';
+  if (normalized === 'helmut') return 'helmut';
+  return null;
+}
+
+async function persistEmployee(employee) {
+  var d = getDB();
+  var normalized = validateEmployee(normaliseEmployee(employee), d.employees || []);
+  var index = (d.employees || []).findIndex(function(item) { return item.id === normalized.id; });
+  if (index < 0) d.employees.push(normalized);
+  else d.employees[index] = normalized;
+  if (!(await persistDB(d))) throw new Error('Mitarbeiter konnte nicht gespeichert werden.');
+  return normalized;
+}
+
+async function deactivateEmployee(employeeId) {
+  var employee = (getDB().employees || []).find(function(item) { return item.id === employeeId; });
+  if (!employee) throw new Error('Mitarbeiter wurde nicht gefunden.');
+  return persistEmployee(Object.assign({}, employee, { active: false, updated_at: new Date().toISOString() }));
+}
+
+function employeePlanningPeriod(reports, fallbackYear, invoices) {
+  var periodMonths = typeof ACCOUNTING_MONTHS !== 'undefined' ? ACCOUNTING_MONTHS : ['Jänner','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+  var report = (reports || []).slice().sort(function(a, b) {
+    return Number(b.report_year) - Number(a.report_year) || Number(b.report_month) - Number(a.report_month) || String(b.imported_at || '').localeCompare(String(a.imported_at || ''));
+  })[0];
+  var observedDates = [];
+  if (!report) {
+    (invoices || []).forEach(function(invoice) {
+      if (invoice.typ !== 'ausgang') return;
+      var hasDatedWork = false;
+      (invoice.items || []).forEach(function(item) {
+        (item.arbeitsdaten || []).forEach(function(row) {
+          if ((Number(row.djevad_h) || 0) <= 0 && (Number(row.helmut_h) || 0) <= 0) return;
+          if (/^\d{4}-\d{2}-\d{2}/.test(String(row.datum || ''))) { observedDates.push(String(row.datum).slice(0, 10)); hasDatedWork = true; }
+        });
+      });
+      if (!hasDatedWork && (/^\d{4}-\d{2}-\d{2}/.test(String(invoice.leistungsdatum || invoice.datum || '')))) {
+        var hasLegacyHours = (invoice.items || []).some(function(item) { return (Number(item.djevad_h) || 0) > 0 || (Number(item.helmut_h) || 0) > 0; });
+        if (hasLegacyHours || invoice.flag_djevad || invoice.flag_helmut) observedDates.push(String(invoice.leistungsdatum || invoice.datum).slice(0, 10));
+      }
+    });
+  }
+  var observedYear = observedDates.length ? Math.max.apply(null, observedDates.map(function(date) { return Number(date.slice(0, 4)); })) : null;
+  var observedMonths = observedYear == null ? [] : observedDates.filter(function(date) { return Number(date.slice(0, 4)) === observedYear; }).map(function(date) { return Number(date.slice(5, 7)); });
+  var year = report ? Number(report.report_year) : Number(observedYear || fallbackYear || new Date().getFullYear());
+  var fromMonth = report ? Number(report.period_from_month || 1) : (observedMonths.length ? Math.min.apply(null, observedMonths) : 1);
+  var toMonth = report ? Number(report.period_to_month || report.report_month) : (observedMonths.length ? Math.max.apply(null, observedMonths) : 12);
+  var monthCount = Math.max(1, toMonth - fromMonth + 1);
+  return {
+    year: year, from_month: fromMonth, to_month: toMonth, month_count: monthCount,
+    start: year + '-' + String(fromMonth).padStart(2, '0') + '-01',
+    end: new Date(Date.UTC(year, toMonth, 0)).toISOString().slice(0, 10),
+    has_accounting_report: !!report,
+    report: report || null,
+    label: periodMonths[fromMonth - 1] + (fromMonth === toMonth ? '' : '–' + periodMonths[toMonth - 1]) + ' ' + year,
+  };
+}
+
+function employeeAnnualContractHours(employee) {
+  var hours = Number(employee && employee.weekly_hours);
+  return Number.isFinite(hours) && hours > 0 ? hours * 52 : null;
+}
+
+function employeeContractHoursForPeriod(employee, period) {
+  var annual = employeeAnnualContractHours(employee);
+  return annual == null ? null : annual * Number(period.month_count) / 12;
+}
+
+function employeeDateInPeriod(value, period) {
+  var date = String(value || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= period.start && date <= period.end;
+}
+
+function employeeTimesheetActuals(invoices, timesheetLink, period) {
+  var field = timesheetLink === 'djevad' ? 'djevad_h' : timesheetLink === 'helmut' ? 'helmut_h' : null;
+  if (!field) return { productive_hours: 0, travel_hours: 0, data_dates: [], sufficient: false };
+  var productive = 0, travel = 0, dates = {};
+  (invoices || []).forEach(function(invoice) {
+    if (invoice.typ !== 'ausgang') return;
+    var invoiceDate = invoice.leistungsdatum || invoice.datum;
+    var invoiceProductive = 0;
+    (invoice.items || []).forEach(function(item) {
+      var workRows = item.arbeitsdaten || [];
+      if (workRows.length) {
+        workRows.forEach(function(row) {
+          if (!employeeDateInPeriod(row.datum, period)) return;
+          var hours = Number(row[field]) || 0;
+          invoiceProductive += hours;
+          if (hours > 0) dates[String(row.datum).slice(0, 10)] = true;
+        });
+      } else if (employeeDateInPeriod(invoiceDate, period)) {
+        var itemHours = Number(item[field]) || 0;
+        invoiceProductive += itemHours;
+        if (itemHours > 0) dates[String(invoiceDate).slice(0, 10)] = true;
+      }
+      (item.fahrzeitdaten || []).forEach(function(row) {
+        if (employeeDateInPeriod(row.datum, period)) travel += Number(row[field]) || 0;
+      });
+    });
+    if (invoiceProductive <= 0 && invoice['flag_' + timesheetLink] && employeeDateInPeriod(invoiceDate, period)) {
+      invoiceProductive = (invoice.items || []).reduce(function(sum, item) { return sum + (Number(item.menge) || 0); }, 0);
+      if (invoiceProductive > 0) dates[String(invoiceDate).slice(0, 10)] = true;
+    }
+    productive += invoiceProductive;
+  });
+  var dataDates = Object.keys(dates).sort();
+  return { productive_hours: productive, travel_hours: travel, data_dates: dataDates, sufficient: productive > 0 && dataDates.length > 0 };
+}
+
+function employeeProductiveRate(employee, invoices, period) {
+  if (employee.productive_mode === 'manual') {
+    return { rate: employee.manual_productive_rate, status: 'manual', actuals: employee.timesheet_link ? employeeTimesheetActuals(invoices, employee.timesheet_link, period) : null };
+  }
+  var actuals = employeeTimesheetActuals(invoices, employee.timesheet_link, period);
+  var contractHours = employeeContractHoursForPeriod(employee, period);
+  if (!actuals.sufficient || !contractHours) return { rate: null, status: 'insufficient', actuals: actuals };
+  return { rate: actuals.productive_hours / contractHours, status: 'automatic', actuals: actuals };
+}
+
+function employeeAccountingOverhead(reports, period) {
+  if (!period.has_accounting_report) return null;
+  var total = 0, found = false;
+  for (var month = period.from_month; month <= period.to_month; month += 1) {
+    canonicalAccountingMonthlyValues(reports, period.year, month).forEach(function(value) {
+      var account = Number(value.account_number);
+      var amount = accountingEffectiveNumber(value);
+      if (account < 7000 || account > 7999 || amount == null) return;
+      total += amount;
+      found = true;
+    });
+  }
+  return found ? Math.max(0, -total) : null;
+}
+
+function calculateEmployeePlans(employees, invoices, reports, fallbackYear) {
+  var period = employeePlanningPeriod(reports, fallbackYear, invoices);
+  var overhead = employeeAccountingOverhead(reports, period);
+  var plans = (employees || []).map(function(employeeValue) {
+    var employee = normaliseEmployee(employeeValue);
+    var rateResult = employeeProductiveRate(employee, invoices, period);
+    var annualContractHours = employeeAnnualContractHours(employee);
+    var contractHours = employeeContractHoursForPeriod(employee, period);
+    var annualProductiveHours = rateResult.rate == null ? null : annualContractHours * rateResult.rate;
+    var productiveHours = rateResult.rate == null ? null : contractHours * rateResult.rate;
+    var personnelHourly = annualProductiveHours > 0 ? employee.annual_employer_cost / annualProductiveHours : null;
+    return {
+      employee: employee, rate: rateResult.rate, rate_status: rateResult.status, actuals: rateResult.actuals,
+      annual_contract_hours: annualContractHours, contract_hours: contractHours,
+      annual_productive_hours: annualProductiveHours, productive_hours: productiveHours,
+      personnel_hourly: personnelHourly, overhead_hourly: null, break_even_hourly: null,
+    };
+  });
+  var totalProductiveHours = plans.filter(function(plan) { return plan.employee.active && plan.productive_hours != null; })
+    .reduce(function(sum, plan) { return sum + plan.productive_hours; }, 0);
+  var overheadHourly = overhead != null && totalProductiveHours > 0 ? overhead / totalProductiveHours : null;
+  plans.forEach(function(plan) {
+    plan.overhead_hourly = plan.employee.active ? overheadHourly : null;
+    plan.break_even_hourly = plan.personnel_hourly != null && plan.overhead_hourly != null ? plan.personnel_hourly + plan.overhead_hourly : null;
+  });
+  return { period: period, overhead: overhead, total_productive_hours: totalProductiveHours, overhead_hourly: overheadHourly, plans: plans };
+}
+
+function employeePlanningMoney(value) {
+  return value == null || !Number.isFinite(Number(value)) ? '—' : fmt(Number(value));
+}
+
+function employeePlanningRate(value) {
+  return value == null || !Number.isFinite(Number(value)) ? '—' : new Intl.NumberFormat('de-AT', { maximumFractionDigits: 1 }).format(Number(value) * 100) + ' %';
+}
+
+function renderEmployeePlanning() {
+  var list = document.getElementById('employee-planning-list');
+  if (!list) return;
+  var d = getDB();
+  var result = calculateEmployeePlans(d.employees || [], d.invoices || [], d.accounting_reports || []);
+  var basis = document.getElementById('employee-calculation-basis');
+  if (basis) basis.textContent = 'Berechnungsbasis: ' + result.period.label + (result.period.has_accounting_report ? '' : ' · noch keine Buchhaltungsdaten importiert');
+  var message = document.getElementById('employee-planning-message');
+  if (message) message.innerHTML = result.overhead == null
+    ? '<div class="alert warning" style="margin-top:10px">Gemeinkosten können erst mit passenden Buchhaltungsdaten berechnet werden.</div>'
+    : '<div class="alert info" style="margin-top:10px">Relevante Gemeinkosten: ' + esc(fmt(result.overhead)) + ' · ' + (result.overhead_hourly == null ? 'keine ausreichenden produktiven Stunden für die Verteilung' : esc(fmt(result.overhead_hourly)) + ' je produktiver Stunde') + '</div>';
+  if (!result.plans.length) {
+    list.innerHTML = '<div class="empty">Noch keine Mitarbeiter angelegt.</div>';
+    return;
+  }
+  list.innerHTML = result.plans.map(function(plan) {
+    var employee = plan.employee;
+    var linked = employee.timesheet_link ? '<span class="badge blue">Mit Zeiterfassung ' + (employee.timesheet_link === 'djevad' ? 'Dževad' : 'Helmut') + ' verknüpft</span>' : '';
+    var rateStatus = plan.rate_status === 'insufficient' ? '<span class="badge amber">Noch nicht genügend Ist-Daten</span>' : (plan.rate_status === 'automatic' ? '<span class="badge green">automatisch aus Ist-Daten</span>' : '<span class="badge gray">manuell</span>');
+    var actualDetails = plan.actuals ? '<div>Produktive Arbeitsstunden: <strong>' + fmtAmt(plan.actuals.productive_hours) + ' h</strong> · Fahrzeit: <strong>' + fmtAmt(plan.actuals.travel_hours) + ' h</strong></div>' : '';
+    return '<div class="employee-plan-card ' + (employee.active ? '' : 'inactive') + '">' +
+      '<div class="employee-plan-head"><div><h4>' + esc(employee.name) + '</h4><div>' + (employee.active ? '<span class="badge green">aktiv</span>' : '<span class="badge gray">inaktiv</span>') + ' ' + linked + '</div></div></div>' +
+      '<div class="employee-plan-meta">' + fmtAmt(employee.weekly_hours) + ' h/Woche · ' + esc(fmt(employee.annual_employer_cost)) + ' Arbeitgeberkosten/Jahr<br>Vertragliche Jahresstunden: ' + fmtAmt(plan.annual_contract_hours) + ' h<br>Produktive Quote: ' + employeePlanningRate(plan.rate) + ' ' + rateStatus + '</div>' +
+      '<div class="employee-plan-metrics"><div class="employee-plan-metric"><span>Personalkosten / produktive Stunde</span><strong>' + esc(employeePlanningMoney(plan.personnel_hourly)) + '</strong></div>' +
+      '<div class="employee-plan-metric"><span>Break-even-Stundensatz <span class="info-tip" title="Der Break-even-Stundensatz zeigt, wie viel Netto-Umsatz eine produktive Arbeitsstunde mindestens erwirtschaften muss, damit die Personalkosten dieses Mitarbeiters und sein Anteil an den allgemeinen Betriebskosten gedeckt sind. Eine Gewinnmarge ist nicht enthalten.">&#9432;</span></span><strong>' + esc(employeePlanningMoney(plan.break_even_hourly)) + '</strong></div></div>' +
+      '<div class="employee-plan-details">Vertragsstunden ' + esc(result.period.label) + ': <strong>' + fmtAmt(plan.contract_hours) + ' h</strong> · produktive Stunden für Kostenverteilung: <strong>' + (plan.productive_hours == null ? '—' : fmtAmt(plan.productive_hours) + ' h') + '</strong>' + actualDetails + (employee.note ? '<div>Notiz: ' + esc(employee.note) + '</div>' : '') + '</div>' +
+      '<div class="employee-plan-actions"><button class="btn employee-edit" data-id="' + esc(employee.id) + '">Bearbeiten</button>' + (employee.active ? '<button class="btn employee-deactivate" data-id="' + esc(employee.id) + '">Deaktivieren</button>' : '') + '</div></div>';
+  }).join('');
+  list.querySelectorAll('.employee-edit').forEach(function(button) { button.onclick = function() { openEmployeeForm(this.dataset.id); }; });
+  list.querySelectorAll('.employee-deactivate').forEach(function(button) { button.onclick = async function() { await deactivateEmployee(this.dataset.id); renderEmployeePlanning(); }; });
+}
+
+function updateEmployeeModeFields() {
+  var link = document.getElementById('employee-timesheet-link').value;
+  var mode = document.getElementById('employee-productive-mode');
+  if (!link && mode.value === 'automatic') mode.value = 'manual';
+  mode.querySelector('option[value="automatic"]').disabled = !link;
+  document.getElementById('employee-manual-rate').disabled = mode.value === 'automatic';
+}
+
+function openEmployeeForm(employeeId) {
+  var employee = employeeId ? (getDB().employees || []).find(function(item) { return item.id === employeeId; }) : null;
+  document.getElementById('employee-id').value = employee ? employee.id : '';
+  document.getElementById('employee-name').value = employee ? employee.name : '';
+  document.getElementById('employee-weekly-hours').value = employee ? employee.weekly_hours : '';
+  document.getElementById('employee-annual-cost').value = employee ? employee.annual_employer_cost : '';
+  document.getElementById('employee-timesheet-link').value = employee && employee.timesheet_link ? employee.timesheet_link : '';
+  document.getElementById('employee-productive-mode').value = employee ? employee.productive_mode : 'manual';
+  document.getElementById('employee-manual-rate').value = employee && employee.manual_productive_rate != null ? employee.manual_productive_rate * 100 : '70';
+  document.getElementById('employee-active').checked = employee ? employee.active !== false : true;
+  document.getElementById('employee-note').value = employee ? employee.note || '' : '';
+  document.getElementById('employee-form-title').textContent = employee ? 'Mitarbeiter bearbeiten' : 'Mitarbeiter anlegen';
+  document.getElementById('employee-form-error').style.display = 'none';
+  document.getElementById('employee-form-card').style.display = 'block';
+  updateEmployeeModeFields();
+}
+
+function closeEmployeeForm() {
+  document.getElementById('employee-form-card').style.display = 'none';
+}
+
+async function saveEmployeeForm() {
+  var error = document.getElementById('employee-form-error');
+  try {
+    var id = document.getElementById('employee-id').value;
+    var existing = id ? (getDB().employees || []).find(function(item) { return item.id === id; }) : null;
+    await persistEmployee(Object.assign({}, existing || {}, {
+      id: id || uid(),
+      name: document.getElementById('employee-name').value,
+      weekly_hours: Number(document.getElementById('employee-weekly-hours').value),
+      annual_employer_cost: Number(document.getElementById('employee-annual-cost').value),
+      timesheet_link: document.getElementById('employee-timesheet-link').value || null,
+      productive_mode: document.getElementById('employee-productive-mode').value,
+      manual_productive_rate: Number(document.getElementById('employee-manual-rate').value) / 100,
+      active: document.getElementById('employee-active').checked,
+      note: document.getElementById('employee-note').value,
+      updated_at: new Date().toISOString(),
+    }));
+    closeEmployeeForm();
+    renderEmployeePlanning();
+  } catch (exception) {
+    error.textContent = exception && exception.message ? exception.message : String(exception);
+    error.style.display = 'flex';
+  }
+}
+
+function wireEmployeePlanning() {
+  if (_employeeUiWired) return;
+  document.getElementById('btn-new-employee').onclick = function() { openEmployeeForm(null); };
+  document.getElementById('employee-form-cancel').onclick = closeEmployeeForm;
+  document.getElementById('employee-form-save').onclick = function() { saveEmployeeForm(); };
+  document.getElementById('employee-timesheet-link').onchange = updateEmployeeModeFields;
+  document.getElementById('employee-productive-mode').onchange = updateEmployeeModeFields;
+  document.getElementById('employee-name').onblur = function() {
+    if (document.getElementById('employee-id').value || document.getElementById('employee-timesheet-link').value) return;
+    var suggestion = suggestEmployeeTimesheetLink(this.value);
+    if (suggestion && !(getDB().employees || []).some(function(item) { return item.timesheet_link === suggestion; })) {
+      document.getElementById('employee-timesheet-link').value = suggestion;
+      updateEmployeeModeFields();
+    }
+  };
+  _employeeUiWired = true;
+}
+
 function renderMitarbeiter(offset) {
   offset = offset || 0;
   var d = getDB();
@@ -5940,6 +6251,9 @@ function renderMitarbeiter(offset) {
   window._maStats   = stats;
   window._maCurM    = curM;
   window._maCurY    = curY;
+
+  wireEmployeePlanning();
+  renderEmployeePlanning();
 
   document.getElementById('ma-metrics').innerHTML =
     '<div class="metric"><div class="lbl">Monat</div><div class="val" style="font-size:15px">' + MONTHS_MA[curM] + ' ' + curY + '</div></div>' +
@@ -7919,6 +8233,7 @@ function _loadCachesFromResult(result) {
     lieferanten:         d.lieferanten         || [],
     zahlungen:           d.zahlungen           || [],
     fahrzeuge:           d.fahrzeuge           || [],
+    employees:           d.employees           || [],
     todos:               d.todos               || [],
     todos_archiv:        d.todos_archiv        || [],
     kostenvoranschlaege: d.kostenvoranschlaege || [],

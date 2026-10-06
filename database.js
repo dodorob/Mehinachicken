@@ -91,6 +91,20 @@ class BuchProDB {
         data TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS employees (
+        id                     TEXT PRIMARY KEY,
+        name                   TEXT NOT NULL,
+        weekly_hours           REAL NOT NULL CHECK (weekly_hours > 0),
+        annual_employer_cost   REAL NOT NULL CHECK (annual_employer_cost >= 0),
+        productive_mode        TEXT NOT NULL CHECK (productive_mode IN ('automatic', 'manual')),
+        manual_productive_rate REAL,
+        active                 INTEGER NOT NULL DEFAULT 1,
+        timesheet_link         TEXT UNIQUE CHECK (timesheet_link IN ('djevad', 'helmut') OR timesheet_link IS NULL),
+        note                   TEXT,
+        created_at             TEXT NOT NULL,
+        updated_at             TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS todos (
         id         TEXT PRIMARY KEY,
         data       TEXT NOT NULL,
@@ -258,6 +272,10 @@ class BuchProDB {
     const lieferanten = this.db.prepare('SELECT data FROM lieferanten').all().map(r => JSON.parse(r.data));
     const zahlungen   = this.db.prepare('SELECT data FROM zahlungen').all().map(r => JSON.parse(r.data));
     const fahrzeuge   = this.db.prepare('SELECT data FROM fahrzeuge').all().map(r => JSON.parse(r.data));
+    const employees   = this.db.prepare('SELECT * FROM employees ORDER BY active DESC, name COLLATE NOCASE').all().map(row => ({
+      ...row,
+      active: !!row.active,
+    }));
 
     const todosAll    = this.db.prepare('SELECT * FROM todos').all();
     const todos       = todosAll.filter(r => !r.archiviert).map(r => JSON.parse(r.data));
@@ -273,13 +291,14 @@ class BuchProDB {
     const vorlage    = vorlageRow ? JSON.parse(vorlageRow.data) : null;
 
     const accounting_reports = this.listAccountingReports();
-    return { invoices, kunden, lieferanten, zahlungen, fahrzeuge, todos, todos_archiv, kostenvoranschlaege: kv, counters, vorlage, accounting_reports };
+    return { invoices, kunden, lieferanten, zahlungen, fahrzeuge, employees, todos, todos_archiv, kostenvoranschlaege: kv, counters, vorlage, accounting_reports };
   }
 
   isEmpty() {
     const invoices = this.db.prepare('SELECT COUNT(*) AS n FROM invoices').get().n;
     const reports = this.db.prepare('SELECT COUNT(*) AS n FROM accounting_reports').get().n;
-    return invoices === 0 && reports === 0;
+    const employees = this.db.prepare('SELECT COUNT(*) AS n FROM employees').get().n;
+    return invoices === 0 && reports === 0 && employees === 0;
   }
 
   // ----------------------------------------------------------------
@@ -318,6 +337,31 @@ class BuchProDB {
       if (data.fahrzeuge && data.fahrzeuge.length) {
         const ins = this.db.prepare('INSERT INTO fahrzeuge (id, data) VALUES (@id, @data)');
         data.fahrzeuge.forEach(f => ins.run({ id: f.id, data: JSON.stringify(f) }));
+      }
+
+      // Mitarbeiterstamm (Rechnungs-Zeiterfassung bleibt unverändert in invoices.items)
+      this.db.prepare('DELETE FROM employees').run();
+      if (data.employees && data.employees.length) {
+        const ins = this.db.prepare(`INSERT INTO employees (
+          id, name, weekly_hours, annual_employer_cost, productive_mode,
+          manual_productive_rate, active, timesheet_link, note, created_at, updated_at
+        ) VALUES (
+          @id, @name, @weekly_hours, @annual_employer_cost, @productive_mode,
+          @manual_productive_rate, @active, @timesheet_link, @note, @created_at, @updated_at
+        )`);
+        data.employees.forEach(employee => ins.run({
+          id: employee.id,
+          name: employee.name,
+          weekly_hours: Number(employee.weekly_hours),
+          annual_employer_cost: Number(employee.annual_employer_cost),
+          productive_mode: employee.productive_mode === 'automatic' ? 'automatic' : 'manual',
+          manual_productive_rate: employee.manual_productive_rate == null ? null : Number(employee.manual_productive_rate),
+          active: employee.active === false ? 0 : 1,
+          timesheet_link: employee.timesheet_link || null,
+          note: employee.note || null,
+          created_at: employee.created_at || new Date().toISOString(),
+          updated_at: employee.updated_at || new Date().toISOString(),
+        }));
       }
 
       // Todos
@@ -884,6 +928,7 @@ class BuchProDB {
           lieferanten:        buchproData.lieferanten        || [],
           zahlungen:          buchproData.zahlungen          || [],
           fahrzeuge:          buchproData.fahrzeuge          || [],
+          employees:          buchproData.employees          || [],
           todos:              buchproData.todos              || [],
           todos_archiv:       buchproData.todos_archiv       || [],
           kostenvoranschlaege: buchproData.kostenvoranschlaege || [],
