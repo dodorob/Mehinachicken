@@ -490,6 +490,14 @@ ipcMain.handle('db-update-invoice-counters', async (event, counterValues) => {
 
 ipcMain.handle('db-update-invoice', async (event, invoice) => {
   if (!buchProDB) return { ok: false, error: 'Datenbank nicht geöffnet' };
+  if (invoice && invoice.typ === 'ausgang' && invoice.zahlungsart === 'kassa') {
+    try {
+      const saved = buchProDB.updateInvoice(invoice);
+      return { ok: true, invoice: saved, counters: buchProDB.updateInvoiceCounters({}) };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  }
   return invoiceResult(() => buchProDB.updateInvoice(invoice));
 });
 

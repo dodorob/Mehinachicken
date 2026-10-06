@@ -332,6 +332,33 @@ class BuchProDB {
     };
   }
 
+  _applyARKassaNumbers(invoice, existing) {
+    const others = this.db.prepare('SELECT typ, zahlungsart, lfd_nr, kassenbeleg_nr, zahlungs_lfd_nr FROM invoices WHERE id != ?').all(invoice.id);
+    const rules = [
+      { field: 'lfd_nr', key: 'fortlaufend', label: 'Die laufende Nummer', list: others.filter(i => i.zahlungsart === 'kassa'), get: i => i.lfd_nr },
+      { field: 'kassenbeleg_nr', key: 'kassenbeleg', label: 'Die Kassa-/Registrierkassennummer', list: others.filter(i => i.typ === 'ausgang' && i.zahlungsart === 'kassa'), get: i => i.kassenbeleg_nr || i.zahlungs_lfd_nr }
+    ];
+    rules.forEach(rule => {
+      const raw = rule.get(invoice);
+      // Existing legacy values must not be renumbered merely by editing a note.
+      if (existing && raw === rule.get(existing)) {
+        invoice[rule.field] = existing[rule.field];
+        if (rule.field === 'kassenbeleg_nr') invoice.zahlungs_lfd_nr = existing.zahlungs_lfd_nr;
+        return;
+      }
+      const counter = this._requireActiveCounter(rule.key);
+      const value = String(raw == null ? this._padNumber(counter) : raw).trim();
+      const number = this._numericValue(value);
+      if (!Number.isSafeInteger(number) || number < 1) throw new Error(rule.label + ' muss eine positive ganze Zahl sein.');
+      if (rule.list.some(i => this._sameNumber(rule.get(i), value))) throw new Error(rule.label + ' ' + value + ' ist bereits vorhanden.');
+      invoice[rule.field] = value;
+      this._setCounterValue(rule.key, Math.max(counter, number + 1));
+    });
+    if (!existing || invoice.kassenbeleg_nr !== existing.kassenbeleg_nr || invoice.zahlungs_lfd_nr !== existing.zahlungs_lfd_nr) {
+      invoice.zahlungs_lfd_nr = invoice.kassenbeleg_nr || invoice.zahlungs_lfd_nr;
+    }
+  }
+
   // Normal new invoice creation with atomic number assignment. The transaction
   // reads the current counters, assigns final nummer/lfd_nr/zahlungs_lfd_nr/kassenbeleg_nr,
   // inserts the invoice, advances all consumed counters exactly once, and returns
@@ -359,28 +386,15 @@ class BuchProDB {
       } else {
         finalInvoice.nummer = finalInvoice.nummer || '';
       }
-      let nextKassenbeleg = null;
-      if (plan.isKassa) {
+      if (plan.isKassa && plan.isAusgang) {
+        if (opts.requestedLfd != null) finalInvoice.lfd_nr = opts.requestedLfd;
+        if (opts.requestedKassenbeleg != null) finalInvoice.kassenbeleg_nr = opts.requestedKassenbeleg;
+        this._applyARKassaNumbers(finalInvoice);
+      } else if (plan.isKassa) {
         finalInvoice.lfd_nr = this._padNumber(counters.fortlaufend);
         this._assertNoDuplicateNumber("SELECT lfd_nr AS value FROM invoices WHERE zahlungsart = 'kassa' AND lfd_nr IS NOT NULL AND lfd_nr != ''", finalInvoice.lfd_nr, 'Die laufende Nummer ' + finalInvoice.lfd_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
-        if (plan.isAusgang) {
-          let kassaNumber;
-          if (opts.kassenbelegMode === 'manual') {
-            const kbValue = this._numericValue(opts.requestedKassenbeleg != null ? opts.requestedKassenbeleg : finalInvoice.kassenbeleg_nr || finalInvoice.zahlungs_lfd_nr);
-            if (!Number.isInteger(kbValue) || kbValue < 1) throw new Error('Die Kassa-/Registrierkassennummer muss eine positive ganze Zahl sein.');
-            kassaNumber = this._padNumber(kbValue);
-            nextKassenbeleg = Math.max(counters.kassenbeleg, kbValue + 1);
-          } else {
-            kassaNumber = this._padNumber(counters.kassenbeleg);
-            nextKassenbeleg = counters.kassenbeleg + 1;
-          }
-          finalInvoice.zahlungs_lfd_nr = kassaNumber;
-          finalInvoice.kassenbeleg_nr = kassaNumber;
-          this._assertNoDuplicateNumber("SELECT COALESCE(NULLIF(kassenbeleg_nr, ''), zahlungs_lfd_nr) AS value FROM invoices WHERE typ = 'ausgang' AND zahlungsart = 'kassa' AND COALESCE(NULLIF(kassenbeleg_nr, ''), zahlungs_lfd_nr) IS NOT NULL AND COALESCE(NULLIF(kassenbeleg_nr, ''), zahlungs_lfd_nr) != ''", kassaNumber, 'Die Kassa-/Registrierkassennummer ' + kassaNumber + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
-        } else {
-          finalInvoice.zahlungs_lfd_nr = '';
-          finalInvoice.kassenbeleg_nr = '';
-        }
+        finalInvoice.zahlungs_lfd_nr = '';
+        finalInvoice.kassenbeleg_nr = '';
       } else {
         finalInvoice.lfd_nr = '';
         finalInvoice.zahlungs_lfd_nr = this._padNumber(counters.lfd_bank);
@@ -395,8 +409,7 @@ class BuchProDB {
 
       if (plan.isAusgang) this._setCounterValue('ausgang', counters.ausgang + 1);
       if (plan.isKassa) {
-        this._setCounterValue('fortlaufend', counters.fortlaufend + 1);
-        if (plan.isAusgang) this._setCounterValue('kassenbeleg', nextKassenbeleg);
+        if (!plan.isAusgang) this._setCounterValue('fortlaufend', counters.fortlaufend + 1);
       } else {
         this._setCounterValue('lfd_bank', counters.lfd_bank + 1);
       }
@@ -426,19 +439,22 @@ class BuchProDB {
 
   updateInvoice(invoice) {
     if (!invoice || !invoice.id) throw new Error('Rechnungs-ID fehlt');
-    const existing = this.getInvoice(invoice.id);
-    if (!existing) throw new Error('Rechnung nicht gefunden: ' + invoice.id);
-    const merged = Object.assign({}, existing, invoice);
-    if (invoice.file_b64 == null && invoice.file_name == null && invoice.file_type == null) {
-      merged.file_b64 = existing.file_b64;
-      merged.file_name = existing.file_name;
-      merged.file_type = existing.file_type;
-    }
-    const row = this._invoiceToRow(merged);
-    const cols = this._invoiceColumns().filter(c => c !== 'id');
-    const info = this.db.prepare(`UPDATE invoices SET ${cols.map(c => c + ' = @' + c).join(', ')} WHERE id = @id`).run(row);
-    if (info.changes !== 1) throw new Error('Rechnung konnte nicht aktualisiert werden: ' + invoice.id);
-    return this.getInvoice(invoice.id);
+    return this.db.transaction(() => {
+      const existing = this.getInvoice(invoice.id);
+      if (!existing) throw new Error('Rechnung nicht gefunden: ' + invoice.id);
+      const merged = Object.assign({}, existing, invoice);
+      if (invoice.file_b64 == null && invoice.file_name == null && invoice.file_type == null) {
+        merged.file_b64 = existing.file_b64;
+        merged.file_name = existing.file_name;
+        merged.file_type = existing.file_type;
+      }
+      if (merged.typ === 'ausgang' && merged.zahlungsart === 'kassa') this._applyARKassaNumbers(merged, existing);
+      const row = this._invoiceToRow(merged);
+      const cols = this._invoiceColumns().filter(c => c !== 'id');
+      const info = this.db.prepare(`UPDATE invoices SET ${cols.map(c => c + ' = @' + c).join(', ')} WHERE id = @id`).run(row);
+      if (info.changes !== 1) throw new Error('Rechnung konnte nicht aktualisiert werden: ' + invoice.id);
+      return this.getInvoice(invoice.id);
+    })();
   }
 
   deleteInvoice(invoiceId) {
