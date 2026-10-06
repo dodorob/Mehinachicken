@@ -11,7 +11,7 @@ function tempDb() {
   const file = path.join(dir, 'test.sqlite');
   const db = new BuchProDB();
   db.open(file);
-  return { db, cleanup: () => { db.close(); fs.rmSync(dir, { recursive: true, force: true }); } };
+  return { db, file, cleanup: () => { db.close(); fs.rmSync(dir, { recursive: true, force: true }); } };
 }
 
 function inv(id, extra) {
@@ -116,9 +116,9 @@ async function testAtomicInvoiceCounters() {
     const ar = t.db.createInvoiceWithCounters(atomicInv('BANK-AR', { typ: 'ausgang', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
     const er = t.db.createInvoiceWithCounters(atomicInv('BANK-ER', { typ: 'eingang', nummer: '', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
     assert.strictEqual(ar.nummer, '001');
-    assert.strictEqual(ar.lfd_nr, '');
+    assert.strictEqual(ar.lfd_nr, null);
     assert.strictEqual(er.nummer, null);
-    assert.strictEqual(er.lfd_nr, '');
+    assert.strictEqual(er.lfd_nr, null);
     assert.strictEqual(ar.zahlungs_lfd_nr, '080');
     assert.strictEqual(ar.kassenbeleg_nr, null);
     assert.strictEqual(er.zahlungs_lfd_nr, '081');
@@ -134,7 +134,7 @@ async function testAtomicInvoiceCounters() {
     const erBank = t.db.createInvoiceWithCounters(atomicInv('BANK-ER-2', { typ: 'eingang', nummer: '', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
     const arKassa = t.db.createInvoiceWithCounters(atomicInv('KASSA-AR', { typ: 'ausgang', zahlungsart: 'kassa' }), { numberMode: 'auto' }).invoice;
     const arBank = t.db.createInvoiceWithCounters(atomicInv('BANK-AR-2', { typ: 'ausgang', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
-    assert.deepStrictEqual([erBank.lfd_nr, arKassa.lfd_nr, arBank.lfd_nr], ['', '020', '']);
+    assert.deepStrictEqual([erBank.lfd_nr, arKassa.lfd_nr, arBank.lfd_nr], [null, '020', null]);
     assert.strictEqual(erBank.zahlungs_lfd_nr, '080');
     assert.strictEqual(arKassa.zahlungs_lfd_nr, '050');
     assert.strictEqual(arKassa.kassenbeleg_nr, '050');
@@ -152,7 +152,7 @@ async function testAtomicInvoiceCounters() {
     const erKassa = t.db.createInvoiceWithCounters(atomicInv('KASSA-ER', { typ: 'eingang', nummer: '', zahlungsart: 'kassa' }), { numberMode: 'auto' }).invoice;
     const arBank = t.db.createInvoiceWithCounters(atomicInv('OLD-LFD-AR', { typ: 'ausgang', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
     const tl = t.db.createInvoiceWithCounters(atomicInv('TL', { typ: 'eingang', nummer: '', zahlungsart: 'bank', is_tageslosung: true }), { numberMode: 'auto' }).invoice;
-    assert.deepStrictEqual([erKassa.lfd_nr, arBank.lfd_nr, tl.lfd_nr], ['030', '', '']);
+    assert.deepStrictEqual([erKassa.lfd_nr, arBank.lfd_nr, tl.lfd_nr], ['030', null, null]);
     assert.strictEqual(erKassa.zahlungs_lfd_nr, null);
     assert.strictEqual(erKassa.kassenbeleg_nr, null);
     assert.strictEqual(arBank.zahlungs_lfd_nr, '500');
@@ -183,7 +183,7 @@ async function testAtomicInvoiceCounters() {
     t.db.db.prepare("DELETE FROM counters WHERE name = 'fortlaufend'").run();
     const bank = t.db.createInvoiceWithCounters(atomicInv('BANK-NO-FORTLAUFEND', { typ: 'ausgang', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
     assert.strictEqual(bank.nummer, '001');
-    assert.strictEqual(bank.lfd_nr, '');
+    assert.strictEqual(bank.lfd_nr, null);
     assert.strictEqual(bank.zahlungs_lfd_nr, '070');
     assert.strictEqual(counters(t.db).lfd_bank, 71);
   } finally { t.cleanup(); }
@@ -204,7 +204,7 @@ async function testAtomicInvoiceCounters() {
     await assertRejects(() => t.db.createInvoiceWithCounters(atomicInv('B', { nummer: '' }), { numberMode: 'manual', requestedNumber: '' }));
     const c = t.db.createInvoiceWithCounters(atomicInv('C'), { numberMode: 'auto' }).invoice;
     assert.deepStrictEqual([a.nummer, c.nummer], ['001', '002']);
-    assert.deepStrictEqual([a.lfd_nr, c.lfd_nr], ['', '']);
+    assert.deepStrictEqual([a.lfd_nr, c.lfd_nr], [null, null]);
     assert.strictEqual(counters(t.db).ausgang, 3);
     assert.strictEqual(counters(t.db).fortlaufend, 10);
   } finally { t.cleanup(); }
@@ -214,7 +214,7 @@ async function testAtomicInvoiceCounters() {
     setCounters(t.db, { ausgang: 1, fortlaufend: 1, kassenbeleg: 1 });
     const nums = ['Q1','Q2','Q3'].map(id => t.db.createInvoiceWithCounters(atomicInv(id), { numberMode: 'auto' }).invoice);
     assert.deepStrictEqual(nums.map(i => i.nummer), ['001','002','003']);
-    assert.deepStrictEqual(nums.map(i => i.lfd_nr), ['', '', '']);
+    assert.deepStrictEqual(nums.map(i => i.lfd_nr), [null, null, null]);
     assert.strictEqual(counters(t.db).ausgang, 4);
     assert.strictEqual(counters(t.db).fortlaufend, 1);
   } finally { t.cleanup(); }
@@ -232,7 +232,7 @@ async function testAtomicInvoiceCounters() {
     setCounters(t.db, { ausgang: 5, fortlaufend: 6, kassenbeleg: 1 });
     const r = t.db.createInvoiceWithCounters(atomicInv('MAN'), { numberMode: 'manual', requestedNumber: 'MAN-77' });
     assert.strictEqual(r.invoice.nummer, 'MAN-77');
-    assert.strictEqual(r.invoice.lfd_nr, '');
+    assert.strictEqual(r.invoice.lfd_nr, null);
     assert.strictEqual(counters(t.db).ausgang, 6);
     assert.strictEqual(counters(t.db).fortlaufend, 6);
   } finally { t.cleanup(); }
@@ -247,7 +247,7 @@ async function testAtomicInvoiceCounters() {
     assert.strictEqual(counters(t.db).ausgang, 11);
     assert.strictEqual(counters(t.db).fortlaufend, 20);
     assert.strictEqual(counters(t.db).kassenbeleg, 40);
-    assert.strictEqual(counters(t.db).lfd_bank, 21);
+    assert.strictEqual(counters(t.db).lfd_bank, 2); // default 1 consumed once; stale saveAll must not replace it
     assert.strictEqual(t.db.loadAll().kunden[0].name, 'Other');
   } finally { t.cleanup(); }
 
@@ -258,7 +258,7 @@ async function testAtomicInvoiceCounters() {
     t.db.createInvoice(atomicInv('LFD-EXISTS-BANK', { nummer: '900', lfd_nr: '025', zahlungsart: 'bank' }));
     setCounters(t.db, { ausgang: 50, fortlaufend: 25, lfd_bank: 80, kassenbeleg: 80 });
     const bankWithDuplicateLfd = t.db.createInvoiceWithCounters(atomicInv('LFD-DUP-BANK', { typ: 'eingang', zahlungsart: 'bank' }), { numberMode: 'auto' }).invoice;
-    assert.strictEqual(bankWithDuplicateLfd.lfd_nr, '');
+    assert.strictEqual(bankWithDuplicateLfd.lfd_nr, null);
     assert.strictEqual(bankWithDuplicateLfd.zahlungs_lfd_nr, '080');
     t.db.createInvoice(atomicInv('LFD-EXISTS-KASSA', { nummer: '901', lfd_nr: '025', zahlungsart: 'kassa' }));
     const before = counters(t.db);
@@ -317,9 +317,68 @@ async function testQueue() {
   assert.deepStrictEqual(log, ['Start A', 'Ende A', 'Start UNKNOWN', 'Fehler UNKNOWN', 'Start B', 'Ende B']);
 }
 
+async function testElectronInvoiceBridge() {
+  const vm = require('vm');
+  const { app } = require('./invoice-app-harness').appHarness();
+  const { db, cleanup } = tempDb();
+  try {
+    const handlers = new Map();
+    const context = vm.createContext({ buchProDB: db, console,
+      ipcMain: { handle: (name, fn) => handlers.set(name, fn) }
+    });
+    const main = fs.readFileSync(path.join(__dirname, '../electron-main.js'), 'utf8');
+    vm.runInContext(main.match(/^function invoiceResult\([^]*?^}/m)[0], context);
+    for (const name of ['db-create-invoice-with-counters', 'db-update-invoice']) {
+      const start = main.indexOf("ipcMain.handle('" + name + "'");
+      const end = main.indexOf('\n});', start) + 4;
+      vm.runInContext(main.slice(start, end), context);
+    }
+    let api;
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../preload.js'), 'utf8'), {
+      require: name => {
+        assert.strictEqual(name, 'electron');
+        return {
+          contextBridge: { exposeInMainWorld: (name, value) => { api = value; } },
+          ipcRenderer: { invoke: async (name, ...args) => handlers.get(name)(null, ...args) }
+        };
+      }
+    });
+    app.window.electronAPI = api;
+    db.updateInvoiceCounters({ ausgang: 10, fortlaufend: 120, kassenbeleg: 120 });
+    const saved = await app.persistInvoiceCreateWithCounters({ id: 'IPC-KASSA', typ: 'ausgang', zahlungsart: 'kassa', lfd_nr: '087', kassenbeleg_nr: '087', file_name: 'receipt.pdf', file_type: 'application/pdf', file_b64: 'data:application/pdf;base64,UEZERg==' }, { numberMode: 'auto' });
+    assert.strictEqual(saved.lfd_nr, '087');
+    assert.strictEqual(app.getDB().counters.fortlaufend, 120);
+    await app.persistInvoiceUpdate({ id: saved.id, lfd_nr: '125', kassenbeleg_nr: '135' });
+    assert.strictEqual(app.getDB().counters.fortlaufend, 126);
+    assert.strictEqual(app.getDB().counters.kassenbeleg, 136);
+    assert.strictEqual(app.getDB().invoices[0].zahlungs_lfd_nr, '135');
+    assert.strictEqual(app.getDB().invoices[0].file_name, 'receipt.pdf');
+    await app.persistInvoiceUpdate({ id: saved.id, notizen: 'same numbers' });
+    assert.strictEqual(app.getDB().counters.kassenbeleg, 136);
+    await assert.rejects(() => app.persistInvoiceUpdate({ id: saved.id, lfd_nr: '0' }));
+    assert.strictEqual(db.getInvoice(saved.id).lfd_nr, '125');
+  } finally { cleanup(); }
+}
+
 (async () => {
   await testCrudAndSafety();
   await testAtomicInvoiceCounters();
   await testQueue();
+  const t = tempDb();
+  try {
+    await require('./invoice-kassa-cases').testKassaReceipts({
+      counters: values => t.db.updateInvoiceCounters(values),
+      create: invoice => t.db.createInvoiceWithCounters(invoice, { numberMode: 'auto' }).invoice,
+      update: invoice => t.db.updateInvoice(invoice),
+      read: () => t.db.loadAll(),
+      legacy: invoice => t.db.createInvoice(invoice),
+    });
+    t.db.close();
+    t.db.open(t.file);
+    assert.strictEqual(t.db.getInvoice('LOW').file_name, 'replacement.png');
+    assert.strictEqual(t.db.getInvoice('LOW').lfd_nr, '130');
+    assert.strictEqual(counters(t.db).kassenbeleg, 142);
+  } finally { t.cleanup(); }
+  await testElectronInvoiceBridge();
   console.log('invoice sqlite tests passed');
 })();

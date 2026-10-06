@@ -342,6 +342,37 @@ function _requireStateCounter(next, key) {
   throw new Error('Der Rechnungszähler "' + key + '" fehlt oder ist ungültig. Bitte tragen Sie die nächste gültige Nummer in den Einstellungen ein.');
 }
 
+function _isARKassa(invoice) {
+  return invoice && invoice.typ === 'ausgang' && invoice.zahlungsart === 'kassa';
+}
+
+// Preserve entered receipt numbers. On edits, leave unchanged legacy numbers alone.
+function _applyARKassaNumbersToState(next, invoice, existing) {
+  var others = (next.invoices || []).filter(function(i){ return i.id !== invoice.id; });
+  [
+    { field: 'lfd_nr', key: 'fortlaufend', label: 'Die laufende Nummer', list: others.filter(function(i){ return i.zahlungsart === 'kassa'; }), get: function(i){ return i.lfd_nr; } },
+    { field: 'kassenbeleg_nr', key: 'kassenbeleg', label: 'Die Kassa-/Registrierkassennummer', list: others.filter(_isARKassa), get: function(i){ return i.kassenbeleg_nr || i.zahlungs_lfd_nr; } }
+  ].forEach(function(rule){
+    var raw = rule.get(invoice);
+    if (existing && raw === rule.get(existing)) {
+      invoice[rule.field] = existing[rule.field];
+      if (rule.field === 'kassenbeleg_nr') invoice.zahlungs_lfd_nr = existing.zahlungs_lfd_nr;
+      return;
+    }
+    var counter = _requireStateCounter(next, rule.key);
+    var value = String(raw == null ? _padInvoiceNumber(counter) : raw).trim();
+    var number = _numericInvoiceValue(value);
+    if (!Number.isSafeInteger(number) || number < 1) throw new Error(rule.label + ' muss eine positive ganze Zahl sein.');
+    _assertNoInvoiceNumberDuplicate(rule.list, rule.get, value, rule.label + ' ' + value + ' ist bereits vorhanden.');
+    invoice[rule.field] = value;
+    next.counters[rule.key] = Math.max(counter, number + 1);
+  });
+  if (!existing || invoice.kassenbeleg_nr !== existing.kassenbeleg_nr || invoice.zahlungs_lfd_nr !== existing.zahlungs_lfd_nr) {
+    invoice.zahlungs_lfd_nr = invoice.kassenbeleg_nr || invoice.zahlungs_lfd_nr;
+  }
+  return invoice;
+}
+
 function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
   if (!next.counters) next.counters = {};
   var za = invoice.zahlungsart === 'kassa' ? 'kassa' : 'bank';
@@ -349,7 +380,6 @@ function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
   var ausgangCounter = finalInvoice.typ === 'ausgang' ? _requireStateCounter(next, 'ausgang') : null;
   var fortlaufendCounter = za === 'kassa' ? _requireStateCounter(next, 'fortlaufend') : null;
   var bankCounter = za === 'kassa' ? null : _requireStateCounter(next, 'lfd_bank');
-  var kassenbelegCounter = (za === 'kassa' && finalInvoice.typ === 'ausgang') ? _requireStateCounter(next, 'kassenbeleg') : null;
   if ((next.invoices || []).some(function(i){ return i.id === finalInvoice.id; })) throw new Error('Rechnungs-ID existiert bereits: ' + finalInvoice.id);
   if (finalInvoice.typ === 'ausgang') {
     if (numberingOptions && numberingOptions.numberMode === 'manual') {
@@ -364,28 +394,17 @@ function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
   } else {
     finalInvoice.nummer = finalInvoice.nummer || '';
   }
+  if (_isARKassa(finalInvoice)) {
+    if (numberingOptions && numberingOptions.requestedLfd != null) finalInvoice.lfd_nr = numberingOptions.requestedLfd;
+    if (numberingOptions && numberingOptions.requestedKassenbeleg != null) finalInvoice.kassenbeleg_nr = numberingOptions.requestedKassenbeleg;
+    return _applyARKassaNumbersToState(next, finalInvoice);
+  }
   if (za === 'kassa') {
     finalInvoice.lfd_nr = _padInvoiceNumber(fortlaufendCounter);
     _assertNoInvoiceNumberDuplicate((next.invoices || []).filter(function(i){ return i.zahlungsart === 'kassa'; }), function(i){ return i.lfd_nr; }, finalInvoice.lfd_nr, 'Die laufende Nummer ' + finalInvoice.lfd_nr + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
     next.counters.fortlaufend = fortlaufendCounter + 1;
-    if (finalInvoice.typ === 'ausgang') {
-      var kassaNumber;
-      if (numberingOptions && numberingOptions.kassenbelegMode === 'manual') {
-        var kbValue = _numericInvoiceValue(numberingOptions.requestedKassenbeleg || finalInvoice.kassenbeleg_nr || finalInvoice.zahlungs_lfd_nr);
-        if (!Number.isInteger(kbValue) || kbValue < 1) throw new Error('Die Kassa-/Registrierkassennummer muss eine positive ganze Zahl sein.');
-        kassaNumber = _padInvoiceNumber(kbValue);
-        next.counters.kassenbeleg = Math.max(kassenbelegCounter, kbValue + 1);
-      } else {
-        kassaNumber = _padInvoiceNumber(kassenbelegCounter);
-        next.counters.kassenbeleg = kassenbelegCounter + 1;
-      }
-      finalInvoice.zahlungs_lfd_nr = kassaNumber;
-      finalInvoice.kassenbeleg_nr = kassaNumber;
-      _assertNoInvoiceNumberDuplicate((next.invoices || []).filter(function(i){ return i.typ === 'ausgang' && i.zahlungsart === 'kassa'; }), function(i){ return i.kassenbeleg_nr || i.zahlungs_lfd_nr; }, kassaNumber, 'Die Kassa-/Registrierkassennummer ' + kassaNumber + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
-    } else {
-      finalInvoice.zahlungs_lfd_nr = '';
-      finalInvoice.kassenbeleg_nr = '';
-    }
+    finalInvoice.zahlungs_lfd_nr = '';
+    finalInvoice.kassenbeleg_nr = '';
   } else {
     finalInvoice.lfd_nr = '';
     finalInvoice.zahlungs_lfd_nr = _padInvoiceNumber(bankCounter);
@@ -459,11 +478,17 @@ async function persistInvoiceUpdate(invoice) {
     return enqueueDbWrite(function(){
       return window.electronAPI.db.updateInvoice(merged).then(function(result){
         if (!result || result.ok !== true) throw new Error((result && result.error) || 'Rechnung konnte nicht gespeichert werden');
+        _mergeReturnedCounters(result.counters);
         return _replaceInvoiceInCache(result.invoice || merged);
       });
     });
   }
   await _persistInvoiceBrowser(function(next){
+    if (_isARKassa(merged)) {
+      var existing = (next.invoices || []).find(function(i){ return i.id === merged.id; });
+      if (!existing) throw new Error('Rechnung nicht gefunden: ' + merged.id);
+      _applyARKassaNumbersToState(next, merged, existing);
+    }
     next.invoices = (next.invoices || []).map(function(i){ return i.id === merged.id ? merged : i; });
   });
   return merged;
@@ -2434,12 +2459,18 @@ async function delInv(id) {
 var editId = null;
 var rnrManuallyEdited = false;
 var kassenbelegManuallyEdited = false;
+var lfdManuallyEdited = false;
 var itemsData = [{titel:'',desc:'',menge:1,preis:0,ust:20,djevad_h:0,helmut_h:0}];
 
 function initForm() {
   editId = null;
   rnrManuallyEdited = false;
   kassenbelegManuallyEdited = false;
+  lfdManuallyEdited = false;
+  window._arKassaFileB64 = null; window._arKassaFileName = null; window._arKassaFileType = null;
+  window._arKassaFileRead = null; window._arKassaFileReader = null;
+  var arUpload = document.getElementById('ar-kassa-upload-file'); if (arUpload) arUpload.value = '';
+  var arPreview = document.getElementById('ar-kassa-upload-preview'); if (arPreview) arPreview.textContent = '';
   document.getElementById('form-title').textContent = 'Neue Rechnung';
   var now = new Date().toISOString().split('T')[0];
   document.getElementById('datum').value = now;
@@ -2503,6 +2534,27 @@ function wireFormButtons() {
   var partnerSel = document.getElementById('partner');
   var rnrInput = document.getElementById('rnr');
   var kbInput = document.getElementById('kassa-beleg-nr');
+  var lfdInput = document.getElementById('lfd-nr');
+  if (lfdInput && !lfdInput._manualEditWired) {
+    lfdInput._manualEditWired = true;
+    lfdInput.addEventListener('input', function(){
+      if (!editId && document.getElementById('typ').value === 'ausgang' && document.getElementById('zahlungsart').value === 'kassa') lfdManuallyEdited = true;
+    });
+  }
+  var drop = document.getElementById('ar-kassa-upload-drop');
+  var fileIn = document.getElementById('ar-kassa-upload-file');
+  if (drop && !drop._wired) {
+    drop._wired = true;
+    drop.addEventListener('click', function(){ fileIn.click(); });
+    drop.addEventListener('dragover', function(e){ e.preventDefault(); drop.style.borderColor = 'var(--accent)'; });
+    drop.addEventListener('dragleave', function(){ drop.style.borderColor = ''; });
+    drop.addEventListener('drop', function(e){ e.preventDefault(); drop.style.borderColor = ''; handleInvoiceFile(e.dataTransfer.files[0], true); });
+    fileIn.addEventListener('change', function(){ handleInvoiceFile(this.files[0], true); });
+  }
+  var openReceipt = document.getElementById('ar-kassa-open-receipt');
+  if (openReceipt) openReceipt.onclick = function(){
+    openInvoiceReceipt({ typ: 'ausgang', zahlungsart: 'kassa', file_b64: window._arKassaFileB64, file_name: window._arKassaFileName, file_type: window._arKassaFileType });
+  };
 
   var sammelBtn = document.getElementById('toggle-sammel');
   if (rnrInput && !rnrInput._manualEditWired) {
@@ -2638,6 +2690,7 @@ function setTyp(typ) {
     }
   }
   setSammelMode(typ === 'sammel');
+  refreshNumbers();
 }
 
 function setSammelMode(isSammel) {
@@ -2725,18 +2778,37 @@ function wireERForm() {
 }
 
 function handleERFile(file) {
+  return handleInvoiceFile(file, false);
+}
+
+function handleInvoiceFile(file, arKassa) {
   if (!file) return;
-  var prev = document.getElementById('er-upload-preview');
+  if (arKassa && !['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) {
+    alert('Bitte einen PDF-, JPG- oder PNG-Beleg auswählen.');
+    return;
+  }
+  var prefix = arKassa ? '_arKassa' : '_er';
+  var prev = document.getElementById(arKassa ? 'ar-kassa-upload-preview' : 'er-upload-preview');
   if (prev) prev.innerHTML = '&#128196; ' + esc(file.name) + ' (' + (file.size/1024).toFixed(0) + ' KB) <span style="color:var(--t3);font-size:11px">— wird beim Speichern angehängt</span>';
-  window._erFile = file;
+  window[prefix + 'File'] = file;
   // Read as base64 to store in invoice
   var reader = new FileReader();
-  reader.onload = function(e) {
-    window._erFileB64 = e.target.result;  // full data URL
-    window._erFileName = file.name;
-    window._erFileType = file.type;
-  };
+  var read = new Promise(function(resolve, reject){
+    reader.onload = function(e) {
+      if (!arKassa || window._arKassaFileReader === reader) {
+        window[prefix + 'FileB64'] = e.target.result;
+        window[prefix + 'FileName'] = file.name;
+        window[prefix + 'FileType'] = file.type;
+        if (arKassa) updateARKassaForm();
+      }
+      resolve();
+    };
+    reader.onerror = function(){ reject(new Error('Beleg konnte nicht gelesen werden.')); };
+  });
+  read.catch(function(){ alert('Beleg konnte nicht gelesen werden.'); });
+  if (arKassa) { window._arKassaFileReader = reader; window._arKassaFileRead = read; }
   reader.readAsDataURL(file);
+  return read;
 }
 
 // ================================================================
@@ -3026,6 +3098,18 @@ function setPay(pay) {
   refreshNumbers();
 }
 
+function updateARKassaForm() {
+  var arKassa = document.getElementById('typ').value === 'ausgang' && document.getElementById('zahlungsart').value === 'kassa';
+  var card = document.getElementById('ar-kassa-upload-card'); if (card) card.style.display = arKassa ? '' : 'none';
+  var title = document.getElementById('form-title');
+  if (title) title.textContent = arKassa ? (editId ? 'Registrierkassenbeleg bearbeiten' : 'Registrierkassenrechnung erfassen') : (editId ? 'Rechnung bearbeiten' : 'Neue Rechnung');
+  if (arKassa) document.getElementById('typ-label').textContent = 'Bestehender Registrierkassenbeleg';
+  else if (document.getElementById('typ').value === 'ausgang') document.getElementById('typ-label').textContent = window.isSammel ? 'Sammelrechnung' : 'Ausgangsrechnung';
+  var top = document.getElementById('btn-save-inv'); if (top) top.textContent = arKassa ? 'Beleg speichern' : 'Speichern & PDF';
+  var bottom = document.getElementById('btn-save-inv-bottom'); if (bottom) bottom.textContent = arKassa ? 'Beleg speichern' : '📄 Speichern & PDF erstellen';
+  var open = document.getElementById('ar-kassa-open-receipt'); if (open) open.style.display = arKassa && window._arKassaFileB64 ? '' : 'none';
+}
+
 function refreshNumbers() {
   var typ = document.getElementById('typ') ? document.getElementById('typ').value : 'ausgang';
   var za = (document.getElementById('zahlungsart')||{value:'bank'}).value;
@@ -3047,8 +3131,8 @@ function refreshNumbers() {
   if (lfdEl) {
     var lfdWrap = lfdEl.closest ? lfdEl.closest('.fg') : null;
     if (lfdWrap) lfdWrap.style.display = (za === 'kassa') ? '' : 'none';
-    if (za === 'kassa' && !editId) lfdEl.value = 'lfd. ' + String(lfdNum).padStart(3,'0');
-    if (za !== 'kassa' && !editId) lfdEl.value = '';
+    if (za === 'kassa' && !editId && (typ !== 'ausgang' || !lfdManuallyEdited)) lfdEl.value = (typ === 'ausgang' ? '' : 'lfd. ') + String(lfdNum).padStart(3,'0');
+    if (za !== 'kassa' && !editId && !lfdManuallyEdited) lfdEl.value = '';
   }
 
   if (za === 'kassa') {
@@ -3061,6 +3145,7 @@ function refreshNumbers() {
     if (bankRow) bankRow.style.display = '';
     if (bankEl && !editId) bankEl.value = _padInvoiceNumber(bankNum);
   }
+  updateARKassaForm();
 }
 
 function updateFT() {
@@ -3759,6 +3844,10 @@ async function saveInvoice() {
   if (!isSammel) collectDateRows();  // sync arbeitsdaten/fahrzeitdaten into itemsData
 
   var typ  = document.getElementById('typ').value;
+  var arKassa = typ === 'ausgang' && document.getElementById('zahlungsart').value === 'kassa';
+  if (arKassa && window._arKassaFileRead) {
+    try { await window._arKassaFileRead; } catch (e) { return; }
+  }
   var pi   = document.getElementById('pinfo').value;
   var sel  = document.getElementById('partner');
   var partnerVal = sel ? sel.value : '';
@@ -3814,7 +3903,9 @@ async function saveInvoice() {
       numberingOptions = { numberMode: 'auto' };
     }
   }
-  if (!wasEdit && typ === 'ausgang' && (document.getElementById('zahlungsart')||{value:'bank'}).value === 'kassa' && kassenbelegManuallyEdited) {
+  if (!wasEdit && arKassa) {
+    numberingOptions.lfdMode = 'manual';
+    numberingOptions.requestedLfd = (document.getElementById('lfd-nr')||{value:''}).value.replace('lfd. ', '').trim();
     numberingOptions.kassenbelegMode = 'manual';
     numberingOptions.requestedKassenbeleg = (document.getElementById('kassa-beleg-nr')||{value:''}).value.trim();
   }
@@ -3849,6 +3940,12 @@ async function saveInvoice() {
       : '',
     erstellt: new Date().toISOString()
   };
+
+  if (arKassa && window._arKassaFileB64) {
+    inv.file_b64 = window._arKassaFileB64;
+    inv.file_name = window._arKassaFileName;
+    inv.file_type = window._arKassaFileType;
+  }
 
   if (isSammel) {
     inv.is_sammel = true;
@@ -3895,10 +3992,12 @@ async function saveInvoice() {
       if (it.titel && it.titel.trim()) addToBeschHist(it.titel);
     });
   }
-  genPDFData(inv);
-  if (inv.is_sammel) genSammelArbeitsauftraege(inv);
-  else if (inv.typ === 'ausgang') genArbeitsauftragPDF(inv);
-  document.getElementById('f-alerts').innerHTML = '<div class="alert success">&#10003; Gespeichert & PDF erstellt!</div>';
+  if (!arKassa) {
+    genPDFData(inv);
+    if (inv.is_sammel) genSammelArbeitsauftraege(inv);
+    else if (inv.typ === 'ausgang') genArbeitsauftragPDF(inv);
+  }
+  document.getElementById('f-alerts').innerHTML = '<div class="alert success">&#10003; ' + (arKassa ? 'Registrierkassenbeleg gespeichert!' : 'Gespeichert & PDF erstellt!') + '</div>';
   refreshNumbers();
   setTimeout(function(){ SP(typ==='ausgang' ? 'ausgang' : 'eingang'); }, 1500);
 }
@@ -3911,27 +4010,8 @@ function resetForm() { initForm(); }
 function genPDF(id) {
   var d = getDB(), inv = d.invoices.find(function(i){ return i.id===id; });
   if (!inv) return;
-  if (inv.typ === 'eingang' && inv.file_b64) {
-    var erPath = getSetting('bp_path_er');
-    if (erPath && window.electronAPI && window.electronAPI.savePdfToPath) {
-      var erFilename = (inv.file_name || ('ER_' + (inv.partner_name || 'Rechnung').replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_') + '_' + (inv.datum || '') + '.pdf'));
-      var erB64 = inv.file_b64.indexOf(',') !== -1 ? inv.file_b64.split(',')[1] : inv.file_b64;
-      window.electronAPI.savePdfToPath(erPath, erFilename, erB64).then(function(result) {
-        if (result && result.success) {
-          var n = document.createElement('div');
-          n.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;background:#0f6e56;color:#fff;padding:12px 20px;border-radius:8px;font-family:sans-serif;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,0.2)';
-          n.textContent = '\u2713 Datei gespeichert: ' + result.path;
-          document.body.appendChild(n);
-          setTimeout(function(){ n.remove(); }, 3500);
-        }
-      });
-    }
-    // Open the stored file
-    var win = window.open();
-    if (win) {
-      win.document.write('<iframe src="' + inv.file_b64 + '" width="100%" height="100%" style="border:none;margin:0;padding:0"></iframe>');
-      win.document.close();
-    }
+  if (_isARKassa(inv) || (inv.typ === 'eingang' && inv.file_b64)) {
+    return openInvoiceReceipt(inv);
   } else if (inv.typ === 'ausgang') {
     genPDFData(inv);
   } else {
@@ -3939,7 +4019,33 @@ function genPDF(id) {
   }
 }
 
+function openInvoiceReceipt(inv) {
+  if (!inv.file_b64) { alert('Kein Originalbeleg gespeichert. Bitte den Registrierkassenbeleg hochladen.'); return; }
+  var erPath = _isARKassa(inv) ? (getSetting('bp_path_ar_kassa') || getSetting('bp_path_ar')) : getSetting('bp_path_er');
+  if (erPath && window.electronAPI && window.electronAPI.savePdfToPath) {
+    var erFilename = (inv.file_name || ('ER_' + (inv.partner_name || 'Rechnung').replace(/[^a-zA-Z0-9äöüÄÖÜß]/g, '_') + '_' + (inv.datum || '') + '.pdf'));
+    var erB64 = inv.file_b64.indexOf(',') !== -1 ? inv.file_b64.split(',')[1] : inv.file_b64;
+    window.electronAPI.savePdfToPath(erPath, erFilename, erB64).then(function(result) {
+      if (result && result.success) {
+        var n = document.createElement('div');
+        n.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;background:#0f6e56;color:#fff;padding:12px 20px;border-radius:8px;font-family:sans-serif;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,0.2)';
+        n.textContent = '\u2713 Datei gespeichert: ' + result.path;
+        document.body.appendChild(n);
+        setTimeout(function(){ n.remove(); }, 3500);
+      }
+    });
+  }
+  // Open the stored file
+  var win = window.open();
+  if (win) {
+    var dataUrl = inv.file_b64.indexOf('data:') === 0 ? inv.file_b64 : 'data:' + (inv.file_type || 'application/pdf') + ';base64,' + inv.file_b64;
+    win.document.write('<iframe src="' + esc(dataUrl) + '" width="100%" height="100%" style="border:none;margin:0;padding:0"></iframe>');
+    win.document.close();
+  }
+}
+
 function genPDFData(inv) {
+  if (_isARKassa(inv)) { return openInvoiceReceipt(inv); }
   if (inv.is_sammel) { genSammelPDF(inv); return; }
   var jsPDF = window.jspdf.jsPDF;
   var doc = new jsPDF({unit:'mm', format:'a4'});
@@ -5801,6 +5907,7 @@ function editInv(id) {
   editId = id;
   rnrManuallyEdited = false;
   kassenbelegManuallyEdited = false;
+  lfdManuallyEdited = false;
   document.getElementById('form-title').textContent = 'Rechnung bearbeiten';
 
   if (inv.is_sammel) {
@@ -5812,7 +5919,7 @@ function editInv(id) {
   }
   document.getElementById('rnr').value = inv.nummer;
   var lfdElEdit = document.getElementById('lfd-nr');
-  if (lfdElEdit) lfdElEdit.value = inv.lfd_nr ? ('lfd. ' + inv.lfd_nr) : '';
+  if (lfdElEdit) lfdElEdit.value = inv.lfd_nr ? ((_isARKassa(inv) ? '' : 'lfd. ') + inv.lfd_nr) : '';
   document.getElementById('zahlungsart').value = inv.zahlungsart || 'bank';
   setPay(inv.zahlungsart || 'bank');
   if ((inv.zahlungsart || 'bank') === 'bank') {
@@ -5850,6 +5957,13 @@ function editInv(id) {
     if (kbEl2) kbEl2.value = inv.typ === 'ausgang' ? (inv.kassenbeleg_nr || inv.zahlungs_lfd_nr || '') : '';
     if (kbRow2) kbRow2.style.display = inv.typ === 'ausgang' ? '' : 'none';
     if (bankRowEditKassa) bankRowEditKassa.style.display = 'none';
+  }
+  if (_isARKassa(inv) && inv.file_b64) {
+    window._arKassaFileB64 = inv.file_b64;
+    window._arKassaFileName = inv.file_name;
+    window._arKassaFileType = inv.file_type;
+    var arPrev = document.getElementById('ar-kassa-upload-preview');
+    if (arPrev) arPrev.textContent = (inv.file_name || 'Originalbeleg') + ' — gespeicherte Datei';
   }
 
   if (inv.is_sammel) {

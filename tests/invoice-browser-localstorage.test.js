@@ -12,19 +12,10 @@ function getDB() { return _dbCache; }
 function enqueueDbWrite(operation) { const task = saveQueue.then(operation); saveQueue = task.catch(function() {}); return task; }
 function saveDB(d) { _dbCache = d; const snapshot = cloneForSave(d); return enqueueDbWrite(() => { saveCount++; localStorage.setItem(STORE_KEY, JSON.stringify(snapshot)); return { ok: true }; }); }
 async function browserPersist(applyChange) { const previous = cloneForSave(getDB()); const next = cloneForSave(previous); try { applyChange(next); await saveDB(next); _dbCache = next; return next; } catch (e) { _dbCache = previous; throw e; } }
-function applyNumbering(next, inv, opts) {
-  next.counters = Object.assign({ ausgang: 1, fortlaufend: 1, kassenbeleg: 1, lfd_bank: 1, lfd_kassa: 1 }, next.counters || {});
-  const za = inv.zahlungsart === 'kassa' ? 'kassa' : 'bank';
-  const out = Object.assign({}, inv);
-  if (out.typ === 'ausgang') {
-    if (opts && opts.numberMode === 'manual') out.nummer = String(opts.requestedNumber || out.nummer).trim();
-    else out.nummer = String(next.counters.ausgang).padStart(3, '0');
-    if (!out.nummer) throw new Error('manual missing');
-    next.counters.ausgang++;
-  } else out.nummer = out.nummer || '';
-  if (za === 'kassa') { out.lfd_nr = String(next.counters.fortlaufend).padStart(3, '0'); next.counters.fortlaufend++; if (out.typ === 'ausgang') { out.zahlungs_lfd_nr = String(next.counters.kassenbeleg).padStart(3, '0'); out.kassenbeleg_nr = out.zahlungs_lfd_nr; next.counters.kassenbeleg++; } else { out.zahlungs_lfd_nr = ''; out.kassenbeleg_nr = ''; } } else { out.lfd_nr = ''; out.zahlungs_lfd_nr = String(next.counters.lfd_bank).padStart(3, '0'); next.counters.lfd_bank++; out.kassenbeleg_nr = ''; }
-  return out;
-}
+const { appHarness } = require('./invoice-app-harness');
+const production = appHarness().app;
+function applyNumbering(next, inv, opts) { return production._applyInvoiceNumberingToState(next, inv, opts); }
+
 const createWithCounters = (inv, opts) => { let saved; return browserPersist(next => { saved = applyNumbering(next, inv, opts); next.invoices = next.invoices.filter(i => i.id !== saved.id); next.invoices.push(saved); }).then(() => saved); };
 const updateCounters = vals => browserPersist(next => { next.counters = Object.assign({}, next.counters, vals); });
 const load = () => JSON.parse(localStorage.getItem(STORE_KEY));
@@ -189,5 +180,13 @@ function assertManualPreviewState() {
   assert.strictEqual(getDB().counters.fortlaufend, 60);
   assert.strictEqual(getDB().counters.lfd_bank, 65);
   assert.strictEqual(getDB().counters.kassenbeleg, 70);
+  const { app, storage } = appHarness();
+  await require('./invoice-kassa-cases').testKassaReceipts({
+    counters: values => app.persistInvoiceCounters(values),
+    create: invoice => app.persistInvoiceCreateWithCounters(invoice, { numberMode: 'auto' }),
+    update: invoice => app.persistInvoiceUpdate(invoice),
+    read: () => JSON.parse(storage.getItem('buchpro_v1')),
+    legacy: invoice => app._persistInvoiceBrowser(next => next.invoices.push(invoice)),
+  });
   console.log('invoice browser localStorage tests passed');
 })();
