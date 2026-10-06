@@ -30,6 +30,7 @@
     <a id="nav-zahlungen"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9670;</span> Zahlungen</a>
     <div class="sec">Auswertung</div>
     <a id="nav-statistik"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128202;</span> Statistik</a>
+    <a id="nav-buchhaltungsdaten"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128209;</span> Buchhaltungsdaten</a>
     <a id="nav-finanzen"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#9638;</span> Finanzen &amp; USt.</a>
     <a id="nav-bankbuch"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#127984;</span> Bankbuch</a>
     <a id="nav-kassabuch"><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128181;</span> Kassabuch</a>
@@ -514,6 +515,43 @@
     </div>
     <div class="grid2">
       <div class="card"><h3>Top Kunden (nach Umsatz)</h3><div id="stat-topkunden"></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="page" id="page-buchhaltungsdaten">
+  <div class="topbar">
+    <h2><span style="display:inline-block;width:22px;text-align:center;flex-shrink:0;font-size:15px">&#128209;</span> Buchhaltungsdaten</h2>
+    <div class="tba"><button class="btn primary" id="btn-accounting-upload">Monatsreport hochladen</button></div>
+  </div>
+  <div class="content">
+    <div class="card" id="accounting-upload-card" style="display:none">
+      <h3 id="accounting-form-title">Monatsreport hochladen</h3>
+      <input type="hidden" id="accounting-edit-id">
+      <div class="fr c2">
+        <div class="fg"><label for="accounting-report-type">Berichtsart</label><select id="accounting-report-type"><option value="financial_accounting_monthly">Finanzbuchhaltung Monatsreport</option></select></div>
+        <div class="fg"><label for="accounting-report-month">Berichtsmonat (letzter Monat im Report)</label><select id="accounting-report-month"></select></div>
+        <div class="fg"><label for="accounting-report-year">Berichtsjahr</label><select id="accounting-report-year"></select></div>
+        <div class="fg"><label for="accounting-report-file">Original-PDF</label><input type="file" id="accounting-report-file" accept="application/pdf,.pdf"><div id="accounting-file-info" style="font-family:sans-serif;font-size:11px;color:var(--t3);margin-top:5px"></div></div>
+      </div>
+      <div id="accounting-period-info" class="alert info"></div>
+      <div id="accounting-form-error" class="alert danger" style="display:none"></div>
+      <div id="accounting-duplicate-warning" class="alert warning" style="display:none;flex-direction:column">
+        <div id="accounting-duplicate-message"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+          <button class="btn" id="accounting-duplicate-open">Bestehenden Report öffnen</button>
+          <button class="btn" id="accounting-duplicate-cancel">Upload abbrechen</button>
+          <button class="btn primary" id="accounting-duplicate-replace">Vorhandenen Report ersetzen</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn" id="accounting-form-cancel">Abbrechen</button>
+        <button class="btn primary" id="accounting-form-save">Report speichern</button>
+      </div>
+    </div>
+    <div class="card" style="padding:0">
+      <div style="padding:1.25rem 1.25rem 0"><h3>Importierte Monatsreports</h3></div>
+      <div id="accounting-report-list"></div>
     </div>
   </div>
 </div>

@@ -511,6 +511,30 @@ ipcMain.handle('db-update-invoice-status', async (event, invoiceId, status) => {
   return invoiceResult(() => buchProDB.updateInvoiceStatus(invoiceId, status));
 });
 
+function accountingReportResult(handler) {
+  try {
+    return { ok: true, report: handler() };
+  } catch (e) {
+    console.error('accounting report persistence error:', e);
+    return { ok: false, error: e && e.message ? e.message : String(e) };
+  }
+}
+
+ipcMain.handle('db-create-accounting-report', async (event, report) => {
+  if (!buchProDB) return { ok: false, error: 'Datenbank nicht geöffnet' };
+  return accountingReportResult(() => buchProDB.createAccountingReport(report));
+});
+
+ipcMain.handle('db-update-accounting-report', async (event, report) => {
+  if (!buchProDB) return { ok: false, error: 'Datenbank nicht geöffnet' };
+  return accountingReportResult(() => buchProDB.updateAccountingReport(report));
+});
+
+ipcMain.handle('db-get-accounting-report', async (event, reportId) => {
+  if (!buchProDB) return { ok: false, error: 'Datenbank nicht geöffnet' };
+  return accountingReportResult(() => buchProDB.getAccountingReport(reportId));
+});
+
 ipcMain.handle('db-save-setting', async (event, key, value) => {
   if (!buchProDB) return { ok: false };
   try {

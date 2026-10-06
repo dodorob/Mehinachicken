@@ -30,7 +30,7 @@ var BACKUP_KEYS = [
 ];
 
 function createBackupObject() {
-  var backup = { _meta: { app: 'BuchPro', version: 2, created: new Date().toISOString(), keys: BACKUP_KEYS } };
+  var backup = { _meta: { app: 'BuchPro', version: 3, created: new Date().toISOString(), keys: BACKUP_KEYS } };
   // Main data
   backup['buchpro_v1'] = JSON.stringify(_dbCache || {});
   // Settings (all BACKUP_KEYS except the special ones handled separately)
@@ -203,6 +203,7 @@ function getDB() {
   if (!d.todos)         d.todos         = [];
   if (!d.todos_archiv)  d.todos_archiv  = [];
   if (!d.kostenvoranschlaege) d.kostenvoranschlaege = [];
+  if (!d.accounting_reports) d.accounting_reports = [];
   _dbCache = d;
   return d;
 }
@@ -535,6 +536,313 @@ async function persistInvoiceAction(action) {
   }
 }
 
+// ================================================================
+// ACCOUNTING REPORT PERSISTENCE
+// ================================================================
+var ACCOUNTING_REPORT_TYPE = 'financial_accounting_monthly';
+var ACCOUNTING_REPORT_LABEL = 'Finanzbuchhaltung';
+
+function findAccountingReport(reportType, reportMonth, reportYear, excludeId) {
+  return (getDB().accounting_reports || []).find(function(report) {
+    return report.id !== excludeId && report.report_type === reportType &&
+      Number(report.report_month) === Number(reportMonth) && Number(report.report_year) === Number(reportYear);
+  }) || null;
+}
+
+function validateAccountingReportPeriod(report) {
+  if (report.detected_period_to_month == null || report.detected_period_to_year == null) {
+    return { status: 'not_checked', message: null };
+  }
+  var matches = Number(report.detected_period_from_month) === 1 &&
+    Number(report.detected_period_from_year) === Number(report.report_year) &&
+    Number(report.detected_period_to_month) === Number(report.report_month) &&
+    Number(report.detected_period_to_year) === Number(report.report_year);
+  if (matches) return { status: 'matched', message: null };
+  return {
+    status: 'mismatch',
+    message: 'Der gewählte Berichtsmonat ' + MONTHS[Number(report.report_month) - 1] + ' ' + report.report_year +
+      ' stimmt nicht mit dem PDF-Zeitraum überein.',
+  };
+}
+
+function normaliseAccountingValue(value) {
+  var normalized = Object.assign({}, value);
+  normalized.manual_value = normalized.manual_value == null ? null : normalized.manual_value;
+  normalized.detected_value = normalized.detected_value == null ? null : normalized.detected_value;
+  normalized.effective_value = normalized.manual_value == null ? normalized.detected_value : normalized.manual_value;
+  normalized.source = normalized.manual_value == null ? 'pdf' : 'manual';
+  normalized.status = normalized.manual_value == null ? 'detected' : 'manually_changed';
+  return normalized;
+}
+
+function normaliseAccountingReport(report) {
+  var normalized = Object.assign({}, report);
+  normalized.report_type = normalized.report_type || ACCOUNTING_REPORT_TYPE;
+  normalized.report_month = Number(normalized.report_month);
+  normalized.report_year = Number(normalized.report_year);
+  normalized.period_from_month = Number(normalized.period_from_month || 1);
+  normalized.period_to_month = Number(normalized.period_to_month || normalized.report_month);
+  normalized.imported_at = normalized.imported_at || new Date().toISOString();
+  normalized.parse_status = normalized.parse_status || 'pending';
+  normalized.parser_version = normalized.parser_version || null;
+  ['monthly_values', 'snapshot_values', 'tax_values', 'open_items', 'account_values', 'detected_values', 'manual_corrections'].forEach(function(key) {
+    if (!Array.isArray(normalized[key])) normalized[key] = [];
+  });
+  ['monthly_values', 'snapshot_values', 'tax_values', 'open_items', 'account_values'].forEach(function(key) {
+    normalized[key] = normalized[key].map(normaliseAccountingValue);
+  });
+  var validation = validateAccountingReportPeriod(normalized);
+  normalized.validation_status = validation.status;
+  normalized.validation_message = validation.message;
+  return normalized;
+}
+
+function _replaceAccountingReportInCache(report) {
+  var d = getDB();
+  d.accounting_reports = (d.accounting_reports || []).filter(function(existing) { return existing.id !== report.id; });
+  d.accounting_reports.push(report);
+  _dbCache = d;
+  return report;
+}
+
+async function persistAccountingReportCreate(report) {
+  var normalized = normaliseAccountingReport(report);
+  if (findAccountingReport(normalized.report_type, normalized.report_month, normalized.report_year)) {
+    throw new Error('DUPLICATE_ACCOUNTING_REPORT');
+  }
+  if (_isElectronDbMode() && typeof window.electronAPI.db.createAccountingReport === 'function') {
+    return enqueueDbWrite(function() {
+      return window.electronAPI.db.createAccountingReport(normalized).then(function(result) {
+        if (!result || result.ok !== true) throw new Error((result && result.error) || 'Buchhaltungsreport konnte nicht gespeichert werden');
+        return _replaceAccountingReportInCache(result.report || normalized);
+      });
+    });
+  }
+  await _persistInvoiceBrowser(function(next) {
+    if (!next.accounting_reports) next.accounting_reports = [];
+    var duplicate = next.accounting_reports.some(function(existing) {
+      return existing.report_type === normalized.report_type && Number(existing.report_month) === normalized.report_month && Number(existing.report_year) === normalized.report_year;
+    });
+    if (duplicate) throw new Error('DUPLICATE_ACCOUNTING_REPORT');
+    next.accounting_reports.push(normalized);
+  });
+  return normalized;
+}
+
+async function persistAccountingReportUpdate(report) {
+  var existing = (getDB().accounting_reports || []).find(function(item) { return item.id === report.id; });
+  if (!existing) throw new Error('Buchhaltungsreport nicht gefunden: ' + report.id);
+  var merged = normaliseAccountingReport(Object.assign({}, existing, report));
+  if (report.original_file_b64 == null && report.original_file_name == null && report.original_file_type == null) {
+    merged.original_file_b64 = existing.original_file_b64;
+    merged.original_file_name = existing.original_file_name;
+    merged.original_file_type = existing.original_file_type;
+  }
+  if (findAccountingReport(merged.report_type, merged.report_month, merged.report_year, merged.id)) {
+    throw new Error('DUPLICATE_ACCOUNTING_REPORT');
+  }
+  if (_isElectronDbMode() && typeof window.electronAPI.db.updateAccountingReport === 'function') {
+    return enqueueDbWrite(function() {
+      return window.electronAPI.db.updateAccountingReport(merged).then(function(result) {
+        if (!result || result.ok !== true) throw new Error((result && result.error) || 'Buchhaltungsreport konnte nicht aktualisiert werden');
+        return _replaceAccountingReportInCache(result.report || merged);
+      });
+    });
+  }
+  await _persistInvoiceBrowser(function(next) {
+    var index = (next.accounting_reports || []).findIndex(function(item) { return item.id === merged.id; });
+    if (index < 0) throw new Error('Buchhaltungsreport nicht gefunden: ' + merged.id);
+    var duplicate = next.accounting_reports.some(function(item) {
+      return item.id !== merged.id && item.report_type === merged.report_type && Number(item.report_month) === merged.report_month && Number(item.report_year) === merged.report_year;
+    });
+    if (duplicate) throw new Error('DUPLICATE_ACCOUNTING_REPORT');
+    next.accounting_reports[index] = merged;
+  });
+  return merged;
+}
+
+var ACCOUNTING_MONTHS = ['Jänner','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+var _accountingUiWired = false;
+var _accountingDuplicateUpload = null;
+
+function accountingReportPeriodLabel(report) {
+  return ACCOUNTING_MONTHS[Number(report.report_month) - 1] + ' ' + report.report_year;
+}
+
+function updateAccountingPeriodInfo() {
+  var monthEl = document.getElementById('accounting-report-month');
+  var yearEl = document.getElementById('accounting-report-year');
+  var info = document.getElementById('accounting-period-info');
+  if (!monthEl || !yearEl || !info) return;
+  info.textContent = 'Erwarteter kumulierter PDF-Zeitraum: Jänner ' + yearEl.value + ' bis ' + ACCOUNTING_MONTHS[Number(monthEl.value) - 1] + ' ' + yearEl.value + '.';
+}
+
+function openAccountingReportPdf(reportOrId) {
+  var report = typeof reportOrId === 'string'
+    ? (getDB().accounting_reports || []).find(function(item) { return item.id === reportOrId; })
+    : reportOrId;
+  if (!report || !report.original_file_b64) {
+    alert('Für diesen Report ist kein Original-PDF gespeichert.');
+    return;
+  }
+  window.open(report.original_file_b64, '_blank');
+}
+
+function renderAccountingReports() {
+  var el = document.getElementById('accounting-report-list');
+  if (!el) return;
+  var reports = (getDB().accounting_reports || []).slice().sort(function(a, b) {
+    return Number(b.report_year) - Number(a.report_year) || Number(b.report_month) - Number(a.report_month) || String(b.imported_at).localeCompare(String(a.imported_at));
+  });
+  if (!reports.length) {
+    el.innerHTML = '<div class="empty">Noch keine Monatsreports importiert.</div>';
+    return;
+  }
+  el.innerHTML = '<table><thead><tr><th>Berichtsmonat</th><th>Berichtsart</th><th>Status</th><th>Original</th><th></th></tr></thead><tbody>' +
+    reports.map(function(report) {
+      var warning = report.validation_status === 'mismatch' ? '<div style="font-size:11px;color:var(--warn);margin-top:3px">' + esc(report.validation_message || '') + '</div>' : '';
+      return '<tr><td>' + esc(accountingReportPeriodLabel(report)) + warning + '</td>' +
+        '<td>' + ACCOUNTING_REPORT_LABEL + '</td><td><span class="badge green">importiert</span></td>' +
+        '<td><button class="btn accounting-open" data-id="' + esc(report.id) + '">PDF öffnen</button></td>' +
+        '<td><button class="btn accounting-edit" data-id="' + esc(report.id) + '">Bearbeiten</button></td></tr>';
+    }).join('') + '</tbody></table>';
+  el.querySelectorAll('.accounting-open').forEach(function(button) {
+    button.addEventListener('click', function() { openAccountingReportPdf(this.dataset.id); });
+  });
+  el.querySelectorAll('.accounting-edit').forEach(function(button) {
+    button.addEventListener('click', function() {
+      var report = (getDB().accounting_reports || []).find(function(item) { return item.id === button.dataset.id; });
+      if (report) openAccountingReportForm(report);
+    });
+  });
+}
+
+function openAccountingReportForm(report) {
+  var card = document.getElementById('accounting-upload-card');
+  if (!card) return;
+  var now = new Date();
+  document.getElementById('accounting-edit-id').value = report ? report.id : '';
+  document.getElementById('accounting-report-type').value = report ? report.report_type : ACCOUNTING_REPORT_TYPE;
+  document.getElementById('accounting-report-month').value = String(report ? report.report_month : now.getMonth() + 1);
+  document.getElementById('accounting-report-year').value = String(report ? report.report_year : now.getFullYear());
+  document.getElementById('accounting-report-file').value = '';
+  document.getElementById('accounting-file-info').textContent = report ? 'Gespeichert: ' + report.original_file_name + ' (leer lassen, um das Original beizubehalten)' : '';
+  document.getElementById('accounting-form-title').textContent = report ? 'Monatsreport bearbeiten' : 'Monatsreport hochladen';
+  document.getElementById('accounting-form-error').style.display = 'none';
+  document.getElementById('accounting-duplicate-warning').style.display = 'none';
+  _accountingDuplicateUpload = null;
+  updateAccountingPeriodInfo();
+  card.style.display = 'block';
+}
+
+function closeAccountingReportForm() {
+  var card = document.getElementById('accounting-upload-card');
+  if (card) card.style.display = 'none';
+  _accountingDuplicateUpload = null;
+}
+
+function readAccountingReportFile(file) {
+  return new Promise(function(resolve, reject) {
+    if (!file) { resolve(null); return; }
+    if (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name || '')) {
+      reject(new Error('Bitte wählen Sie eine PDF-Datei aus.'));
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(event) {
+      resolve({ original_file_b64: event.target.result, original_file_name: file.name, original_file_type: 'application/pdf' });
+    };
+    reader.onerror = function() { reject(new Error('Die PDF-Datei konnte nicht gelesen werden.')); };
+    reader.readAsDataURL(file);
+  });
+}
+
+function showAccountingDuplicate(existing, candidate) {
+  _accountingDuplicateUpload = { existing: existing, candidate: candidate };
+  document.getElementById('accounting-duplicate-message').textContent = 'Für ' + accountingReportPeriodLabel(candidate) + ' ist bereits ein Finanzbuchhaltungsreport vorhanden.';
+  document.getElementById('accounting-duplicate-warning').style.display = 'flex';
+}
+
+async function saveAccountingReportForm() {
+  var errorEl = document.getElementById('accounting-form-error');
+  errorEl.style.display = 'none';
+  try {
+    var editId = document.getElementById('accounting-edit-id').value;
+    var existing = editId ? (getDB().accounting_reports || []).find(function(item) { return item.id === editId; }) : null;
+    var fileInput = document.getElementById('accounting-report-file');
+    var fileData = await readAccountingReportFile(fileInput.files && fileInput.files[0]);
+    if (!fileData && !existing) throw new Error('Bitte wählen Sie das Original-PDF aus.');
+    var candidate = normaliseAccountingReport(Object.assign({
+      id: editId || uid(),
+      report_type: document.getElementById('accounting-report-type').value,
+      report_month: Number(document.getElementById('accounting-report-month').value),
+      report_year: Number(document.getElementById('accounting-report-year').value),
+      period_from_month: 1,
+      period_to_month: Number(document.getElementById('accounting-report-month').value),
+      parse_status: 'pending',
+      parser_version: null,
+    }, existing || {}, fileData || {}, {
+      report_type: document.getElementById('accounting-report-type').value,
+      report_month: Number(document.getElementById('accounting-report-month').value),
+      report_year: Number(document.getElementById('accounting-report-year').value),
+      period_from_month: 1,
+      period_to_month: Number(document.getElementById('accounting-report-month').value),
+    }));
+    var duplicate = findAccountingReport(candidate.report_type, candidate.report_month, candidate.report_year, editId || null);
+    if (duplicate) {
+      showAccountingDuplicate(duplicate, candidate);
+      return null;
+    }
+    var saved = existing ? await persistAccountingReportUpdate(candidate) : await persistAccountingReportCreate(candidate);
+    renderAccountingReports();
+    closeAccountingReportForm();
+    return saved;
+  } catch (error) {
+    errorEl.textContent = error && error.message ? error.message : String(error);
+    errorEl.style.display = 'flex';
+    return null;
+  }
+}
+
+async function replaceDuplicateAccountingReport() {
+  if (!_accountingDuplicateUpload) return;
+  var state = _accountingDuplicateUpload;
+  try {
+    var replacement = Object.assign({}, state.candidate, { id: state.existing.id, imported_at: new Date().toISOString() });
+    await persistAccountingReportUpdate(replacement);
+    renderAccountingReports();
+    closeAccountingReportForm();
+  } catch (error) {
+    var errorEl = document.getElementById('accounting-form-error');
+    errorEl.textContent = error && error.message ? error.message : String(error);
+    errorEl.style.display = 'flex';
+  }
+}
+
+function initAccountingReportsPage() {
+  var monthEl = document.getElementById('accounting-report-month');
+  var yearEl = document.getElementById('accounting-report-year');
+  if (!monthEl || !yearEl) return;
+  if (!monthEl.options.length) monthEl.innerHTML = ACCOUNTING_MONTHS.map(function(month, index) { return '<option value="' + (index + 1) + '">' + month + '</option>'; }).join('');
+  if (!yearEl.options.length) {
+    var years = [];
+    for (var year = new Date().getFullYear() + 5; year >= 2000; year--) years.push('<option value="' + year + '">' + year + '</option>');
+    yearEl.innerHTML = years.join('');
+  }
+  if (!_accountingUiWired) {
+    document.getElementById('btn-accounting-upload').addEventListener('click', function() { openAccountingReportForm(null); });
+    document.getElementById('accounting-form-cancel').addEventListener('click', closeAccountingReportForm);
+    document.getElementById('accounting-form-save').addEventListener('click', function() { saveAccountingReportForm(); });
+    document.getElementById('accounting-report-month').addEventListener('change', updateAccountingPeriodInfo);
+    document.getElementById('accounting-report-year').addEventListener('change', updateAccountingPeriodInfo);
+    document.getElementById('accounting-duplicate-open').addEventListener('click', function() { if (_accountingDuplicateUpload) openAccountingReportPdf(_accountingDuplicateUpload.existing); });
+    document.getElementById('accounting-duplicate-cancel').addEventListener('click', closeAccountingReportForm);
+    document.getElementById('accounting-duplicate-replace').addEventListener('click', function() { replaceDuplicateAccountingReport(); });
+    _accountingUiWired = true;
+  }
+  renderAccountingReports();
+}
+
 // Beschreibung autocomplete history
 var HIST_KEY = 'buchpro_beschreibung_hist';
 function loadBeschHist() {
@@ -845,6 +1153,7 @@ function SP(id) {
     var spl=document.getElementById('stat-prev'); if(spl) spl.onclick=function(){ STAT_M--; if(STAT_M<0){STAT_M=11;STAT_Y--;} renderStatistik(); };
     var snl=document.getElementById('stat-next'); if(snl) snl.onclick=function(){ STAT_M++; if(STAT_M>11){STAT_M=0;STAT_Y++;} renderStatistik(); };
   }
+  if (id === 'buchhaltungsdaten') initAccountingReportsPage();
   if (id === 'finanzen') {
     renderFin();
     var fpl=document.getElementById('fin-prev'); if(fpl) fpl.onclick=function(){ FIN_M--; if(FIN_M<0){FIN_M=11;FIN_Y--;} renderFin(); };
@@ -889,6 +1198,7 @@ document.getElementById('nav-mitarbeiter').addEventListener('click',  function()
 document.getElementById('nav-lieferanten').addEventListener('click',  function(){ SP('lieferanten'); });
 document.getElementById('nav-zahlungen').addEventListener('click',    function(){ SP('zahlungen'); });
 document.getElementById('nav-statistik').addEventListener('click',    function(){ SP('statistik'); });
+document.getElementById('nav-buchhaltungsdaten').addEventListener('click', function(){ SP('buchhaltungsdaten'); });
 document.getElementById('nav-finanzen').addEventListener('click',     function(){ SP('finanzen'); });
 document.getElementById('nav-bankbuch').addEventListener('click',     function(){ SP('bankbuch'); });
 document.getElementById('nav-kassabuch').addEventListener('click',    function(){ SP('kassabuch'); });
@@ -6933,6 +7243,7 @@ function _loadCachesFromResult(result) {
     todos:               d.todos               || [],
     todos_archiv:        d.todos_archiv        || [],
     kostenvoranschlaege: d.kostenvoranschlaege || [],
+    accounting_reports:  d.accounting_reports  || [],
     counters: d.counters || {ausgang:1, eingang:1, fortlaufend:1, lfd_bank:1, kassenbeleg:1, lfd_kassa:1},
     vorlage:             d.vorlage             || null,
   };
