@@ -13,6 +13,7 @@ function appHarness() {
     const wrap = { style: {} };
     elements[match[1]] = {
       value: '', style: {}, textContent: '', innerHTML: '', checked: false, listeners: {},
+      wrap,
       selectedIndex: 0, options: [{ text: '-- Bitte wählen --' }],
       closest: () => wrap, querySelectorAll: () => [],
       addEventListener(name, fn) { this.listeners[name] = fn; }, click() {},
@@ -55,7 +56,7 @@ function appHarness() {
   load('loadDB', 'dfV', 'getDB', 'cloneForSave', 'enqueueDbWrite', 'saveDB', '_hasElectronDbInvoiceApi', '_isElectronDbMode',
     '_replaceInvoiceInCache', '_mergeInvoiceForUpdate', '_persistInvoiceBrowser', '_mergeReturnedCounters',
     '_invoiceNumberingOptions', '_padInvoiceNumber', '_numericInvoiceValue', '_sameInvoiceNumber',
-    '_assertNoInvoiceNumberDuplicate', '_requireStateCounter', '_isARKassa', '_applyARKassaNumbersToState',
+    '_assertNoInvoiceNumberDuplicate', '_requireStateCounter', '_isARKassa', '_invoiceNumberForDisplay', '_applyARKassaNumbersToState',
     '_applyInvoiceNumberingToState', 'persistInvoiceCreateWithCounters', 'persistInvoiceUpdate',
     'persistInvoiceCounters', 'persistInvoiceAction', 'previewNum', 'refreshNumbers', 'updateARKassaForm',
     'findAccountingReport', 'validateAccountingReportPeriod', 'normaliseAccountingValue', 'normaliseAccountingReport',

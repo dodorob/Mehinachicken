@@ -13,6 +13,7 @@ async function testKassaFormAndFiles() {
   assert.strictEqual(el['btn-save-inv'].textContent, 'Beleg speichern');
   assert.strictEqual(el['btn-save-inv-bottom'].textContent, 'Beleg speichern');
   assert.strictEqual(el['ar-kassa-upload-card'].style.display, '');
+  assert.strictEqual(el.rnr.wrap.style.display, 'none');
   assert.strictEqual(el['lfd-nr'].value, '120');
   el['lfd-nr'].value = '087'; el['lfd-nr'].listeners.input();
   el['kassa-beleg-nr'].value = '089'; el['kassa-beleg-nr'].listeners.input();
@@ -24,6 +25,7 @@ async function testKassaFormAndFiles() {
   await app.handleInvoiceFile(original, true);
   await app.saveInvoice();
   let inv = JSON.parse(storage.getItem('buchpro_v1')).invoices[0];
+  assert.strictEqual(inv.nummer, '');
   assert.strictEqual(inv.lfd_nr, '087');
   assert.strictEqual(inv.kassenbeleg_nr, '089');
   assert.strictEqual(inv.zahlungs_lfd_nr, '089');
@@ -33,6 +35,7 @@ async function testKassaFormAndFiles() {
   assert.match(el['f-alerts'].innerHTML, /Registrierkassenbeleg gespeichert/);
   assert.strictEqual(app.getDB().counters.fortlaufend, 120);
   assert.strictEqual(app.getDB().counters.kassenbeleg, 120);
+  assert.strictEqual(app.getDB().counters.ausgang, 1);
 
   // A fresh app instance reloads the actual saved localStorage state.
   const reloaded = appHarness();
@@ -81,6 +84,8 @@ async function testKassaFormAndFiles() {
 
   app._dbCache.invoices.push({ id: 'LEGACY-UI', typ: 'ausgang', zahlungsart: 'kassa', nummer: 'ALT-AR', lfd_nr: 'ALT-1', kassenbeleg_nr: null, zahlungs_lfd_nr: 'ALT-2', items: [] });
   app.editInv('LEGACY-UI');
+  assert.strictEqual(el.rnr.value, '');
+  assert.strictEqual(app._invoiceNumberForDisplay(app.getDB().invoices.find(i => i.id === 'LEGACY-UI'), '—'), '—');
   await app.saveInvoice();
   const legacy = app.getDB().invoices.find(i => i.id === 'LEGACY-UI');
   assert.strictEqual(legacy.nummer, 'ALT-AR');

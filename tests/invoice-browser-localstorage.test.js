@@ -47,7 +47,7 @@ function previewFormState(state) {
   const za = state.zahlungsart || 'bank';
   const edit = state.editInvoice || null;
   const out = {
-    arVisible: typ !== 'eingang',
+    arVisible: typ !== 'eingang' && !(typ === 'ausgang' && za === 'kassa'),
     ar: '',
     lfd: '',
     bankRowVisible: za === 'bank',
@@ -58,7 +58,7 @@ function previewFormState(state) {
     counters: cloneForSave(counters),
   };
   if (edit) {
-    out.ar = edit.nummer || '';
+    out.ar = out.arVisible ? (edit.nummer || '') : '';
     out.lfd = edit.lfd_nr || '';
     if (za === 'bank') out.bank = edit.zahlungs_lfd_nr || '';
     if (za === 'kassa' && typ === 'ausgang') out.kassa = edit.kassenbeleg_nr || edit.zahlungs_lfd_nr || '';
@@ -76,7 +76,7 @@ function assertPaymentPreviewState() {
   assert.deepStrictEqual({ ar: state.ar, lfd: state.lfd, bank: state.bank, bankRowVisible: state.bankRowVisible, kassaRowVisible: state.kassaRowVisible }, { ar: '145', lfd: '', bank: '080', bankRowVisible: true, kassaRowVisible: false });
 
   state = previewFormState({ typ: 'ausgang', zahlungsart: 'kassa', counters: { ausgang: 146, fortlaufend: 321, lfd_bank: 80, kassenbeleg: 50 } });
-  assert.deepStrictEqual({ ar: state.ar, lfd: state.lfd, kassa: state.kassa, bankRowVisible: state.bankRowVisible, kassaRowVisible: state.kassaRowVisible }, { ar: '146', lfd: '321', kassa: '050', bankRowVisible: false, kassaRowVisible: true });
+  assert.deepStrictEqual({ arVisible: state.arVisible, ar: state.ar, lfd: state.lfd, kassa: state.kassa, bankRowVisible: state.bankRowVisible, kassaRowVisible: state.kassaRowVisible }, { arVisible: false, ar: '', lfd: '321', kassa: '050', bankRowVisible: false, kassaRowVisible: true });
 
   const switchedToKassa = previewFormState({ typ: 'ausgang', zahlungsart: 'kassa', counters: { ausgang: 1, fortlaufend: 1, lfd_bank: 80, kassenbeleg: 50 } });
   const switchedToBank = previewFormState({ typ: 'ausgang', zahlungsart: 'bank', counters: { ausgang: 1, fortlaufend: 1, lfd_bank: 80, kassenbeleg: 50 } });
@@ -97,6 +97,7 @@ function assertPaymentPreviewState() {
   assert.deepStrictEqual(countersBeforeEdit, state.counters);
 
   state = previewFormState({ typ: 'ausgang', zahlungsart: 'kassa', counters: countersBeforeEdit, editInvoice: { nummer: '146', lfd_nr: '321', zahlungs_lfd_nr: '050', kassenbeleg_nr: '050' } });
+  assert.strictEqual(state.ar, '');
   assert.strictEqual(state.kassa, '050');
   assert.deepStrictEqual(countersBeforeEdit, state.counters);
 }
@@ -138,11 +139,13 @@ function assertManualPreviewState() {
   assert.ok(load().invoices.find(i => i.id === 'A'));
 
   inv = await createWithCounters({ id: 'K', typ: 'ausgang', zahlungsart: 'kassa' }, { numberMode: 'auto' });
+  assert.strictEqual(inv.nummer, '');
   assert.strictEqual(inv.zahlungs_lfd_nr, '001');
   assert.strictEqual(inv.kassenbeleg_nr, '001');
   assert.strictEqual(load().counters.fortlaufend, 2);
   assert.strictEqual(load().counters.lfd_kassa, 1);
   assert.strictEqual(load().counters.kassenbeleg, 2);
+  assert.strictEqual(load().counters.ausgang, 2);
 
   inv = await createWithCounters({ id: 'KE', typ: 'eingang', zahlungsart: 'kassa' }, { numberMode: 'auto' });
   assert.strictEqual(inv.zahlungs_lfd_nr, '');
@@ -159,7 +162,17 @@ function assertManualPreviewState() {
 
   inv = await createWithCounters({ id: 'M', typ: 'ausgang', zahlungsart: 'bank' }, { numberMode: 'manual', requestedNumber: 'MAN-1' });
   assert.strictEqual(inv.nummer, 'MAN-1');
-  assert.strictEqual(load().counters.ausgang, 4);
+  assert.strictEqual(load().counters.ausgang, 3);
+
+  const sequence = { invoices: [], counters: { ausgang: 26, fortlaufend: 10, lfd_bank: 20, kassenbeleg: 30 } };
+  for (let n = 0; n < 5; n++) {
+    const cash = applyNumbering(sequence, { id: 'CASH-' + n, typ: 'ausgang', zahlungsart: 'kassa' }, { numberMode: 'manual', requestedNumber: 'LEGACY-' + n });
+    assert.strictEqual(cash.nummer, '');
+    sequence.invoices.push(cash);
+  }
+  const nextBank = applyNumbering(sequence, { id: 'BANK-026', typ: 'ausgang', zahlungsart: 'bank' }, { numberMode: 'auto' });
+  assert.strictEqual(nextBank.nummer, '026');
+  assert.strictEqual(sequence.counters.ausgang, 27);
 
 
   const shared = { invoices: [], counters: { ausgang: 1, fortlaufend: 10, lfd_bank: 500, lfd_kassa: 700, kassenbeleg: 1 } };
