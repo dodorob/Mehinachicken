@@ -138,11 +138,26 @@ async function testAtomicInvoiceCounters() {
     assert.strictEqual(erBank.zahlungs_lfd_nr, '080');
     assert.strictEqual(arKassa.zahlungs_lfd_nr, '050');
     assert.strictEqual(arKassa.kassenbeleg_nr, '050');
+    assert.strictEqual(arKassa.nummer, null);
     assert.strictEqual(arBank.zahlungs_lfd_nr, '081');
     assert.strictEqual(arBank.kassenbeleg_nr, null);
     assert.strictEqual(counters(t.db).fortlaufend, 21);
     assert.strictEqual(counters(t.db).lfd_bank, 82);
     assert.strictEqual(counters(t.db).kassenbeleg, 51);
+    assert.strictEqual(counters(t.db).ausgang, 2);
+  } finally { t.cleanup(); }
+
+  t = tempDb();
+  try {
+    setCounters(t.db, { ausgang: 26, fortlaufend: 10, lfd_bank: 20, kassenbeleg: 30 });
+    for (let n = 0; n < 5; n++) {
+      const cash = t.db.createInvoiceWithCounters(atomicInv('CASH-' + n, { zahlungsart: 'kassa', nummer: 'LEGACY-' + n }), { numberMode: 'manual', requestedNumber: 'LEGACY-' + n }).invoice;
+      assert.strictEqual(cash.nummer, null);
+    }
+    assert.strictEqual(counters(t.db).ausgang, 26);
+    const nextBank = t.db.createInvoiceWithCounters(atomicInv('BANK-026'), { numberMode: 'auto' }).invoice;
+    assert.strictEqual(nextBank.nummer, '026');
+    assert.strictEqual(counters(t.db).ausgang, 27);
   } finally { t.cleanup(); }
 
   t = tempDb();

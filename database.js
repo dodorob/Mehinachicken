@@ -479,10 +479,14 @@ class BuchProDB {
   _invoiceCounterPlan(invoice) {
     const za = invoice && invoice.zahlungsart === 'kassa' ? 'kassa' : 'bank';
     const isAusgang = invoice && invoice.typ === 'ausgang';
+    const isARKassa = isAusgang && za === 'kassa';
     return {
       isAusgang,
       isKassa: za === 'kassa',
-      keys: (za === 'kassa' ? ['fortlaufend'] : ['lfd_bank']).concat(isAusgang ? (za === 'kassa' ? ['ausgang', 'kassenbeleg'] : ['ausgang']) : [])
+      isARKassa,
+      keys: za === 'kassa'
+        ? ['fortlaufend'].concat(isARKassa ? ['kassenbeleg'] : [])
+        : ['lfd_bank'].concat(isAusgang ? ['ausgang'] : [])
     };
   }
 
@@ -528,7 +532,7 @@ class BuchProDB {
       plan.keys.forEach(key => { counters[key] = this._requireActiveCounter(key); });
 
       const finalInvoice = Object.assign({}, invoice);
-      if (plan.isAusgang) {
+      if (plan.isAusgang && !plan.isARKassa) {
         if (mode === 'manual') {
           const requested = String(opts.requestedNumber != null ? opts.requestedNumber : finalInvoice.nummer || '').trim();
           if (!requested) throw new Error('Manuelle Rechnungsnummer fehlt');
@@ -537,6 +541,10 @@ class BuchProDB {
           finalInvoice.nummer = this._padNumber(counters.ausgang);
         }
         this._assertNoDuplicateNumber("SELECT nummer AS value FROM invoices WHERE typ = 'ausgang' AND nummer IS NOT NULL AND nummer != ''", finalInvoice.nummer, 'Die Ausgangsrechnungsnummer ' + finalInvoice.nummer + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
+      } else if (plan.isARKassa) {
+        // Registrierkassenbelege have their own number ranges and must neither
+        // receive nor consume a normal outgoing-invoice number.
+        finalInvoice.nummer = '';
       } else {
         finalInvoice.nummer = finalInvoice.nummer || '';
       }
@@ -561,7 +569,7 @@ class BuchProDB {
       const sql = `INSERT INTO invoices (${cols.join(', ')}) VALUES (${cols.map(c => '@' + c).join(', ')})`;
       this.db.prepare(sql).run(row);
 
-      if (plan.isAusgang) this._setCounterValue('ausgang', counters.ausgang + 1);
+      if (plan.isAusgang && !plan.isARKassa) this._setCounterValue('ausgang', counters.ausgang + 1);
       if (plan.isKassa) {
         if (!plan.isAusgang) this._setCounterValue('fortlaufend', counters.fortlaufend + 1);
       } else {

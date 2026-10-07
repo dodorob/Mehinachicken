@@ -313,7 +313,7 @@ function _mergeReturnedCounters(counters) {
 }
 
 function _invoiceNumberingOptions(invoice) {
-  var manual = invoice && invoice.typ === 'ausgang' && invoice.nummer && String(invoice.nummer).trim();
+  var manual = invoice && invoice.typ === 'ausgang' && invoice.zahlungsart !== 'kassa' && invoice.nummer && String(invoice.nummer).trim();
   return manual ? { numberMode: 'manual', requestedNumber: String(invoice.nummer).trim() } : { numberMode: 'auto' };
 }
 
@@ -348,6 +348,13 @@ function _isARKassa(invoice) {
   return invoice && invoice.typ === 'ausgang' && invoice.zahlungsart === 'kassa';
 }
 
+// Legacy AR-Kassa records may still contain an old invoice number. Keep that
+// value in storage, but never present it as a normal invoice number.
+function _invoiceNumberForDisplay(invoice, fallback) {
+  var value = _isARKassa(invoice) ? '' : String(invoice && invoice.nummer || '');
+  return value || (fallback == null ? '' : fallback);
+}
+
 // Preserve entered receipt numbers. On edits, leave unchanged legacy numbers alone.
 function _applyARKassaNumbersToState(next, invoice, existing) {
   var others = (next.invoices || []).filter(function(i){ return i.id !== invoice.id; });
@@ -379,11 +386,12 @@ function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
   if (!next.counters) next.counters = {};
   var za = invoice.zahlungsart === 'kassa' ? 'kassa' : 'bank';
   var finalInvoice = Object.assign({}, invoice);
-  var ausgangCounter = finalInvoice.typ === 'ausgang' ? _requireStateCounter(next, 'ausgang') : null;
+  var arKassa = _isARKassa(finalInvoice);
+  var ausgangCounter = finalInvoice.typ === 'ausgang' && !arKassa ? _requireStateCounter(next, 'ausgang') : null;
   var fortlaufendCounter = za === 'kassa' ? _requireStateCounter(next, 'fortlaufend') : null;
   var bankCounter = za === 'kassa' ? null : _requireStateCounter(next, 'lfd_bank');
   if ((next.invoices || []).some(function(i){ return i.id === finalInvoice.id; })) throw new Error('Rechnungs-ID existiert bereits: ' + finalInvoice.id);
-  if (finalInvoice.typ === 'ausgang') {
+  if (finalInvoice.typ === 'ausgang' && !arKassa) {
     if (numberingOptions && numberingOptions.numberMode === 'manual') {
       var requested = String(numberingOptions.requestedNumber || finalInvoice.nummer || '').trim();
       if (!requested) throw new Error('Manuelle Rechnungsnummer fehlt');
@@ -393,10 +401,12 @@ function _applyInvoiceNumberingToState(next, invoice, numberingOptions) {
     }
     _assertNoInvoiceNumberDuplicate((next.invoices || []).filter(function(i){ return i.typ === 'ausgang'; }), function(i){ return i.nummer; }, finalInvoice.nummer, 'Die Ausgangsrechnungsnummer ' + finalInvoice.nummer + ' ist bereits vorhanden. Bitte prüfen Sie die nächste Nummer in den Einstellungen.');
     next.counters.ausgang = ausgangCounter + 1;
+  } else if (arKassa) {
+    finalInvoice.nummer = '';
   } else {
     finalInvoice.nummer = finalInvoice.nummer || '';
   }
-  if (_isARKassa(finalInvoice)) {
+  if (arKassa) {
     if (numberingOptions && numberingOptions.requestedLfd != null) finalInvoice.lfd_nr = numberingOptions.requestedLfd;
     if (numberingOptions && numberingOptions.requestedKassenbeleg != null) finalInvoice.kassenbeleg_nr = numberingOptions.requestedKassenbeleg;
     return _applyARKassaNumbersToState(next, finalInvoice);
@@ -3285,7 +3295,7 @@ function renderDash() {
         : tage === 0 ? '<span style="color:#BA7517;font-weight:600">Heute fällig</span>'
         : '<span style="color:#f59e0b;font-weight:600">in '+tage+' Tag(en)</span>';
       return '<tr>'+
-        '<td class="mono" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(inv.nummer)+'</td>'+
+        '<td class="mono" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(_invoiceNumberForDisplay(inv, '—'))+'</td>'+
         '<td style="overflow:hidden;overflow-wrap:break-word;word-break:break-word">'+(inv.partner_name||'—')+'</td>'+
         '<td style="white-space:nowrap"><span class="badge '+(inv.typ==='ausgang'?'green':'red')+'">'+(inv.typ==='ausgang'?'AR':'ER')+'</span></td>'+
         '<td style="text-align:right;white-space:nowrap">'+fmt(brutto(inv))+'</td>'+
@@ -3403,7 +3413,7 @@ function renderTable(typ) {
   var status = (document.getElementById('f-'+typ+'-status')||{value:''}).value;
   var invs = d.invoices.filter(function(i){ return i.typ === typ; });
   if (s)      invs = invs.filter(function(i){
-    var str = (i.nummer||'') + (i.partner_name||'');
+    var str = _invoiceNumberForDisplay(i) + (i.partner_name||'');
     if (typ === 'ausgang') str += (i.fz_kz||'') + (i.fz_marke||'');
     return str.toLowerCase().indexOf(s) !== -1;
   });
@@ -3415,7 +3425,7 @@ function renderTable(typ) {
   invs = invs.slice().sort(function(a, b) {
     var va, vb;
     if      (sort.col==='lfd')     { va=a.lfd_nr||0;               vb=b.lfd_nr||0; }
-    else if (sort.col==='nr')      { va=(a.nummer||'').toLowerCase(); vb=(b.nummer||'').toLowerCase(); }
+    else if (sort.col==='nr')      { va=_invoiceNumberForDisplay(a).toLowerCase(); vb=_invoiceNumberForDisplay(b).toLowerCase(); }
     else if (sort.col==='partner') { va=(a.partner_name||'').toLowerCase(); vb=(b.partner_name||'').toLowerCase(); }
     else if (sort.col==='kz')      { va=(a.fz_kz||'').toLowerCase(); vb=(b.fz_kz||'').toLowerCase(); }
     else if (sort.col==='faellig') { va=a.faellig||''; vb=b.faellig||''; }
@@ -3437,7 +3447,7 @@ function renderTable(typ) {
     var partnerCell = inv.is_tageslosung ? 'Tageslosung' : (inv.partner_name||'-');
     return '<tr>' +
       '<td class="mono" style="color:var(--t3);font-size:11px;white-space:nowrap">'+(inv.lfd_nr||'')+'</td>' +
-      (typ==='ausgang'?'<td class="mono" style="white-space:nowrap">' + (inv.nummer||'—') + '</td>':'') +
+      (typ==='ausgang'?'<td class="mono" style="white-space:nowrap">' + esc(_invoiceNumberForDisplay(inv, '—')) + '</td>':'') +
       '<td style="overflow-wrap:break-word;word-break:break-word">' + partnerCell + sammelBadge + gutschriftBadge + tageslosungBadge + '</td>' +
       (typ==='ausgang'?'<td class="mono" style="font-size:11px;white-space:nowrap;color:var(--t2)">' + esc(inv.fz_kz||'—') + '</td>':'') +
       '<td style="white-space:nowrap">' + fmtD(inv.datum) + '</td>' +
@@ -4164,8 +4174,9 @@ function refreshNumbers() {
   var kbRow = document.getElementById('kassa-beleg-row');
   var kbNum = db.counters.kassenbeleg || 1;
 
-  if (rnrWrap) rnrWrap.style.display = (typ === 'eingang') ? 'none' : '';
-  if (rnrEl && typ !== 'eingang' && !editId && !rnrManuallyEdited) rnrEl.value = previewNum(typ);
+  var hideInvoiceNumber = typ === 'eingang' || (typ === 'ausgang' && za === 'kassa');
+  if (rnrWrap) rnrWrap.style.display = hideInvoiceNumber ? 'none' : '';
+  if (rnrEl && !hideInvoiceNumber && !editId && !rnrManuallyEdited) rnrEl.value = previewNum(typ);
   if (lfdEl) {
     var lfdWrap = lfdEl.closest ? lfdEl.closest('.fg') : null;
     if (lfdWrap) lfdWrap.style.display = (za === 'kassa') ? '' : 'none';
@@ -4933,7 +4944,7 @@ async function saveInvoice() {
     nummer = dPre.invoices.find(function(i){ return i.id===editId; }).nummer;
   } else {
     var rnrFieldVal = (document.getElementById('rnr')||{value:''}).value.trim();
-    if (typ === 'ausgang' && rnrManuallyEdited) {
+    if (typ === 'ausgang' && !arKassa && rnrManuallyEdited) {
       nummer = rnrFieldVal;
       numberingOptions = { numberMode: 'manual', requestedNumber: rnrFieldVal };
     } else {
@@ -6921,7 +6932,7 @@ function openFzHistory(kz) {
     return '<div style="padding:12px 0;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:flex-start;gap:1rem">' +
       '<div>' +
         '<div style="font-family:sans-serif;font-size:13px;font-weight:500;margin-bottom:3px">' + esc(beschr||'—') + '</div>' +
-        '<div style="font-family:sans-serif;font-size:11px;color:#999">' + fmtD(inv.datum) + '  |  ' + stunden.toFixed(1) + ' Std.  |  ' + esc(inv.nummer) + '</div>' +
+        '<div style="font-family:sans-serif;font-size:11px;color:#999">' + fmtD(inv.datum) + '  |  ' + stunden.toFixed(1) + ' Std.  |  ' + esc(_invoiceNumberForDisplay(inv, '—')) + '</div>' +
       '</div>' +
       '<button class="btn" style="padding:4px 10px;font-size:11px;flex-shrink:0" data-inv-id="' + inv.id + '">PDF öffnen</button>' +
     '</div>';
@@ -7060,7 +7071,7 @@ function renderZ() {
   var open = d.invoices.filter(function(i){ return i.status === 'offen'; })
     .slice().sort(function(a,b){
       var va, vb;
-      if      (sort.col==='nr')      { va=(a.nummer||'').toLowerCase(); vb=(b.nummer||'').toLowerCase(); }
+      if      (sort.col==='nr')      { va=_invoiceNumberForDisplay(a).toLowerCase(); vb=_invoiceNumberForDisplay(b).toLowerCase(); }
       else if (sort.col==='partner') { va=(a.partner_name||'').toLowerCase(); vb=(b.partner_name||'').toLowerCase(); }
       else if (sort.col==='typ')     { va=a.typ||''; vb=b.typ||''; }
       else if (sort.col==='betrag')  { va=brutto(a); vb=brutto(b); }
@@ -7079,7 +7090,7 @@ function renderZ() {
       : '<span style="color:#555">in '+tage+' Tag(en)</span>';
     var bg = tage!==null&&tage<0 ? 'background:#fff5f5' : tage===0 ? 'background:#fffbf0' : '';
     return '<tr style="'+bg+'">'+
-      '<td class="mono" style="font-size:11px">'+esc(inv.nummer)+'</td>'+
+      '<td class="mono" style="font-size:11px">'+esc(_invoiceNumberForDisplay(inv, '—'))+'</td>'+
       '<td>'+(inv.partner_name||'&mdash;')+'</td>'+
       '<td><span class="badge '+(inv.typ==='ausgang'?'green':'red')+'">'+(inv.typ==='ausgang'?'AR':'ER')+'</span></td>'+
       '<td>'+(inv.faellig?fmtD(inv.faellig):'&mdash;')+'</td>'+
@@ -7214,7 +7225,7 @@ function renderBuchKassa(art) {
   var bis = (document.getElementById('f-'+pageId+'-bis')||{value:''}).value;
   var st  = (document.getElementById('f-'+pageId+'-status')||{value:''}).value;
   var invs = d.invoices.filter(function(i){ return i.zahlungsart === art; });
-  if (s)   invs = invs.filter(function(i){ return ((i.nummer||'')+(i.partner_name||'')).toLowerCase().indexOf(s)!==-1; });
+  if (s)   invs = invs.filter(function(i){ return (_invoiceNumberForDisplay(i)+(i.partner_name||'')).toLowerCase().indexOf(s)!==-1; });
   if (von) invs = invs.filter(function(i){ return i.datum >= von; });
   if (bis) invs = invs.filter(function(i){ return i.datum <= bis; });
   if (st)  invs = invs.filter(function(i){ return i.status === st; });
@@ -7235,7 +7246,7 @@ function renderBuchKassa(art) {
     var isAR = inv.typ==='ausgang';
     return '<tr>'+
       '<td>'+fmtD(inv.datum)+'</td>'+
-      '<td class="mono">'+inv.nummer+'</td>'+
+      '<td class="mono">'+esc(_invoiceNumberForDisplay(inv, '—'))+'</td>'+
       '<td>'+(inv.partner_name||'—')+'</td>'+
       '<td><span class="badge '+(isAR?'green':'red')+'">'+(isAR?'Einnahme':'Ausgabe')+'</span></td>'+
       '<td style="text-align:right;font-family:sans-serif">'+fmt(brutto(inv))+'</td>'+
@@ -7268,7 +7279,7 @@ function editInv(id) {
   } else {
     setTyp('eingang');
   }
-  document.getElementById('rnr').value = inv.nummer;
+  document.getElementById('rnr').value = _invoiceNumberForDisplay(inv);
   var lfdElEdit = document.getElementById('lfd-nr');
   if (lfdElEdit) lfdElEdit.value = inv.lfd_nr ? ((_isARKassa(inv) ? '' : 'lfd. ') + inv.lfd_nr) : '';
   document.getElementById('zahlungsart').value = inv.zahlungsart || 'bank';
@@ -7440,7 +7451,7 @@ function renderFin() {
   if (!offene.length) { op.innerHTML='<div class="empty">Keine offenen Posten</div>'; return; }
   var rows = offene.map(function(inv){
     var od = inv.faellig && new Date(inv.faellig) < new Date();
-    return '<tr><td class="mono">' + inv.nummer + '</td><td>' + sBadge(inv.typ==='ausgang'?'Ausgang':'Eingang') + '</td><td>' + (inv.partner_name||'—') + '</td><td style="color:' + (od?'#E24B4A':'') + '">' + fmtD(inv.faellig) + '</td><td>' + fmt(brutto(inv)) + '</td><td>' + sBadge(inv.status) + '</td></tr>';
+    return '<tr><td class="mono">' + esc(_invoiceNumberForDisplay(inv, '—')) + '</td><td>' + sBadge(inv.typ==='ausgang'?'Ausgang':'Eingang') + '</td><td>' + (inv.partner_name||'—') + '</td><td style="color:' + (od?'#E24B4A':'') + '">' + fmtD(inv.faellig) + '</td><td>' + fmt(brutto(inv)) + '</td><td>' + sBadge(inv.status) + '</td></tr>';
   }).join('');
   op.innerHTML = '<table><thead><tr><th>Nr.</th><th>Typ</th><th>Partner</th><th>Fällig</th><th>Betrag</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
 }
@@ -7780,7 +7791,7 @@ function getExFiltered() {
   var st=(document.getElementById('f-export-status-sel')||{value:''}).value;
   return getDB().invoices.filter(function(i){
     if(!i.datum||i.datum<vonStr||i.datum>bisStr) return false;
-    if(s&&((i.nummer||'')+(i.partner_name||'')).toLowerCase().indexOf(s)===-1) return false;
+    if(s&&(_invoiceNumberForDisplay(i)+(i.partner_name||'')).toLowerCase().indexOf(s)===-1) return false;
     if(st&&i.status!==st) return false;
     return true;
   }).sort(function(a,b){return a.datum>b.datum?1:-1;});
@@ -7807,7 +7818,7 @@ function renderExport() {
     var isAR=inv.typ==='ausgang';
     return '<tr>'+
       '<td>'+fmtD(inv.datum)+'</td>'+
-      '<td class="mono">'+inv.nummer+'</td>'+
+      '<td class="mono">'+esc(_invoiceNumberForDisplay(inv, '—'))+'</td>'+
       '<td>'+(inv.partner_name||'—')+'</td>'+
       '<td><span class="badge '+(isAR?'green':'red')+'">'+(isAR?'Einnahme':'Ausgabe')+'</span></td>'+
       '<td><span class="badge '+(inv.zahlungsart==='kassa'?'amber':'blue')+'">'+(inv.zahlungsart==='kassa'?'Kassa':'Bank')+'</span></td>'+
@@ -7823,13 +7834,14 @@ function updateExP() { renderExport(); }
 function exportCSV() {
   var invs = getExD(); if (!invs.length) { alert('Keine Daten'); return; }
   var rows = [['Nr.','Typ','Partner','Datum','Netto','USt','Brutto','Status']];
-  invs.forEach(function(inv){ rows.push([inv.nummer,inv.typ,inv.partner_name,inv.datum,netto(inv).toFixed(2),vatAmt(inv).toFixed(2),brutto(inv).toFixed(2),inv.status]); });
+  invs.forEach(function(inv){ rows.push([_invoiceNumberForDisplay(inv),inv.typ,inv.partner_name,inv.datum,netto(inv).toFixed(2),vatAmt(inv).toFixed(2),brutto(inv).toFixed(2),inv.status]); });
   var csv = rows.map(function(r){ return r.map(function(c){ return '"'+String(c||'').replace(/"/g,'""')+'"'; }).join(';'); }).join('\n');
   var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'})); a.download='export.csv'; a.click();
 }
 
 function exportJSON() {
-  var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(getExD(),null,2)],{type:'application/json'})); a.download='export.json'; a.click();
+  var exported = getExD().map(function(inv){ return Object.assign({}, inv, { nummer: _invoiceNumberForDisplay(inv) }); });
+  var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(exported,null,2)],{type:'application/json'})); a.download='export.json'; a.click();
 }
 
 function exportPDF() {
@@ -7838,7 +7850,7 @@ function exportPDF() {
   doc.setFontSize(16); doc.setTextColor(15,110,86); doc.text('Auswertung '+MONTHS[m]+' '+y,20,25);
   doc.setFontSize(9); doc.setTextColor(80,80,80); doc.text('Erstellt: '+new Date().toLocaleDateString('de-AT'),20,32); doc.line(20,36,190,36);
   var row=46;
-  invs.forEach(function(inv){ doc.setFontSize(9); doc.setTextColor(30,30,30); doc.text(inv.nummer,20,row); doc.text(inv.typ,55,row); doc.text((inv.partner_name||'').substr(0,20),80,row); doc.text(fmtD(inv.datum),135,row); doc.text(fmt(brutto(inv)),158,row); doc.text(inv.status,180,row); row+=7; });
+  invs.forEach(function(inv){ doc.setFontSize(9); doc.setTextColor(30,30,30); doc.text(_invoiceNumberForDisplay(inv),20,row); doc.text(inv.typ,55,row); doc.text((inv.partner_name||'').substr(0,20),80,row); doc.text(fmtD(inv.datum),135,row); doc.text(fmt(brutto(inv)),158,row); doc.text(inv.status,180,row); row+=7; });
   var inc=invs.filter(function(i){return i.typ==='ausgang';}).reduce(function(s,i){return s+brutto(i);},0);
   var exp=invs.filter(function(i){return i.typ==='eingang';}).reduce(function(s,i){return s+brutto(i);},0);
   row+=8; doc.setFontSize(11); doc.setTextColor(15,110,86); doc.text('Zusammenfassung',20,row); row+=7;
@@ -8687,7 +8699,7 @@ function getBuchInvs(art) {
   var bis=(document.getElementById('f-'+pageId+'-bis')||{value:''}).value;
   var st=(document.getElementById('f-'+pageId+'-status')||{value:''}).value;
   var invs=d.invoices.filter(function(i){return i.zahlungsart===art;});
-  if(s) invs=invs.filter(function(i){return((i.nummer||'')+(i.partner_name||'')).toLowerCase().indexOf(s)!==-1;});
+  if(s) invs=invs.filter(function(i){return(_invoiceNumberForDisplay(i)+(i.partner_name||'')).toLowerCase().indexOf(s)!==-1;});
   if(von) invs=invs.filter(function(i){return i.datum>=von;});
   if(bis) invs=invs.filter(function(i){return i.datum<=bis;});
   if(st) invs=invs.filter(function(i){return i.status===st;});
@@ -8698,9 +8710,10 @@ function buildRows(invs) {
   invs.forEach(function(inv){
     var nt=netto(inv),va=vatAmt(inv),br=Math.round((nt+va+(inv.materialkosten||0))*100)/100;
     var isAR=inv.typ==='ausgang';
-    var lfd=(inv.nummer||'').replace(/[^0-9]/g,'').replace(/^0+/,'');
+    var displayNumber=_invoiceNumberForDisplay(inv);
+    var lfd=displayNumber.replace(/[^0-9]/g,'').replace(/^0+/,'');
     var zart=inv.zahlungsart==='kassa'?'Kassa':'Bank';
-    rows.push([fmtD(inv.datum),inv.nummer||'',lfd,zart,
+    rows.push([fmtD(inv.datum),displayNumber,lfd,zart,
       isAR?fmtAmt(br):'',
       isAR?fmtAmt(va):'',
       isAR?'':fmtAmt(br),
